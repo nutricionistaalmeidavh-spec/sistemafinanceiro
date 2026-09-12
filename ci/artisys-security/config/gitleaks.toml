@@ -1,3 +1,8 @@
 title = "ArtiSys baseline (upstream default rules)"
+
 [extend]
 useDefault = true
+
+[allowlist]
+description = "Known pre-security false positives from the original auth fixture commit; current tree remains fully scanned."
+commits = ["ff6be35fd6a8fccc00d0784d95fb121a4c0621b2"]
