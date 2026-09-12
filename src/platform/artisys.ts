@@ -2,9 +2,12 @@ import { createDesktopShellManifest } from '@artisys/desktop-shell';
 import { DomainEventBus } from '@artisys/eventbus';
 import { validateDashboardLayout } from '@artisys/dashboard';
 import { normalizePdfInputs } from '@artisys/pdf';
-import { ARTISYS_MODULES, UTILIDADES_COMMIT } from './artisys-manifest.mjs';
+import moduleLock from '../../vendor/artisys-modules.lock.json';
 
-export { ARTISYS_MODULES, UTILIDADES_COMMIT };
+export const UTILIDADES_COMMIT = moduleLock.commit;
+export const ARTISYS_MODULES = Object.freeze(
+  moduleLock.modules.map((id) => ({ id: id.replace(/^artisys-/, ''), sourceId: id })),
+);
 
 export function createArtisysRuntime(userDataDir: string) {
   const desktop = createDesktopShellManifest({
