@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parent
 IMAGES = {'gitleaks': 'zricethezav/gitleaks:v8.24.3', 'trivy': 'aquasec/trivy:0.61.1', 'semgrep': 'semgrep/semgrep:1.116.0'}
 VERSIONS = {'gitleaks': '8.24.3', 'trivy': '0.61.1', 'semgrep': '1.116.0'}
 RANK = {'UNKNOWN': 3, 'INFO': 0, 'LOW': 1, 'MEDIUM': 2, 'HIGH': 3, 'CRITICAL': 4}
+SEM_GREP_EXCLUDES = ['node_modules', 'dist', 'release', 'qa-artifacts', '.git']
 
 class GateError(Exception):
     pass
@@ -65,13 +66,21 @@ def evaluate(tool, report, mode):
                 raise ValueError()
             for item in report['results']:
                 findings.append({'ERROR': 'HIGH', 'WARNING': 'MEDIUM', 'INFO': 'LOW'}[item['extra']['severity']])
+                check_id = item.get('check_id')
+                if isinstance(check_id, str):
+                    rule_ids.append(check_id)
+                file_name = item.get('path')
+                start = item.get('start', {})
+                line = start.get('line') if isinstance(start, dict) else None
+                if isinstance(file_name, str):
+                    locations.append({'file': file_name, 'line': line if isinstance(line, int) else None})
         else:
             raise ValueError()
     except (KeyError, TypeError, ValueError, AttributeError):
         raise GateError(f'{tool}: invalid or incomplete scanner report') from None
     threshold = 3 if mode == 'commit' else 2
     result = {'findings': len(findings), 'blocking': sum(RANK[s] >= threshold for s in findings)}
-    if tool == 'gitleaks':
+    if tool in ('gitleaks', 'semgrep'):
         result['ruleIds'] = sorted(set(rule_ids))
         result['locations'] = sorted(locations, key=lambda row: (row['file'], row['line'] or 0))
     return result
@@ -116,7 +125,11 @@ def scan(target, mode='commit', engine='native', execute=subprocess.run):
         output = temp / 'trivy.json'
         summary['trivy'] = run('trivy', ['fs', '--scanners', 'vuln,misconfig', '--include-dev-deps', '--format', 'json', '--exit-code', '0', '--output', str(output), str(target)], output)
         output = temp / 'semgrep.json'
-        summary['semgrep'] = run('semgrep', ['scan', '--config', str(ROOT / 'config/semgrep.yml'), '--metrics=off', '--disable-version-check', '--strict', '--json', '--output', str(output), str(target)], output)
+        semgrep_args = ['scan', '--config', str(ROOT / 'config/semgrep.yml'), '--metrics=off', '--disable-version-check', '--strict', '--json', '--output', str(output)]
+        for excluded in SEM_GREP_EXCLUDES:
+            semgrep_args.extend(['--exclude', excluded])
+        semgrep_args.append(str(target))
+        summary['semgrep'] = run('semgrep', semgrep_args, output)
         return {'schemaVersion': 1, 'mode': mode, 'passed': not any(row['blocking'] for row in summary.values()), 'scanners': summary}
 
 
