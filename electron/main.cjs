@@ -1,5 +1,5 @@
 const path = require('node:path');
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const { DatabaseService } = require('./services/database.cjs');
 const { createAuthService } = require('./services/auth-service.cjs');
 const { createFinanceService } = require('./services/finance-service.cjs');
@@ -7,9 +7,15 @@ const { createRegistryService } = require('./services/registry-service.cjs');
 const { createCashflowService } = require('./services/cashflow-service.cjs');
 const { createAnalyticsService } = require('./services/analytics-service.cjs');
 const { createRecurrenceService } = require('./services/recurrence-service.cjs');
+const { createAlertService } = require('./services/alert-service.cjs');
+const { createReportService } = require('./services/report-service.cjs');
+const { createBackupService } = require('./services/backup-service.cjs');
+const { createLanService } = require('./services/lan-service.cjs');
+const { createDocumentService } = require('./services/document-service.cjs');
 const { registerIpcHandlers } = require('./ipc-handlers.cjs');
 
 let database;
+let lanService;
 
 function createWindow() {
   const window = new BrowserWindow({
@@ -32,7 +38,7 @@ function createWindow() {
   else window.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   database = new DatabaseService({
     dataDir: app.getPath('userData'),
     migrationsDir: path.join(__dirname, '..', 'database', 'migrations'),
@@ -45,7 +51,16 @@ app.whenReady().then(() => {
   const cashflow = createCashflowService({ db });
   const analytics = createAnalyticsService({ db, finance, cashflow });
   const recurrence = createRecurrenceService({ db, finance });
-  registerIpcHandlers({ ipcMain, database, auth, finance, registry, cashflow, analytics, recurrence });
+  const alerts = createAlertService({ db, finance, cashflow });
+  const reports = createReportService({ db, finance, analytics });
+  const backup = createBackupService({ database, backupsDir: path.join(app.getPath('userData'), 'backups') });
+  const documents = createDocumentService({ BrowserWindow, dialog });
+  lanService = createLanService({ db, finance, cashflow, analytics, alerts });
+
+  try { backup.runAutomaticBackup(); } catch (error) { console.error('Automatic backup failed:', error); }
+  try { await lanService.startConfigured(); } catch (error) { console.error('LAN server failed to start:', error); }
+
+  registerIpcHandlers({ ipcMain, app, dialog, database, auth, finance, registry, cashflow, analytics, recurrence, alerts, reports, backup, lan: lanService, documents });
 
   createWindow();
   app.on('activate', () => {
@@ -57,4 +72,7 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 
-app.on('before-quit', () => database?.close());
+app.on('before-quit', () => {
+  lanService?.stop().catch(() => {});
+  database?.close();
+});
