@@ -30,7 +30,7 @@ function createRecurrenceService({ db, finance, now = () => new Date().toISOStri
     requireRelation('financial_accounts', input.accountId, 'financial account'); requireRelation('customers', input.customerId, 'customer'); requireRelation('creditors', input.creditorId, 'creditor'); validateCategory(kind, input.categoryId);
     const id = String(input.id || idFactory()); const timestamp = nowIso(); const nextDueAt = firstDue(startDate, dueDay, intervalMonths);
     db.prepare(`INSERT INTO recurring_rules(id,kind,description,category_id,account_id,customer_id,creditor_id,amount_cents,start_date,end_date,due_day,interval_months,max_occurrences,generated_count,next_due_at,notes,active,created_at,updated_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,0,?,?,?,1,?,?)`).run(id, kind, description, input.categoryId || null, input.accountId || null, input.customerId || null, input.creditorId || null, amountCents, startDate, endDate, dueDay, intervalMonths, maxOccurrences, nextDueAt, input.notes || null, timestamp, timestamp);
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,0,?,?,1,?,?)`).run(id, kind, description, input.categoryId || null, input.accountId || null, input.customerId || null, input.creditorId || null, amountCents, startDate, endDate, dueDay, intervalMonths, maxOccurrences, nextDueAt, input.notes || null, timestamp, timestamp);
     writeAudit(db, { action: 'recurrence.create', entity: 'recurring-rule', entityId: id, actor, context: { kind, amountCents, dueDay, intervalMonths, maxOccurrences } }, nowIso);
     return mapRule(db.prepare('SELECT * FROM recurring_rules WHERE id=?').get(id));
   }
