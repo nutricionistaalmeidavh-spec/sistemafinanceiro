@@ -1,5 +1,5 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
-import { Landmark, Plus, RotateCcw, XCircle } from 'lucide-react';
+import { FileDown, Landmark, Plus, Printer, RotateCcw, XCircle } from 'lucide-react';
 import { brl, can, toCents, today } from '../lib/format';
 
 type Props = { token: string; session: FinanceiroSession };
@@ -86,10 +86,19 @@ export default function FinancePage({ token, session }: Props) {
     catch (err) { setError(err instanceof Error ? err.message : String(err)); }
   }
 
+  async function receiptPdf(entry: FinanceEntry) {
+    const settlement = [...entry.settlements].reverse().find((item)=>!item.reversedAt); if (!settlement) return;
+    try { await api.reports.saveReceiptPdf(token, settlement.id); } catch (err) { setError(err instanceof Error ? err.message : String(err)); }
+  }
+  async function receiptPrint(entry: FinanceEntry) {
+    const settlement = [...entry.settlements].reverse().find((item)=>!item.reversedAt); if (!settlement) return;
+    try { await api.reports.printReceipt(token, settlement.id); } catch (err) { setError(err instanceof Error ? err.message : String(err)); }
+  }
+
   const openTotal = useMemo(() => entries.filter((x) => x.status !== 'CANCELLED').reduce((sum, x) => sum + x.openCents, 0), [entries]);
 
   return <section className="page-stack">
-    <div className="page-header"><div><p className="eyebrow">Financeiro</p><h2>Contas a pagar e receber</h2><p className="muted">Baixas parciais, estornos e cancelamentos preservam o histórico.</p></div></div>
+    <div className="page-header"><div><p className="eyebrow">Financeiro</p><h2>Contas a pagar e receber</h2><p className="muted">Baixas parciais, estornos, cancelamentos e recibos preservam o histórico.</p></div></div>
     <div className="metric-grid">
       <div className="metric-card"><span>A receber em aberto</span><strong>{brl(summary.receivableOpenCents)}</strong></div>
       <div className="metric-card"><span>A pagar em aberto</span><strong>{brl(summary.payableOpenCents)}</strong></div>
@@ -110,6 +119,6 @@ export default function FinancePage({ token, session }: Props) {
       </form>
       <form className="panel form-grid compact-form" onSubmit={createAccount}><h3><Landmark size={18}/> Conta financeira</h3><label>Nome<input value={accountForm.name} onChange={(e)=>setAccountForm({...accountForm,name:e.target.value})} required/></label><label>Tipo<select value={accountForm.type} onChange={(e)=>setAccountForm({...accountForm,type:e.target.value as FinanceAccount['type']})}><option value="BANK">Banco</option><option value="CASH">Caixa</option><option value="CARD">Cartão</option><option value="OTHER">Outro</option></select></label><button className="secondary-button">Adicionar conta</button></form>
     </div>}
-    <div className="panel table-panel"><table><thead><tr><th>Descrição</th><th>Vencimento</th><th>Status</th><th>Valor</th><th>Em aberto</th><th></th></tr></thead><tbody>{entries.map((entry)=><tr key={entry.id}><td><strong>{entry.description}</strong>{entry.isOverdue && <small className="danger-text">Vencido</small>}</td><td>{entry.dueAt}</td><td><span className={`badge badge-${entry.status.toLowerCase()}`}>{entry.status}</span></td><td>{brl(entry.amountCents)}</td><td>{brl(entry.openCents)}</td><td>{editable && entry.status!=='CANCELLED' && <div className="row-actions">{entry.openCents>0 && <button onClick={()=>void settle(entry)}>Baixar</button>}{entry.settlements.length>0 && <button title="Estornar última baixa" onClick={()=>void reverse(entry)}><RotateCcw size={15}/></button>}{entry.settlements.length===0 && <button title="Cancelar" onClick={()=>void cancel(entry)}><XCircle size={15}/></button>}</div>}</td></tr>)}</tbody></table>{entries.length===0 && <div className="empty-state">Nenhum lançamento neste filtro.</div>}</div>
+    <div className="panel table-panel"><table><thead><tr><th>Descrição</th><th>Vencimento</th><th>Status</th><th>Valor</th><th>Em aberto</th><th></th></tr></thead><tbody>{entries.map((entry)=>{const hasReceipt=entry.settlements.some((item)=>!item.reversedAt);return <tr key={entry.id}><td><strong>{entry.description}</strong>{entry.isOverdue && <small className="danger-text">Vencido</small>}</td><td>{entry.dueAt}</td><td><span className={`badge badge-${entry.status.toLowerCase()}`}>{entry.status}</span></td><td>{brl(entry.amountCents)}</td><td>{brl(entry.openCents)}</td><td>{(editable||hasReceipt)&&<div className="row-actions">{editable&&entry.status!=='CANCELLED'&&entry.openCents>0&&<button onClick={()=>void settle(entry)}>Baixar</button>}{editable&&entry.status!=='CANCELLED'&&entry.settlements.length>0&&<button title="Estornar última baixa" onClick={()=>void reverse(entry)}><RotateCcw size={15}/></button>}{editable&&entry.status!=='CANCELLED'&&entry.settlements.length===0&&<button title="Cancelar" onClick={()=>void cancel(entry)}><XCircle size={15}/></button>}{hasReceipt&&<button title="Salvar recibo em PDF" onClick={()=>void receiptPdf(entry)}><FileDown size={15}/></button>}{hasReceipt&&<button title="Imprimir recibo" onClick={()=>void receiptPrint(entry)}><Printer size={15}/></button>}</div>}</td></tr>})}</tbody></table>{entries.length===0 && <div className="empty-state">Nenhum lançamento neste filtro.</div>}</div>
   </section>;
 }
