@@ -52,10 +52,24 @@ export default function FinancePage({ token, session }: Props) {
     catch (err) { setError(err instanceof Error ? err.message : String(err)); }
   }
 
+  function chooseSettlementAccount(entry: FinanceEntry) {
+    if (entry.accountId) return entry.accountId;
+    if (accounts.length === 0) { setError('Cadastre uma conta financeira antes de realizar a baixa.'); return null; }
+    const menu = accounts.map((account, index) => `${index + 1}. ${account.name}`).join('\n');
+    const answer = window.prompt(`Escolha a conta da baixa:\n${menu}`, '1');
+    if (!answer) return null;
+    const byIndex = accounts[Number(answer) - 1];
+    const byName = accounts.find((account) => account.name.toLowerCase() === answer.trim().toLowerCase());
+    const account = byIndex || byName;
+    if (!account) { setError('Conta inválida para a baixa.'); return null; }
+    return account.id;
+  }
+
   async function settle(entry: FinanceEntry) {
     const value = window.prompt(`Valor da baixa para ${entry.description}`, (entry.openCents / 100).toFixed(2).replace('.', ','));
     if (!value) return;
-    try { await api.finance.settleEntry(token, entry.id, { amountCents: toCents(value), method: 'PIX', occurredAt: today() }); await reload(); }
+    const accountId = chooseSettlementAccount(entry); if (!accountId) return;
+    try { await api.finance.settleEntry(token, entry.id, { amountCents: toCents(value), method: 'PIX', occurredAt: today(), accountId }); await reload(); }
     catch (err) { setError(err instanceof Error ? err.message : String(err)); }
   }
 
@@ -91,7 +105,7 @@ export default function FinancePage({ token, session }: Props) {
         <label>Vencimento<input type="date" value={form.dueAt} onChange={(e)=>setForm({...form,dueAt:e.target.value})} required/></label>
         <label>Categoria<select value={form.categoryId} onChange={(e)=>setForm({...form,categoryId:e.target.value})}><option value="">Sem categoria</option>{categories.map((x)=><option key={x.id} value={x.id}>{x.name}</option>)}</select></label>
         <label>{kind==='PAYABLE'?'Credor':'Cliente'}<select value={form.counterpartyId} onChange={(e)=>setForm({...form,counterpartyId:e.target.value})}><option value="">Não informado</option>{counterparties.map((x)=><option key={x.id} value={x.id}>{x.name}</option>)}</select></label>
-        <label>Conta<select value={form.accountId} onChange={(e)=>setForm({...form,accountId:e.target.value})}><option value="">Sem conta</option>{accounts.map((x)=><option key={x.id} value={x.id}>{x.name}</option>)}</select></label>
+        <label>Conta<select value={form.accountId} onChange={(e)=>setForm({...form,accountId:e.target.value})}><option value="">Definir na baixa</option>{accounts.map((x)=><option key={x.id} value={x.id}>{x.name}</option>)}</select></label>
         <button className="primary-button">Salvar lançamento</button>
       </form>
       <form className="panel form-grid compact-form" onSubmit={createAccount}><h3><Landmark size={18}/> Conta financeira</h3><label>Nome<input value={accountForm.name} onChange={(e)=>setAccountForm({...accountForm,name:e.target.value})} required/></label><label>Tipo<select value={accountForm.type} onChange={(e)=>setAccountForm({...accountForm,type:e.target.value as FinanceAccount['type']})}><option value="BANK">Banco</option><option value="CASH">Caixa</option><option value="CARD">Cartão</option><option value="OTHER">Outro</option></select></label><button className="secondary-button">Adicionar conta</button></form>
