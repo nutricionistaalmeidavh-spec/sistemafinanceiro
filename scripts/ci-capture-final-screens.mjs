@@ -8,7 +8,7 @@ const root = process.cwd();
 const output = path.resolve('qa-artifacts/final/screenshots');
 const flow = JSON.parse(fs.readFileSync('qa/flows/final-screens.json', 'utf8'));
 const qaPassword = process.env.ARTISYS_QA_PASSWORD || `Qa-${randomBytes(18).toString('hex')}`;
-const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+const viteCli = path.resolve('node_modules/vite/bin/vite.js');
 const electronExecutable = process.platform === 'win32'
   ? path.resolve('node_modules/electron/dist/electron.exe')
   : path.resolve('node_modules/electron/dist/electron');
@@ -47,7 +47,8 @@ function stopTree(child) {
   }
 }
 
-const vite = spawn(npm, ['run', 'dev'], {
+if (!fs.existsSync(viteCli)) throw new Error(`Vite CLI not found: ${viteCli}`);
+const vite = spawn(process.execPath, [viteCli, '--host', '127.0.0.1', '--port', '5173', '--strictPort'], {
   cwd: root,
   env: process.env,
   stdio: ['ignore', 'pipe', 'pipe'],
