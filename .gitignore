@@ -1,0 +1,10 @@
+node_modules/
+dist/
+release/
+.data/
+qa-results/
+qa-report/
+playwright-report/
+coverage/
+*.log
+.DS_Store

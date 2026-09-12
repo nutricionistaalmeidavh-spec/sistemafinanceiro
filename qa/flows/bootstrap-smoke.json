@@ -1,0 +1,8 @@
+{
+  "id": "sistemafinanceiro/bootstrap-smoke",
+  "steps": [
+    { "action": "goto", "path": "/" },
+    { "action": "expectVisible", "role": "heading", "name": "Sistema Financeiro" },
+    { "action": "expectText", "text": "Sistema Financeiro", "expected": "Sistema Financeiro" }
+  ]
+}

@@ -1,0 +1,13 @@
+CREATE TABLE IF NOT EXISTS migrations (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL UNIQUE,
+  applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS app_meta (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+INSERT OR IGNORE INTO app_meta(key, value) VALUES ('schema', 'bootstrap-v1');

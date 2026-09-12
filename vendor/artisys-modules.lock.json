@@ -1,0 +1,13 @@
+{
+  "repository": "nutricionistaalmeidavh-spec/utilidades",
+  "commit": "1c8d00810dcaa9010330ce7adc2877c90484d17d",
+  "modules": [
+    "artisys-desktop-shell",
+    "artisys-eventbus",
+    "artisys-dashboard",
+    "artisys-pdf",
+    "artisys-qa",
+    "artisys-security",
+    "artisys-release"
+  ]
+}
