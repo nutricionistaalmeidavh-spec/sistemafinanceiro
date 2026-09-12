@@ -1,3 +1,5 @@
+const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const { DatabaseService } = require('./services/database.cjs');
@@ -12,15 +14,23 @@ const { createReportService } = require('./services/report-service.cjs');
 const { createBackupService } = require('./services/backup-service.cjs');
 const { createLanService } = require('./services/lan-service.cjs');
 const { createDocumentService } = require('./services/document-service.cjs');
+const { seedQaFixture } = require('./services/qa-fixture-service.cjs');
 const { registerIpcHandlers } = require('./ipc-handlers.cjs');
+
+const qaMode = process.env.ARTISYS_QA === '1';
+if (qaMode) {
+  const qaUserData = path.join(os.tmpdir(), 'artisys-financeiro-qa');
+  if (process.env.ARTISYS_QA_RESET === '1') fs.rmSync(qaUserData, { recursive: true, force: true });
+  app.setPath('userData', qaUserData);
+}
 
 let database;
 let lanService;
 
 function createWindow() {
   const window = new BrowserWindow({
-    width: 1280,
-    height: 800,
+    width: qaMode ? 1440 : 1280,
+    height: qaMode ? 900 : 800,
     minWidth: 960,
     minHeight: 640,
     show: false,
@@ -46,6 +56,7 @@ app.whenReady().then(async () => {
   database.open();
   const db = database.connection();
   const auth = createAuthService({ db });
+  if (qaMode) seedQaFixture({ db, auth });
   const finance = createFinanceService({ db });
   const registry = createRegistryService({ db });
   const cashflow = createCashflowService({ db });

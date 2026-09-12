@@ -13,9 +13,15 @@
     "build": "tsc --noEmit && vite build",
     "check": "npm test && npm run build",
     "dist": "npm run build && electron-builder --win nsis --x64",
+    "dist:package": "electron-builder --win nsis --x64",
     "qa:validate": "artisys-qa validate --config ./artisys-qa.config.json",
+    "qa:final": "artisys-qa run --config ./artisys-qa.config.json --environment final --viewport desktop --flow final-screens --output qa-artifacts/final",
+    "ci:bootstrap": "node ./scripts/ci-bootstrap.mjs",
+    "ci:qa-final": "node ./scripts/ci-capture-final-screens.mjs",
     "security": "node ./scripts/security.mjs",
-    "release:check": "node ./scripts/release-check.mjs"
+    "release:check": "node ./scripts/release-check.mjs",
+    "final:prepare": "node ./scripts/final-gates.mjs",
+    "final:release": "npm run final:prepare && npm run qa:final && npm run dist:package"
   },
   "dependencies": {
     "better-sqlite3": "13.0.2",

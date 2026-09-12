@@ -66,6 +66,22 @@ Os backups ficam em `app.getPath('userData')/backups` por padrão. Nenhuma nuvem
 
 Para acesso pelo celular/tablet, o administrador deve abrir **Sistema → Rede local**, ativar a LAN com escuta `0.0.0.0`, aplicar e gerar um código de pareamento. Use somente em rede local confiável.
 
+### 14 — Polimento final de UI ✅
+- navegação acessível e identificadores estáveis para QA;
+- foco visível por teclado, estados desabilitados e ações mais consistentes;
+- busca em lançamentos, cadastros, recorrências e usuários;
+- filtro de status no financeiro e severidade nos alertas;
+- cabeçalhos de tabela fixos e rolagem horizontal segura;
+- refinamento responsivo para desktop, tablet e celular sem alterar regras financeiras.
+
+### 15 — Gates finais e QA real ✅
+- fixture determinística e isolada, ativa apenas com `ARTISYS_QA=1`;
+- fluxo Playwright sobre o **Electron real**, não mockups;
+- 10 capturas finais nomeadas das telas principais;
+- gate local fail-closed para testes, sintaxe Node, TypeScript/Vite, segurança e release;
+- empacotamento Windows NSIS executado localmente;
+- nenhum GitHub Actions é necessário para o fechamento.
+
 ## Primeiro uso no desenvolvimento
 
 ```bash
@@ -84,11 +100,17 @@ No primeiro acesso ao aplicativo desktop, defina a senha do administrador local.
 npm test                 # testes unitários locais
 npm run build            # TypeScript + Vite
 npm run check            # testes + build
-npm run qa:validate      # QA opt-in
-npm run security         # security gate opt-in
-npm run release:check    # gates de release opt-in
-npm run dist             # instalador Windows NSIS
+npm run qa:validate      # valida contrato/configuração QA
+npm run qa:final         # abre Electron real e captura telas finais
+npm run security         # security gate local
+npm run release:check    # gates de release locais
+npm run final:prepare    # testes + sintaxe + build + segurança + release
+npm run dist:package     # gera NSIS sem repetir o build
+npm run final:release    # fechamento completo local
+npm run dist             # build + instalador Windows NSIS
 ```
+
+A execução QA final usa um diretório temporário próprio (`artisys-financeiro-qa`) e uma credencial **exclusivamente de fixture**, sem tocar nos dados reais do usuário. O diretório é apagado somente quando `ARTISYS_QA_RESET=1`.
 
 ## Arquitetura atual
 
@@ -120,8 +142,6 @@ O renderer desktop não recebe acesso direto a Node, filesystem ou SQLite. Valor
 
 O banco `sistema-financeiro.sqlite` fica em `app.getPath('userData')`. Dados do usuário não são versionados no Git.
 
-## Próximas entregas
+## Release final
 
-**14 — Polimento de UI:** responsividade, atalhos, filtros, busca e configurações.
-
-**15 — Gates finais:** QA visual, segurança, build e instalador Windows.
+O release só deve ser considerado homologado depois de `npm run final:release` finalizar com sucesso no Windows e o fluxo `final-screens` gerar as dez evidências PNG do Electron real.

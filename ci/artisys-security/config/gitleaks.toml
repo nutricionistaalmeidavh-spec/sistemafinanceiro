@@ -1,0 +1,3 @@
+title = "ArtiSys baseline (upstream default rules)"
+[extend]
+useDefault = true

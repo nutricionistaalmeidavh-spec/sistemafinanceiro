@@ -1,0 +1,117 @@
+name: Final Release E14-E15
+
+on:
+  push:
+    branches:
+      - feat/e14-e15-final-polish
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: final-release-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Unit, build, security and release gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout with full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: false
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Prepare pinned ArtiSys CI fallback
+        run: npm run ci:bootstrap
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Unit and contract tests
+        run: npm test
+
+      - name: TypeScript and Vite build
+        run: npm run build
+
+      - name: Validate QA manifest
+        run: npm run qa:validate
+
+      - name: Security gate
+        env:
+          ARTISYS_SECURITY_ENGINE: docker
+        run: npm run security
+
+      - name: Release gate
+        env:
+          ARTISYS_SECURITY_ENGINE: docker
+        run: npm run release:check
+
+  windows-release:
+    name: Real Electron screens and Windows installer
+    needs: verify
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - name: Checkout with full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: false
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Prepare pinned ArtiSys CI fallback
+        run: npm run ci:bootstrap
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Build renderer
+        run: npm run build
+
+      - name: Rebuild native modules for Electron
+        run: npx electron-builder install-app-deps
+
+      - name: Build Windows NSIS installer
+        run: npm run dist:package
+
+      - name: Capture real Electron final screens
+        run: npm run ci:qa-final
+
+      - name: List final evidence
+        shell: pwsh
+        run: |
+          Write-Host 'QA screenshots:'
+          Get-ChildItem -Path qa-artifacts/final -Recurse -Filter '*.png' | ForEach-Object { Write-Host $_.FullName }
+          Write-Host 'Release artifacts:'
+          Get-ChildItem -Path release -Recurse | ForEach-Object { Write-Host $_.FullName }
+
+      - name: Upload real screenshots
+        uses: actions/upload-artifact@v4
+        with:
+          name: sistema-financeiro-final-screens
+          path: qa-artifacts/final/**/*.png
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: sistema-financeiro-windows-installer
+          path: release/*.exe
+          if-no-files-found: error
+          retention-days: 14

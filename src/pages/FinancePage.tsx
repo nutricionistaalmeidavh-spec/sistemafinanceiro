@@ -1,8 +1,9 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
-import { FileDown, Landmark, Plus, Printer, RotateCcw, XCircle } from 'lucide-react';
+import { FileDown, Landmark, Plus, Printer, RotateCcw, Search, XCircle } from 'lucide-react';
 import { brl, can, toCents, today } from '../lib/format';
 
 type Props = { token: string; session: FinanceiroSession };
+type StatusFilter = 'ALL' | FinanceEntry['status'] | 'OVERDUE';
 const emptySummary: FinancialSummary = { payableTotalCents:0,payableSettledCents:0,payableOpenCents:0,receivableTotalCents:0,receivableSettledCents:0,receivableOpenCents:0,overduePayableCents:0,overdueReceivableCents:0 };
 
 export default function FinancePage({ token, session }: Props) {
@@ -15,6 +16,8 @@ export default function FinancePage({ token, session }: Props) {
   const [customers, setCustomers] = useState<PartyRecord[]>([]);
   const [creditors, setCreditors] = useState<PartyRecord[]>([]);
   const [error, setError] = useState('');
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL');
   const [form, setForm] = useState({ description:'', amount:'', dueAt:today(), accountId:'', categoryId:'', counterpartyId:'' });
   const [accountForm, setAccountForm] = useState({ name:'', type:'BANK' as FinanceAccount['type'] });
   const editable = can(session, 'finance.manage');
@@ -95,9 +98,19 @@ export default function FinancePage({ token, session }: Props) {
     try { await api.reports.printReceipt(token, settlement.id); } catch (err) { setError(err instanceof Error ? err.message : String(err)); }
   }
 
-  const openTotal = useMemo(() => entries.filter((x) => x.status !== 'CANCELLED').reduce((sum, x) => sum + x.openCents, 0), [entries]);
+  const filteredEntries = useMemo(() => {
+    const term = search.trim().toLocaleLowerCase('pt-BR');
+    return entries.filter((entry) => {
+      const counterparty = entry.kind === 'PAYABLE' ? creditors.find((item)=>item.id===entry.creditorId) : customers.find((item)=>item.id===entry.customerId);
+      const category = categories.find((item)=>item.id===entry.categoryId);
+      const matchesTerm = !term || [entry.description, counterparty?.name, category?.name, entry.dueAt].some((value)=>String(value||'').toLocaleLowerCase('pt-BR').includes(term));
+      const matchesStatus = statusFilter === 'ALL' || (statusFilter === 'OVERDUE' ? entry.isOverdue : entry.status === statusFilter);
+      return matchesTerm && matchesStatus;
+    });
+  }, [entries, search, statusFilter, creditors, customers, categories]);
+  const openTotal = useMemo(() => filteredEntries.filter((x) => x.status !== 'CANCELLED').reduce((sum, x) => sum + x.openCents, 0), [filteredEntries]);
 
-  return <section className="page-stack">
+  return <section className="page-stack" data-testid="page-finance">
     <div className="page-header"><div><p className="eyebrow">Financeiro</p><h2>Contas a pagar e receber</h2><p className="muted">Baixas parciais, estornos, cancelamentos e recibos preservam o histórico.</p></div></div>
     <div className="metric-grid">
       <div className="metric-card"><span>A receber em aberto</span><strong>{brl(summary.receivableOpenCents)}</strong></div>
@@ -106,7 +119,7 @@ export default function FinancePage({ token, session }: Props) {
       <div className="metric-card"><span>Filtro atual</span><strong>{brl(openTotal)}</strong></div>
     </div>
     {error && <div className="error-box">{error}</div>}
-    <div className="segmented"><button className={kind==='PAYABLE'?'active':''} onClick={() => setKind('PAYABLE')}>Contas a pagar</button><button className={kind==='RECEIVABLE'?'active':''} onClick={() => setKind('RECEIVABLE')}>Contas a receber</button></div>
+    <div className="page-toolbar"><div className="segmented"><button type="button" className={kind==='PAYABLE'?'active':''} onClick={() => setKind('PAYABLE')}>Contas a pagar</button><button type="button" className={kind==='RECEIVABLE'?'active':''} onClick={() => setKind('RECEIVABLE')}>Contas a receber</button></div><div className="toolbar-filters"><label className="search-control"><Search size={16}/><input data-testid="finance-search" aria-label="Buscar lançamentos" value={search} onChange={(e)=>setSearch(e.target.value)} placeholder="Buscar descrição, pessoa ou categoria"/></label><label className="filter-control"><span>Status</span><select aria-label="Filtrar status" value={statusFilter} onChange={(e)=>setStatusFilter(e.target.value as StatusFilter)}><option value="ALL">Todos</option><option value="OPEN">Em aberto</option><option value="PARTIAL">Parcial</option><option value="SETTLED">Quitado</option><option value="OVERDUE">Vencido</option><option value="CANCELLED">Cancelado</option></select></label></div></div>
     {editable && <div className="two-columns">
       <form className="panel form-grid" onSubmit={createEntry}><h3><Plus size={18}/> Novo lançamento</h3>
         <label className="wide">Descrição<input value={form.description} onChange={(e)=>setForm({...form,description:e.target.value})} required/></label>
@@ -119,6 +132,6 @@ export default function FinancePage({ token, session }: Props) {
       </form>
       <form className="panel form-grid compact-form" onSubmit={createAccount}><h3><Landmark size={18}/> Conta financeira</h3><label>Nome<input value={accountForm.name} onChange={(e)=>setAccountForm({...accountForm,name:e.target.value})} required/></label><label>Tipo<select value={accountForm.type} onChange={(e)=>setAccountForm({...accountForm,type:e.target.value as FinanceAccount['type']})}><option value="BANK">Banco</option><option value="CASH">Caixa</option><option value="CARD">Cartão</option><option value="OTHER">Outro</option></select></label><button className="secondary-button">Adicionar conta</button></form>
     </div>}
-    <div className="panel table-panel"><table><thead><tr><th>Descrição</th><th>Vencimento</th><th>Status</th><th>Valor</th><th>Em aberto</th><th></th></tr></thead><tbody>{entries.map((entry)=>{const hasReceipt=entry.settlements.some((item)=>!item.reversedAt);return <tr key={entry.id}><td><strong>{entry.description}</strong>{entry.isOverdue && <small className="danger-text">Vencido</small>}</td><td>{entry.dueAt}</td><td><span className={`badge badge-${entry.status.toLowerCase()}`}>{entry.status}</span></td><td>{brl(entry.amountCents)}</td><td>{brl(entry.openCents)}</td><td>{(editable||hasReceipt)&&<div className="row-actions">{editable&&entry.status!=='CANCELLED'&&entry.openCents>0&&<button onClick={()=>void settle(entry)}>Baixar</button>}{editable&&entry.status!=='CANCELLED'&&entry.settlements.length>0&&<button title="Estornar última baixa" onClick={()=>void reverse(entry)}><RotateCcw size={15}/></button>}{editable&&entry.status!=='CANCELLED'&&entry.settlements.length===0&&<button title="Cancelar" onClick={()=>void cancel(entry)}><XCircle size={15}/></button>}{hasReceipt&&<button title="Salvar recibo em PDF" onClick={()=>void receiptPdf(entry)}><FileDown size={15}/></button>}{hasReceipt&&<button title="Imprimir recibo" onClick={()=>void receiptPrint(entry)}><Printer size={15}/></button>}</div>}</td></tr>})}</tbody></table>{entries.length===0 && <div className="empty-state">Nenhum lançamento neste filtro.</div>}</div>
+    <div className="panel table-panel table-scroll"><table><thead><tr><th>Descrição</th><th>Vencimento</th><th>Status</th><th>Valor</th><th>Em aberto</th><th></th></tr></thead><tbody>{filteredEntries.map((entry)=>{const hasReceipt=entry.settlements.some((item)=>!item.reversedAt);return <tr key={entry.id}><td><strong>{entry.description}</strong>{entry.isOverdue && <small className="danger-text">Vencido</small>}</td><td>{entry.dueAt}</td><td><span className={`badge badge-${entry.status.toLowerCase()}`}>{entry.status}</span></td><td>{brl(entry.amountCents)}</td><td>{brl(entry.openCents)}</td><td>{(editable||hasReceipt)&&<div className="row-actions">{editable&&entry.status!=='CANCELLED'&&entry.openCents>0&&<button type="button" onClick={()=>void settle(entry)}>Baixar</button>}{editable&&entry.status!=='CANCELLED'&&entry.settlements.length>0&&<button type="button" title="Estornar última baixa" onClick={()=>void reverse(entry)}><RotateCcw size={15}/></button>}{editable&&entry.status!=='CANCELLED'&&entry.settlements.length===0&&<button type="button" title="Cancelar" onClick={()=>void cancel(entry)}><XCircle size={15}/></button>}{hasReceipt&&<button type="button" title="Salvar recibo em PDF" onClick={()=>void receiptPdf(entry)}><FileDown size={15}/></button>}{hasReceipt&&<button type="button" title="Imprimir recibo" onClick={()=>void receiptPrint(entry)}><Printer size={15}/></button>}</div>}</td></tr>})}</tbody></table>{filteredEntries.length===0 && <div className="empty-state">Nenhum lançamento encontrado com os filtros atuais.</div>}</div>
   </section>;
 }
