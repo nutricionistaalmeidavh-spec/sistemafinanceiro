@@ -19,6 +19,7 @@ class GateError(Exception):
 def evaluate(tool, report, mode):
     findings = []
     rule_ids = []
+    locations = []
     try:
         if tool == 'gitleaks':
             if not isinstance(report, list):
@@ -28,6 +29,10 @@ def evaluate(tool, report, mode):
                     raise ValueError()
                 findings.append('CRITICAL')
                 rule_ids.append(item['RuleID'])
+                file_name = item.get('File')
+                line = item.get('StartLine')
+                if isinstance(file_name, str):
+                    locations.append({'file': file_name, 'line': line if isinstance(line, int) else None})
         elif tool == 'trivy':
             if report['SchemaVersion'] != 2 or not isinstance(report.get('ArtifactName'), str) or not isinstance(report.get('Metadata'), dict) or report.get('ArtifactType') != 'filesystem':
                 raise ValueError()
@@ -68,6 +73,7 @@ def evaluate(tool, report, mode):
     result = {'findings': len(findings), 'blocking': sum(RANK[s] >= threshold for s in findings)}
     if tool == 'gitleaks':
         result['ruleIds'] = sorted(set(rule_ids))
+        result['locations'] = sorted(locations, key=lambda row: (row['file'], row['line'] or 0))
     return result
 
 
