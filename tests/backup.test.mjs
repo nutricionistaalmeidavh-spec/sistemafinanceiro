@@ -8,7 +8,7 @@ import { createHarness } from './helpers/test-harness.mjs';
 const require = createRequire(import.meta.url);
 const { createBackupService } = require('../electron/services/backup-service.cjs');
 
-test('backup service creates verified backup and restores only valid SQLite files', () => {
+test('backup service creates verified backup and restores only valid compatible SQLite files', () => {
   const ctx = createHarness();
   try {
     const backupsDir = path.join(ctx.root, 'backups');
@@ -28,6 +28,12 @@ test('backup service creates verified backup and restores only valid SQLite file
     const restored = service.restoreBackup(backup.path, { id: 'local-admin', role: 'ADMIN' });
     assert.equal(restored.restored, true);
     assert.equal(ctx.database.connection().prepare("SELECT value FROM app_meta WHERE key='schema'").get().value, 'before-backup');
+
+    const future = path.join(backupsDir, 'future.sqlite');
+    const futureDb = new DatabaseSync(future);
+    futureDb.exec('CREATE TABLE future_table(id INTEGER); PRAGMA user_version=5;');
+    futureDb.close();
+    assert.throws(() => service.restoreBackup(future, { id: 'local-admin', role: 'ADMIN' }), /incompatible backup schema/i);
 
     const invalid = path.join(backupsDir, 'invalid.sqlite');
     fs.writeFileSync(invalid, 'not sqlite');
