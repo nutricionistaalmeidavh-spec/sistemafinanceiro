@@ -8,7 +8,7 @@ Aplicativo desktop **local-first** para gestão financeira. O núcleo funciona n
 Electron + React + Vite, SQLite com migrations versionadas, preload restrito e preparação para NSIS Windows.
 
 ### 02 — Utilidades ArtiSys ✅
-`utilidades` entra como submódulo fixado em commit conhecido. Integrados: Desktop Shell, EventBus, Dashboard, PDF, QA, Security e Release. QA/segurança/release permanecem **opt-in**.
+`utilidades` entra como submódulo fixado em commit conhecido. Integrados: Desktop Shell, EventBus, Dashboard, PDF, Printing, QA, Security e Release. QA/segurança/release permanecem **opt-in**.
 
 ### 03 — Autenticação e permissões ✅
 Administrador local, `scrypt` + salt, sessões locais, perfis `ADMIN`, `FINANCE`, `MANAGER`, `READONLY`, RBAC no processo principal e auditoria.
@@ -20,37 +20,51 @@ Contas financeiras, pagar/receber, baixas parciais/totais, estorno, cancelamento
 Clientes, credores/fornecedores, categorias de receita/despesa e grupos DRE.
 
 ### 06 — Fluxo de caixa ✅
-- movimentos manuais de abertura, entrada, saída e ajuste;
-- transferências atômicas entre contas;
-- baixas financeiras integradas ao fluxo sem duplicar lançamentos;
-- saldo por conta;
-- saldo inicial, entradas, saídas, resultado líquido e saldo final do período;
-- estornos deixam de compor o fluxo automaticamente.
+Movimentos manuais, transferências atômicas, baixas integradas, saldo por conta e saldo inicial/final do período.
 
 ### 07 — DRE e indicadores ✅
-- DRE realizada por data de baixa;
-- DRE por competência usando vencimento;
-- agregação por grupo DRE;
-- receitas, despesas, resultado, valores em aberto e vencidos;
-- saldo bancário e saldo total derivados do livro-caixa.
+DRE realizada/competência, grupos DRE, receitas, despesas, resultado, abertos, vencidos e saldos bancários.
 
 ### 08 — Dashboard ✅
-- contas a pagar/receber em aberto;
-- entradas e saídas realizadas;
-- saldo por conta/banco;
-- fluxo mensal;
-- 5 maiores despesas;
-- resumo da DRE;
-- seleção de ano;
-- cálculos feitos no backend local, não no renderer.
+Pagar/receber, entradas/saídas, saldo por banco, fluxo mensal, maiores despesas, DRE e seleção de ano.
 
 ### 09 — Recorrências ✅
-- regras mensais para pagar/receber;
-- dia de vencimento configurável;
-- data inicial/final e limite opcional de ocorrências;
-- pausa/reativação;
-- geração idempotente por `recurrence_key`;
-- lançamentos gerados preservam vínculo com a regra de origem.
+Regras mensais, vencimento configurável, limite/data final, pausa, geração idempotente e vínculo com a origem.
+
+### 10 — Alertas ✅
+- contas vencendo hoje e atrasadas;
+- alerta de saldo baixo configurável por conta;
+- avisos internos com severidade e janela de validade;
+- estado lido/oculto por usuário;
+- alertas derivados do financeiro, sem duplicar a verdade contábil.
+
+### 11 — Recibos e relatórios ✅
+- recibo/comprovante por baixa financeira;
+- impressão e PDF locais via Electron;
+- relatórios com filtros por período, tipo e status;
+- exportação CSV UTF-8 e XLSX real, sem depender do Microsoft Office;
+- integração com `artisys-printing` para o contrato de recibos.
+
+### 12 — Backup e recuperação ✅
+- backup manual;
+- backup automático diário com retenção local;
+- SHA-256 e `PRAGMA integrity_check` antes de restaurar;
+- cópia automática antes de migrations;
+- backup de segurança antes de restore;
+- restore substitui o banco somente após validação e reinicia o aplicativo.
+
+Os backups ficam em `app.getPath('userData')/backups` por padrão. Nenhuma nuvem é necessária.
+
+### 13 — LAN opcional ✅
+- servidor HTTP local usando apenas `node:http`;
+- **desativado por padrão**;
+- opção para liberar acesso a celular/tablet na mesma rede;
+- código de pareamento de 6 dígitos, temporário e de uso único;
+- token local armazenado apenas como hash, com expiração;
+- interface mobile-first para dashboard, alertas, contas e pagar/receber;
+- acesso LAN inicial é predominantemente de leitura, preservando a autoridade do PC principal.
+
+Para acesso pelo celular/tablet, o administrador deve abrir **Sistema → Rede local**, ativar a LAN com escuta `0.0.0.0`, aplicar e gerar um código de pareamento. Use somente em rede local confiável.
 
 ## Primeiro uso no desenvolvimento
 
@@ -79,31 +93,35 @@ npm run dist             # instalador Windows NSIS
 ## Arquitetura atual
 
 ```text
-React renderer
-      ↓
-preload IPC restrito
-      ↓
-IPC handlers + RBAC
-      ↓
-Auth / Finance / Registry
-Cashflow / Analytics / Recurrence
-      ↓
-DatabaseService
-      ↓
-SQLite local
+Desktop React renderer                   Celular/tablet (opcional)
+          ↓                                      ↓
+preload IPC restrito                    HTTP LAN pareado
+          ↓                                      ↓
+IPC + RBAC                          API local read-first
+          └──────────────┬───────────────────────┘
+                         ↓
+Auth / Finance / Registry / Alerts
+Cashflow / Analytics / Recurrence / Reports
+Backup / LAN
+                         ↓
+                  DatabaseService
+                         ↓
+                    SQLite local
 
 vendor/utilidades
       ↓
-Desktop Shell / EventBus / Dashboard / PDF
+Desktop Shell / EventBus / Dashboard / PDF / Printing
 QA / Security / Release (opt-in)
 ```
 
-O renderer não recebe acesso a Node, filesystem ou SQLite. Valores monetários permanecem em centavos inteiros. Mutações financeiras e de cadastro são autorizadas no processo principal e auditadas.
+O renderer desktop não recebe acesso direto a Node, filesystem ou SQLite. Valores monetários permanecem em centavos inteiros. Mutações financeiras e administrativas são autorizadas no processo principal e auditadas.
 
 ## Dados locais
 
 O banco `sistema-financeiro.sqlite` fica em `app.getPath('userData')`. Dados do usuário não são versionados no Git.
 
-## Próxima etapa
+## Próximas entregas
 
-**10 — Alertas:** vencimentos, atrasos, saldo baixo e avisos internos.
+**14 — Polimento de UI:** responsividade, atalhos, filtros, busca e configurações.
+
+**15 — Gates finais:** QA visual, segurança, build e instalador Windows.
