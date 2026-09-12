@@ -103,6 +103,10 @@ function createBackupService({
   function restoreBackup(filePath, actor = null) {
     const verification = verifyBackup(filePath);
     if (!verification.valid) throw new Error(`invalid backup: ${verification.reason}`);
+    const currentSchemaVersion = Number(database.connection().prepare('PRAGMA user_version').get().user_version || 0);
+    if (verification.schemaVersion > currentSchemaVersion) {
+      throw new Error(`incompatible backup schema: v${verification.schemaVersion} is newer than supported v${currentSchemaVersion}`);
+    }
     const safety = createBackup({ kind: 'PRE_RESTORE' });
     const activePath = database.dbPath;
     const tempPath = `${activePath}.restore-${Date.now()}.tmp`;
@@ -127,6 +131,7 @@ function createBackupService({
     const hash = sha256File(activePath);
     const bytes = fs.statSync(activePath).size;
     const schemaVersion = Number(database.connection().prepare('PRAGMA user_version').get().user_version || 0);
+    recordBackup({ id: safety.id, kind: 'PRE_RESTORE', filePath: safety.path, hash: safety.sha256, bytes: safety.bytes, schemaVersion: safety.schemaVersion, status: 'VERIFIED', createdAt: safety.createdAt, verifiedAt: restoredAt });
     recordBackup({ id: idFactory('restore'), kind: 'MANUAL', filePath: path.resolve(String(filePath)), hash, bytes, schemaVersion, status: 'RESTORED', createdAt: restoredAt, verifiedAt: restoredAt });
     writeAudit(database.connection(), { action: 'backup.restore', entity: 'database', entityId: null, actor, context: { sourcePath: path.resolve(String(filePath)), safetyPath: safety.path, schemaVersion } }, nowIso);
     return { restored: true, sourcePath: path.resolve(String(filePath)), safetyBackup: safety.path, schemaVersion };
