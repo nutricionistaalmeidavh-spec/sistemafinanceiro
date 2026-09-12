@@ -12,8 +12,8 @@ function setup() {
     CREATE TABLE customers (id TEXT PRIMARY KEY, name TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1);
     CREATE TABLE creditors (id TEXT PRIMARY KEY, name TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1);
     CREATE TABLE financial_categories (id TEXT PRIMARY KEY, name TEXT NOT NULL, nature TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1);
-    CREATE TABLE financial_entries (id TEXT PRIMARY KEY, kind TEXT NOT NULL, description TEXT NOT NULL, category_id TEXT, account_id TEXT, customer_id TEXT, creditor_id TEXT, amount_cents INTEGER NOT NULL, issue_at TEXT, due_at TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'OPEN', source_type TEXT, source_id TEXT, notes TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, cancelled_at TEXT);
-    CREATE TABLE financial_settlements (id TEXT PRIMARY KEY, entry_id TEXT NOT NULL, amount_cents INTEGER NOT NULL, method TEXT, note TEXT, occurred_at TEXT NOT NULL, created_at TEXT NOT NULL, reversed_at TEXT);
+    CREATE TABLE financial_entries (id TEXT PRIMARY KEY, kind TEXT NOT NULL, description TEXT NOT NULL, category_id TEXT, account_id TEXT, customer_id TEXT, creditor_id TEXT, amount_cents INTEGER NOT NULL, issue_at TEXT, due_at TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'OPEN', source_type TEXT, source_id TEXT, notes TEXT, recurrence_rule_id TEXT, recurrence_key TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, cancelled_at TEXT);
+    CREATE TABLE financial_settlements (id TEXT PRIMARY KEY, entry_id TEXT NOT NULL, account_id TEXT, amount_cents INTEGER NOT NULL, method TEXT, note TEXT, occurred_at TEXT NOT NULL, created_at TEXT NOT NULL, reversed_at TEXT);
     CREATE TABLE audit_log (id INTEGER PRIMARY KEY AUTOINCREMENT, action TEXT NOT NULL, entity TEXT NOT NULL, entity_id TEXT, actor_id TEXT, actor_role TEXT, context_json TEXT, created_at TEXT NOT NULL);
     INSERT INTO creditors(id,name,active) VALUES ('cred-1','Fornecedor',1);
     INSERT INTO customers(id,name,active) VALUES ('cust-1','Cliente',1);
@@ -32,6 +32,7 @@ test('payable lifecycle supports partial settlement, reversal and cancellation r
   assert.equal(entry.openCents, 10000);
   assert.equal(entry.isOverdue, true);
   const paid = finance.settleEntry(entry.id, { amountCents: 4000, method: 'PIX', occurredAt: '2026-09-12' }, actor);
+  assert.equal(paid.settlement.accountId, account.id);
   assert.equal(paid.entry.status, 'PARTIAL');
   assert.equal(paid.entry.openCents, 6000);
   const reversed = finance.reverseSettlement(paid.settlement.id, { reason: 'Baixa incorreta', actor });

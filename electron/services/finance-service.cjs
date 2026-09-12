@@ -40,7 +40,7 @@ function createFinanceService({ db, now = () => new Date().toISOString(), idFact
     return db.prepare('SELECT * FROM financial_settlements WHERE entry_id=? AND reversed_at IS NULL ORDER BY occurred_at,created_at,id').all(String(entryId));
   }
   function mapSettlement(row) {
-    return row && { id: row.id, entryId: row.entry_id, amountCents: row.amount_cents, method: row.method, note: row.note, occurredAt: row.occurred_at, createdAt: row.created_at, reversedAt: row.reversed_at };
+    return row && { id: row.id, entryId: row.entry_id, accountId: row.account_id || null, amountCents: row.amount_cents, method: row.method, note: row.note, occurredAt: row.occurred_at, createdAt: row.created_at, reversedAt: row.reversed_at };
   }
   function mapEntry(row, asOf = nowIso()) {
     if (!row) return null;
@@ -52,6 +52,7 @@ function createFinanceService({ db, now = () => new Date().toISOString(), idFact
       id: row.id, kind: row.kind, description: row.description, categoryId: row.category_id, accountId: row.account_id,
       customerId: row.customer_id, creditorId: row.creditor_id, amountCents: row.amount_cents, issueAt: row.issue_at,
       dueAt: row.due_at, status: row.status, sourceType: row.source_type, sourceId: row.source_id, notes: row.notes,
+      recurrenceRuleId: row.recurrence_rule_id || null, recurrenceKey: row.recurrence_key || null,
       createdAt: row.created_at, updatedAt: row.updated_at, cancelledAt: row.cancelled_at,
       settledCents, openCents, isOverdue, settlements,
     };
@@ -89,12 +90,13 @@ function createFinanceService({ db, now = () => new Date().toISOString(), idFact
     const timestamp = nowIso();
     const issueAt = input.issueAt ? String(input.issueAt) : timestamp.slice(0, 10);
     db.prepare(`INSERT INTO financial_entries
-      (id,kind,description,category_id,account_id,customer_id,creditor_id,amount_cents,issue_at,due_at,status,source_type,source_id,notes,created_at,updated_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,'OPEN',?,?,?,?,?)`).run(
+      (id,kind,description,category_id,account_id,customer_id,creditor_id,amount_cents,issue_at,due_at,status,source_type,source_id,notes,recurrence_rule_id,recurrence_key,created_at,updated_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,'OPEN',?,?,?,?,?,?,?)`).run(
         id, kind, description, input.categoryId || null, input.accountId || null, input.customerId || null, input.creditorId || null,
-        amountCents, issueAt, dueAt, input.sourceType || null, input.sourceId || null, input.notes || null, timestamp, timestamp,
+        amountCents, issueAt, dueAt, input.sourceType || null, input.sourceId || null, input.notes || null,
+        input.recurrenceRuleId || null, input.recurrenceKey || null, timestamp, timestamp,
       );
-    writeAudit(db, { action: 'finance.entry.create', entity: 'financial-entry', entityId: id, actor, context: { kind, amountCents, dueAt } }, nowIso);
+    writeAudit(db, { action: 'finance.entry.create', entity: 'financial-entry', entityId: id, actor, context: { kind, amountCents, dueAt, recurrenceRuleId: input.recurrenceRuleId || null } }, nowIso);
     return getEntry(id);
   }
   function recalculateStatus(entryId) {
@@ -116,12 +118,15 @@ function createFinanceService({ db, now = () => new Date().toISOString(), idFact
       if (amountCents > current.openCents) throw new Error('settlement exceeds open balance');
       const occurredAt = String(input.occurredAt || nowIso().slice(0, 10));
       if (!Number.isFinite(Date.parse(occurredAt))) throw new Error('invalid settlement date');
+      const accountId = String(input.accountId || row.account_id || '').trim();
+      if (!accountId) throw new Error('financial account is required for settlement');
+      assertRelation('financial_accounts', accountId, 'financial account');
       const id = String(input.id || idFactory('settlement'));
       const timestamp = nowIso();
-      db.prepare('INSERT INTO financial_settlements(id,entry_id,amount_cents,method,note,occurred_at,created_at) VALUES (?,?,?,?,?,?,?)')
-        .run(id, String(entryId), amountCents, input.method || null, input.note || null, occurredAt, timestamp);
+      db.prepare('INSERT INTO financial_settlements(id,entry_id,account_id,amount_cents,method,note,occurred_at,created_at) VALUES (?,?,?,?,?,?,?,?)')
+        .run(id, String(entryId), accountId, amountCents, input.method || null, input.note || null, occurredAt, timestamp);
       recalculateStatus(entryId);
-      writeAudit(db, { action: 'finance.settle', entity: 'financial-entry', entityId: entryId, actor, context: { settlementId: id, amountCents, method: input.method || null } }, nowIso);
+      writeAudit(db, { action: 'finance.settle', entity: 'financial-entry', entityId: entryId, actor, context: { settlementId: id, accountId, amountCents, method: input.method || null } }, nowIso);
       return { settlement: mapSettlement(db.prepare('SELECT * FROM financial_settlements WHERE id=?').get(id)), entry: getEntry(entryId) };
     });
   }
@@ -166,6 +171,7 @@ function createFinanceService({ db, now = () => new Date().toISOString(), idFact
     if (filters.customerId) { clauses.push('customer_id=?'); params.push(String(filters.customerId)); }
     if (filters.creditorId) { clauses.push('creditor_id=?'); params.push(String(filters.creditorId)); }
     if (filters.categoryId) { clauses.push('category_id=?'); params.push(String(filters.categoryId)); }
+    if (filters.recurrenceRuleId) { clauses.push('recurrence_rule_id=?'); params.push(String(filters.recurrenceRuleId)); }
     if (filters.query) { clauses.push('LOWER(description) LIKE ?'); params.push(`%${String(filters.query).trim().toLowerCase()}%`); }
     return db.prepare(`SELECT * FROM financial_entries${clauses.length ? ` WHERE ${clauses.join(' AND ')}` : ''} ORDER BY due_at,id`).all(...params)
       .map((row) => mapEntry(row, filters.asOf || nowIso()))
