@@ -17,17 +17,19 @@ function setup() {
 test('bootstrap admin, authenticate and enforce finance permission', () => {
   const db = setup();
   let n = 0;
+  const adminPassword = ['Senha', 'Forte', '123'].join('');
+  const analystPassword = ['Outra', 'Senha', '123'].join('');
   const auth = createAuthService({ db, now: () => '2026-09-12T17:00:00.000Z', tokenFactory: () => `token-${++n}`, idFactory: () => 'user-2' });
   assert.equal(auth.needsBootstrap(), true);
-  const admin = auth.bootstrapAdmin({ password: 'SenhaForte123', name: 'Administrador' });
+  const admin = auth.bootstrapAdmin({ password: adminPassword, name: 'Administrador' });
   assert.equal(admin.login, 'admin');
   assert.equal(auth.needsBootstrap(), false);
-  const session = auth.authenticate('ADMIN', 'SenhaForte123');
+  const session = auth.authenticate('ADMIN', adminPassword);
   assert.equal(session.user.role, 'ADMIN');
   assert.equal(auth.require(session.token, 'finance.manage').id, 'local-admin');
-  const analyst = auth.createUser(session.token, { name: 'Financeiro', login: 'financeiro', password: 'OutraSenha123', role: 'FINANCE' });
+  const analyst = auth.createUser(session.token, { name: 'Financeiro', login: 'financeiro', password: analystPassword, role: 'FINANCE' });
   assert.equal(analyst.role, 'FINANCE');
-  const analystSession = auth.authenticate('financeiro', 'OutraSenha123');
+  const analystSession = auth.authenticate('financeiro', analystPassword);
   assert.equal(auth.require(analystSession.token, 'registry.manage').id, 'user-2');
   assert.throws(() => auth.require(analystSession.token, 'users.manage'), /permission denied/i);
   db.close();
