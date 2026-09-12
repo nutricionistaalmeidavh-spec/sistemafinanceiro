@@ -28,11 +28,28 @@ class DatabaseService {
     return Number(row?.user_version ?? 0);
   }
 
-  #migrate() {
-    const files = fs.readdirSync(this.migrationsDir)
+  #migrationFiles() {
+    return fs.readdirSync(this.migrationsDir)
       .filter((file) => /^\d+.*\.sql$/.test(file))
       .sort();
+  }
+
+  #preMigrationBackup(current, target) {
+    if (current <= 0 || target <= current || !fs.existsSync(this.dbPath)) return null;
+    this.checkpoint();
+    const dir = path.join(this.dataDir, 'backups');
+    fs.mkdirSync(dir, { recursive: true });
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const destination = path.join(dir, `pre-migration-v${current}-to-v${target}-${stamp}.sqlite`);
+    fs.copyFileSync(this.dbPath, destination);
+    return destination;
+  }
+
+  #migrate() {
+    const files = this.#migrationFiles();
     let current = this.#userVersion();
+    const target = files.reduce((max, file) => Math.max(max, Number(file.match(/^\d+/)[0])), current);
+    this.#preMigrationBackup(current, target);
 
     for (const file of files) {
       const version = Number(file.match(/^\d+/)[0]);
@@ -55,6 +72,28 @@ class DatabaseService {
   connection() {
     if (!this.db) throw new Error('database is not open');
     return this.db;
+  }
+
+  checkpoint() {
+    if (!this.db) throw new Error('database is not open');
+    try { this.db.exec('PRAGMA wal_checkpoint(TRUNCATE)'); }
+    catch { try { this.db.exec('PRAGMA wal_checkpoint(FULL)'); } catch {} }
+    return true;
+  }
+
+  prepareBackup(destination) {
+    if (!this.db) throw new Error('database is not open');
+    if (!destination) throw new Error('backup destination is required');
+    this.checkpoint();
+    const target = path.resolve(String(destination));
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.copyFileSync(this.dbPath, target);
+    return target;
+  }
+
+  reopen() {
+    this.close();
+    return this.open();
   }
 
   health() {
