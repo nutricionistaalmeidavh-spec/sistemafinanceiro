@@ -1,9 +1,7 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('financeiro', {
-  system: {
-    health: () => ipcRenderer.invoke('system:health'),
-  },
+  system: { health: () => ipcRenderer.invoke('system:health') },
   auth: {
     needsBootstrap: () => ipcRenderer.invoke('auth:needs-bootstrap'),
     bootstrap: (input) => ipcRenderer.invoke('auth:bootstrap', input),
@@ -23,6 +21,24 @@ contextBridge.exposeInMainWorld('financeiro', {
     reverseSettlement: (token, settlementId, reason) => ipcRenderer.invoke('finance:settlements:reverse', token, settlementId, reason),
     cancelEntry: (token, entryId, reason) => ipcRenderer.invoke('finance:entries:cancel', token, entryId, reason),
     summary: (token, filters) => ipcRenderer.invoke('finance:summary', token, filters),
+  },
+  cashflow: {
+    listMovements: (token, filters) => ipcRenderer.invoke('cashflow:movements:list', token, filters),
+    createMovement: (token, input) => ipcRenderer.invoke('cashflow:movements:create', token, input),
+    transfer: (token, input) => ipcRenderer.invoke('cashflow:transfer', token, input),
+    balances: (token, filters) => ipcRenderer.invoke('cashflow:balances', token, filters),
+    summary: (token, filters) => ipcRenderer.invoke('cashflow:summary', token, filters),
+  },
+  analytics: {
+    dre: (token, filters) => ipcRenderer.invoke('analytics:dre', token, filters),
+    indicators: (token, filters) => ipcRenderer.invoke('analytics:indicators', token, filters),
+    dashboard: (token, filters) => ipcRenderer.invoke('analytics:dashboard', token, filters),
+  },
+  recurrence: {
+    list: (token, filters) => ipcRenderer.invoke('recurrence:list', token, filters),
+    create: (token, input) => ipcRenderer.invoke('recurrence:create', token, input),
+    setActive: (token, id, active) => ipcRenderer.invoke('recurrence:set-active', token, id, active),
+    generate: (token, asOf) => ipcRenderer.invoke('recurrence:generate', token, asOf),
   },
   registry: {
     listCustomers: (token, filters) => ipcRenderer.invoke('registry:customers:list', token, filters),

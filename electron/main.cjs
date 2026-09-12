@@ -4,6 +4,9 @@ const { DatabaseService } = require('./services/database.cjs');
 const { createAuthService } = require('./services/auth-service.cjs');
 const { createFinanceService } = require('./services/finance-service.cjs');
 const { createRegistryService } = require('./services/registry-service.cjs');
+const { createCashflowService } = require('./services/cashflow-service.cjs');
+const { createAnalyticsService } = require('./services/analytics-service.cjs');
+const { createRecurrenceService } = require('./services/recurrence-service.cjs');
 const { registerIpcHandlers } = require('./ipc-handlers.cjs');
 
 let database;
@@ -39,7 +42,10 @@ app.whenReady().then(() => {
   const auth = createAuthService({ db });
   const finance = createFinanceService({ db });
   const registry = createRegistryService({ db });
-  registerIpcHandlers({ ipcMain, database, auth, finance, registry });
+  const cashflow = createCashflowService({ db });
+  const analytics = createAnalyticsService({ db, finance, cashflow });
+  const recurrence = createRecurrenceService({ db, finance });
+  registerIpcHandlers({ ipcMain, database, auth, finance, registry, cashflow, analytics, recurrence });
 
   createWindow();
   app.on('activate', () => {
