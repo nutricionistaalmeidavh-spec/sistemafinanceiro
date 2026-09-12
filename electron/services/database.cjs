@@ -52,6 +52,11 @@ class DatabaseService {
     }
   }
 
+  connection() {
+    if (!this.db) throw new Error('database is not open');
+    return this.db;
+  }
+
   health() {
     return {
       ok: Boolean(this.db),

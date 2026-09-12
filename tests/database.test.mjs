@@ -13,22 +13,12 @@ test('DatabaseService creates the local database, applies migrations and reports
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sistemafinanceiro-'));
   const dataDir = path.join(root, 'data');
   const migrationsDir = path.resolve('database/migrations');
-  const service = new DatabaseService({
-    dataDir,
-    migrationsDir,
-    databaseFactory: (filename) => new DatabaseSync(filename),
-  });
-
+  const service = new DatabaseService({ dataDir, migrationsDir, databaseFactory: (filename) => new DatabaseSync(filename) });
   try {
     const opened = service.open();
     assert.equal(fs.existsSync(opened.path), true);
-    assert.equal(service.db.prepare('PRAGMA user_version').get().user_version, 1);
-    assert.deepEqual(service.health(), {
-      ok: true,
-      storage: 'sqlite',
-      userVersion: 1,
-      path: opened.path,
-    });
+    assert.equal(service.connection().prepare('PRAGMA user_version').get().user_version, 2);
+    assert.deepEqual(service.health(), { ok: true, storage: 'sqlite', userVersion: 2, path: opened.path });
   } finally {
     service.close();
     fs.rmSync(root, { recursive: true, force: true });
