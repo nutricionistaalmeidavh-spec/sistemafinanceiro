@@ -3,8 +3,7 @@ CREATE TABLE IF NOT EXISTS alert_states (
   alert_key TEXT NOT NULL,
   state TEXT NOT NULL CHECK(state IN ('READ','DISMISSED')),
   updated_at TEXT NOT NULL,
-  PRIMARY KEY(user_id, alert_key),
-  FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+  PRIMARY KEY(user_id, alert_key)
 );
 CREATE INDEX IF NOT EXISTS idx_alert_states_user_state ON alert_states(user_id,state,updated_at);
 
@@ -18,8 +17,7 @@ CREATE TABLE IF NOT EXISTS internal_alerts (
   active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)),
   created_by TEXT,
   created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL,
-  FOREIGN KEY(created_by) REFERENCES users(id)
+  updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_internal_alerts_window ON internal_alerts(active,starts_at,ends_at);
 
@@ -60,14 +58,14 @@ CREATE TABLE IF NOT EXISTS lan_pairing_codes (
   expires_at TEXT NOT NULL,
   used_at TEXT,
   created_by TEXT,
-  created_at TEXT NOT NULL,
-  FOREIGN KEY(created_by) REFERENCES users(id)
+  created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_lan_pairing_expiry ON lan_pairing_codes(used_at,expires_at);
 
 CREATE TABLE IF NOT EXISTS lan_sessions (
   id TEXT PRIMARY KEY,
   token_hash TEXT NOT NULL UNIQUE,
+  identity_id TEXT NOT NULL,
   permissions_json TEXT NOT NULL DEFAULT '["finance.view","registry.view"]',
   expires_at TEXT NOT NULL,
   revoked_at TEXT,
