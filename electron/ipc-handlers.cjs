@@ -1,6 +1,6 @@
 'use strict';
 
-function registerIpcHandlers({ ipcMain, database, auth, finance, registry, cashflow, analytics, recurrence }) {
+function registerIpcHandlers({ ipcMain, app, dialog, database, auth, finance, registry, cashflow, analytics, recurrence, alerts, reports, backup, lan, documents }) {
   if (!ipcMain?.handle) throw new TypeError('ipcMain is required');
   ipcMain.handle('system:health', () => database.health());
 
@@ -36,6 +36,44 @@ function registerIpcHandlers({ ipcMain, database, auth, finance, registry, cashf
   ipcMain.handle('recurrence:create', (_event, token, input) => { const actor = auth.require(token, 'finance.manage'); return recurrence.createRule(input, actor); });
   ipcMain.handle('recurrence:set-active', (_event, token, id, active) => { const actor = auth.require(token, 'finance.manage'); return recurrence.setRuleActive(id, active, actor); });
   ipcMain.handle('recurrence:generate', (_event, token, asOf) => { const actor = auth.require(token, 'finance.manage'); return recurrence.generateDue({ asOf, actor }); });
+
+  ipcMain.handle('alerts:list', (_event, token, filters) => { const actor = auth.require(token, 'finance.view'); return alerts.listAlerts({ ...(filters || {}), userId: actor.id }); });
+  ipcMain.handle('alerts:ack', (_event, token, alertKey, state) => { const actor = auth.require(token, 'finance.view'); return alerts.acknowledge(alertKey, actor.id, state); });
+  ipcMain.handle('alerts:thresholds:list', (_event, token) => { auth.require(token, 'finance.view'); return alerts.listAccountThresholds(); });
+  ipcMain.handle('alerts:thresholds:set', (_event, token, accountId, thresholdCents, enabled) => { const actor = auth.require(token, 'finance.manage'); return alerts.setAccountThreshold(accountId, thresholdCents, actor, enabled); });
+  ipcMain.handle('alerts:internal:save', (_event, token, input) => { const actor = auth.require(token, 'system.manage'); return alerts.saveInternalAlert(input, actor); });
+
+  ipcMain.handle('reports:financial', (_event, token, filters) => { auth.require(token, 'finance.view'); return reports.financialReport(filters || {}); });
+  ipcMain.handle('reports:receipt', (_event, token, settlementId) => { auth.require(token, 'finance.view'); return reports.settlementReceipt(settlementId); });
+  ipcMain.handle('reports:csv', (_event, token, filters) => { auth.require(token, 'finance.view'); const report = reports.financialReport(filters || {}); return { filename: 'relatorio-financeiro.csv', mime: 'text/csv;charset=utf-8', data: reports.toCsv(report) }; });
+  ipcMain.handle('reports:xlsx', (_event, token, filters) => { auth.require(token, 'finance.view'); const report = reports.financialReport(filters || {}); return { filename: 'relatorio-financeiro.xlsx', mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', dataBase64: reports.toXlsxBuffer(report).toString('base64') }; });
+  ipcMain.handle('reports:pdf', async (_event, token, filters) => { auth.require(token, 'finance.view'); const report = reports.financialReport(filters || {}); return documents.savePdf(reports.toPrintableHtml(report), { defaultName: 'relatorio-financeiro.pdf' }); });
+  ipcMain.handle('reports:print', async (_event, token, filters) => { auth.require(token, 'finance.view'); const report = reports.financialReport(filters || {}); return documents.printHtml(reports.toPrintableHtml(report)); });
+  ipcMain.handle('reports:receipt-pdf', async (_event, token, settlementId) => { auth.require(token, 'finance.view'); const receipt = reports.settlementReceipt(settlementId); return documents.savePdf(reports.toPrintableHtml(receipt), { defaultName: `recibo-${settlementId}.pdf` }); });
+  ipcMain.handle('reports:receipt-print', async (_event, token, settlementId) => { auth.require(token, 'finance.view'); return documents.printHtml(reports.toPrintableHtml(reports.settlementReceipt(settlementId))); });
+
+  ipcMain.handle('backup:list', (_event, token, filters) => { auth.require(token, 'system.manage'); return backup.listBackups(filters || {}); });
+  ipcMain.handle('backup:create', (_event, token) => { auth.require(token, 'system.manage'); return backup.createBackup({ kind: 'MANUAL' }); });
+  ipcMain.handle('backup:verify', (_event, token, filePath) => { auth.require(token, 'system.manage'); return backup.verifyBackup(filePath); });
+  ipcMain.handle('backup:restore-select', async (_event, token) => {
+    const actor = auth.require(token, 'system.manage');
+    if (!dialog) throw new Error('file dialog unavailable');
+    const selected = await dialog.showOpenDialog({ title: 'Restaurar backup', properties: ['openFile'], filters: [{ name: 'SQLite backup', extensions: ['sqlite', 'db'] }] });
+    if (selected.canceled || !selected.filePaths?.[0]) return { canceled: true };
+    const result = backup.restoreBackup(selected.filePaths[0], actor);
+    if (app?.relaunch && app?.exit) setTimeout(() => { app.relaunch(); app.exit(0); }, 350);
+    return { ...result, canceled: false, restarting: Boolean(app?.relaunch) };
+  });
+
+  ipcMain.handle('lan:status', (_event, token) => { auth.require(token, 'system.manage'); return lan.status(); });
+  ipcMain.handle('lan:configure', async (_event, token, input) => {
+    const actor = auth.require(token, 'system.manage');
+    await lan.stop();
+    const result = lan.configure(input || {}, actor);
+    if (result.enabled) await lan.startConfigured();
+    return lan.status();
+  });
+  ipcMain.handle('lan:pairing-code', (_event, token) => { const actor = auth.require(token, 'system.manage'); return lan.createPairingCode(actor); });
 
   ipcMain.handle('registry:customers:list', (_event, token, filters) => { auth.require(token, 'registry.view'); return registry.listCustomers(filters || {}); });
   ipcMain.handle('registry:customers:save', (_event, token, input) => { const actor = auth.require(token, 'registry.manage'); return registry.saveCustomer(input, actor); });
