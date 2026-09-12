@@ -4,13 +4,45 @@ rules:
     message: Avoid dynamic code execution; parse structured input instead.
     severity: ERROR
     pattern: eval(...)
+
   - id: artisys-no-shell-exec
     languages: [javascript, typescript]
     message: Use execFile or spawn with fixed executable and shell disabled.
     severity: WARNING
     pattern-either:
-      - pattern: $CP.exec(...)
-      - pattern: $CP.execSync(...)
+      - pattern: require('child_process').exec(...)
+      - pattern: require('node:child_process').exec(...)
+      - pattern: require('child_process').execSync(...)
+      - pattern: require('node:child_process').execSync(...)
+      - patterns:
+          - pattern-inside: |
+              const $CP = require('child_process');
+              ...
+          - pattern-either:
+              - pattern: $CP.exec(...)
+              - pattern: $CP.execSync(...)
+      - patterns:
+          - pattern-inside: |
+              const $CP = require('node:child_process');
+              ...
+          - pattern-either:
+              - pattern: $CP.exec(...)
+              - pattern: $CP.execSync(...)
+      - patterns:
+          - pattern-inside: |
+              import * as $CP from 'child_process';
+              ...
+          - pattern-either:
+              - pattern: $CP.exec(...)
+              - pattern: $CP.execSync(...)
+      - patterns:
+          - pattern-inside: |
+              import * as $CP from 'node:child_process';
+              ...
+          - pattern-either:
+              - pattern: $CP.exec(...)
+              - pattern: $CP.execSync(...)
+
   - id: artisys-no-disabled-tls
     languages: [javascript, typescript]
     message: TLS certificate verification must remain enabled.
