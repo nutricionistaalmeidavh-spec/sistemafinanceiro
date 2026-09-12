@@ -1,6 +1,10 @@
 const path = require('node:path');
 const { app, BrowserWindow, ipcMain } = require('electron');
 const { DatabaseService } = require('./services/database.cjs');
+const { createAuthService } = require('./services/auth-service.cjs');
+const { createFinanceService } = require('./services/finance-service.cjs');
+const { createRegistryService } = require('./services/registry-service.cjs');
+const { registerIpcHandlers } = require('./ipc-handlers.cjs');
 
 let database;
 
@@ -31,10 +35,13 @@ app.whenReady().then(() => {
     migrationsDir: path.join(__dirname, '..', 'database', 'migrations'),
   });
   database.open();
+  const db = database.connection();
+  const auth = createAuthService({ db });
+  const finance = createFinanceService({ db });
+  const registry = createRegistryService({ db });
+  registerIpcHandlers({ ipcMain, database, auth, finance, registry });
 
-  ipcMain.handle('system:health', () => database.health());
   createWindow();
-
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
