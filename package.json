@@ -5,9 +5,7 @@
   "description": "Sistema financeiro desktop local-first da ArtiSys",
   "main": "electron/main.cjs",
   "type": "module",
-  "engines": {
-    "node": ">=22"
-  },
+  "engines": { "node": ">=22" },
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "electron:dev": "concurrently -k \"vite --host 127.0.0.1\" \"wait-on http://127.0.0.1:5173 && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5173 electron .\"",
@@ -27,7 +25,8 @@
     "@artisys/desktop-shell": "file:vendor/utilidades/modules/artisys-desktop-shell",
     "@artisys/eventbus": "file:vendor/utilidades/modules/artisys-eventbus",
     "@artisys/dashboard": "file:vendor/utilidades/modules/artisys-dashboard",
-    "@artisys/pdf": "file:vendor/utilidades/modules/artisys-pdf"
+    "@artisys/pdf": "file:vendor/utilidades/modules/artisys-pdf",
+    "@artisys/printing": "file:vendor/utilidades/modules/artisys-printing"
   },
   "devDependencies": {
     "@types/react": "19.2.18",
@@ -48,27 +47,10 @@
     "appId": "br.com.artisys.sistemafinanceiro",
     "productName": "ArtiSys Financeiro",
     "npmRebuild": false,
-    "directories": {
-      "output": "release"
-    },
-    "files": [
-      "dist/**/*",
-      "electron/**/*",
-      "database/**/*",
-      "package.json"
-    ],
-    "asarUnpack": [
-      "node_modules/better-sqlite3/**/*"
-    ],
-    "win": {
-      "target": ["nsis"],
-      "artifactName": "ArtiSys-Financeiro-Setup-${version}.${ext}"
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true
-    }
+    "directories": { "output": "release" },
+    "files": ["dist/**/*", "electron/**/*", "database/**/*", "package.json"],
+    "asarUnpack": ["node_modules/better-sqlite3/**/*"],
+    "win": { "target": ["nsis"], "artifactName": "ArtiSys-Financeiro-Setup-${version}.${ext}" },
+    "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true, "createDesktopShortcut": true, "createStartMenuShortcut": true }
   }
 }
