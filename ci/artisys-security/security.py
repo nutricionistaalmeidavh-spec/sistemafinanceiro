@@ -18,6 +18,7 @@ class GateError(Exception):
 
 def evaluate(tool, report, mode):
     findings = []
+    rule_ids = []
     try:
         if tool == 'gitleaks':
             if not isinstance(report, list):
@@ -26,6 +27,7 @@ def evaluate(tool, report, mode):
                 if not isinstance(item, dict) or not isinstance(item['RuleID'], str):
                     raise ValueError()
                 findings.append('CRITICAL')
+                rule_ids.append(item['RuleID'])
         elif tool == 'trivy':
             if report['SchemaVersion'] != 2 or not isinstance(report.get('ArtifactName'), str) or not isinstance(report.get('Metadata'), dict) or report.get('ArtifactType') != 'filesystem':
                 raise ValueError()
@@ -63,7 +65,10 @@ def evaluate(tool, report, mode):
     except (KeyError, TypeError, ValueError, AttributeError):
         raise GateError(f'{tool}: invalid or incomplete scanner report') from None
     threshold = 3 if mode == 'commit' else 2
-    return {'findings': len(findings), 'blocking': sum(RANK[s] >= threshold for s in findings)}
+    result = {'findings': len(findings), 'blocking': sum(RANK[s] >= threshold for s in findings)}
+    if tool == 'gitleaks':
+        result['ruleIds'] = sorted(set(rule_ids))
+    return result
 
 
 def scan(target, mode='commit', engine='native', execute=subprocess.run):
