@@ -68,6 +68,10 @@ function createBackupService({
       const integrity = String(firstValue(integrityRow) || '').toLowerCase();
       if (integrity !== 'ok') return { valid: false, reason: 'sqlite-integrity-check-failed', integrity };
       const schemaVersion = Number(firstValue(probe.prepare('PRAGMA user_version').get()) || 0);
+      const requiredTables = ['migrations', 'app_meta'];
+      const present = new Set(probe.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('migrations','app_meta')").all().map((row) => row.name));
+      const missingTables = requiredTables.filter((name) => !present.has(name));
+      if (missingTables.length) return { valid: false, reason: 'invalid-backup-schema', schemaVersion, missingTables };
       return { valid: true, reason: manifest ? 'ok' : 'sqlite-valid-no-manifest', sha256: hash, bytes, schemaVersion, manifest };
     } catch (error) {
       return { valid: false, reason: 'invalid-backup', error: error instanceof Error ? error.message : String(error) };

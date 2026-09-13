@@ -28,5 +28,6 @@ test('final screenshot flow captures every delivered product screen', () => {
     '08-relatorios-final',
     '09-sistema-lan-final',
     '10-acessos-final',
+    '11-extratos-final',
   ]);
 });

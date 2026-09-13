@@ -43,6 +43,10 @@
     { "action": "click", "testId": "nav-users", "name": "open-users" },
     { "action": "waitFor", "text": "Usuários e permissões", "name": "users-ready" },
     { "action": "waitFor", "text": "Financeiro QA", "name": "users-data-ready" },
-    { "action": "screenshot", "name": "10-acessos-final" }
+    { "action": "screenshot", "name": "10-acessos-final" },
+    { "action": "click", "testId": "nav-statements", "name": "open-statements" },
+    { "action": "waitFor", "text": "Importação e conciliação bancária", "name": "statements-ready" },
+    { "action": "waitFor", "text": "Nenhum extrato importado", "name": "statements-empty-ready" },
+    { "action": "screenshot", "name": "11-extratos-final" }
   ]
 }

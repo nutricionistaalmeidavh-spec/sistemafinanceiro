@@ -14,6 +14,7 @@ const { createReportService } = require('./services/report-service.cjs');
 const { createBackupService } = require('./services/backup-service.cjs');
 const { createLanService } = require('./services/lan-service.cjs');
 const { createDocumentService } = require('./services/document-service.cjs');
+const { createStatementImportService } = require('./services/statement-import-service.cjs');
 const { seedQaFixture } = require('./services/qa-fixture-service.cjs');
 const { registerIpcHandlers } = require('./ipc-handlers.cjs');
 
@@ -66,12 +67,13 @@ app.whenReady().then(async () => {
   const reports = createReportService({ db, finance, analytics });
   const backup = createBackupService({ database, backupsDir: path.join(app.getPath('userData'), 'backups') });
   const documents = createDocumentService({ BrowserWindow, dialog });
+  const statements = createStatementImportService({ db });
   lanService = createLanService({ db, finance, cashflow, analytics, alerts });
 
   try { backup.runAutomaticBackup(); } catch (error) { console.error('Automatic backup failed:', error); }
   try { await lanService.startConfigured(); } catch (error) { console.error('LAN server failed to start:', error); }
 
-  registerIpcHandlers({ ipcMain, app, dialog, database, auth, finance, registry, cashflow, analytics, recurrence, alerts, reports, backup, lan: lanService, documents });
+  registerIpcHandlers({ ipcMain, app, dialog, database, auth, finance, registry, cashflow, analytics, recurrence, alerts, reports, backup, lan: lanService, documents, statements });
 
   createWindow();
   app.on('activate', () => {

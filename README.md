@@ -8,7 +8,7 @@ Aplicativo desktop **local-first** para gestão financeira. O núcleo funciona n
 Electron + React + Vite, SQLite com migrations versionadas, preload restrito e preparação para NSIS Windows.
 
 ### 02 — Utilidades ArtiSys ✅
-`utilidades` entra como submódulo fixado em commit conhecido. Integrados: Desktop Shell, EventBus, Dashboard, PDF, Printing, QA, Security e Release. QA/segurança/release permanecem **opt-in**.
+`utilidades` entra como submódulo fixado em commit conhecido. Integrados: Desktop Shell, EventBus, Dashboard, PDF, Printing, Finance Domain, QA, Security e Release. QA/segurança/release permanecem **opt-in**.
 
 ### 03 — Autenticação e permissões ✅
 Administrador local, `scrypt` + salt, sessões locais, perfis `ADMIN`, `FINANCE`, `MANAGER`, `READONLY`, RBAC no processo principal e auditoria.
@@ -77,10 +77,25 @@ Para acesso pelo celular/tablet, o administrador deve abrir **Sistema → Rede l
 ### 15 — Gates finais e QA real ✅
 - fixture determinística e isolada, ativa apenas com `ARTISYS_QA=1`;
 - fluxo Playwright sobre o **Electron real**, não mockups;
-- 10 capturas finais nomeadas das telas principais;
+- 11 capturas finais nomeadas das telas principais;
 - gate local fail-closed para testes, sintaxe Node, TypeScript/Vite, segurança e release;
 - empacotamento Windows NSIS executado localmente;
 - nenhum GitHub Actions é necessário para o fechamento.
+
+### 16 — Extratos e conciliação determinística ✅
+- `artisys-finance-domain` consumido diretamente do submódulo `utilidades`, sem copiar o motor para o produto;
+- CSV, OFX, PDF com texto extraível e entrada manual convergem para a mesma transação canônica;
+- valores normalizados em centavos, direção `credit/debit`, descrição normalizada e conta de origem;
+- `sourceFingerprint` impede reimportar a mesma linha do mesmo documento;
+- `businessFingerprint` sinaliza similaridade sem apagar pagamentos legítimos repetidos;
+- regras determinísticas classificam transações e informam o motivo da decisão;
+- prévia obrigatória antes do commit da importação;
+- sugestões de transferência entre contas e conciliação com contas a pagar;
+- feedback `accepted/rejected/manual` melhora o score determinístico sem IA externa;
+- aceitar uma sugestão cria vínculo de conciliação, mas **não gera baixa financeira silenciosa**;
+- toda importação e decisão de conciliação é auditada.
+
+A tela **Extratos** permite selecionar conta, fonte, analisar o arquivo, revisar classificação/duplicidades e somente então confirmar a importação. PDF escaneado continua fora do núcleo: OCR será um adapter local opcional, sem virar dependência obrigatória.
 
 ## Primeiro uso no desenvolvimento
 
@@ -115,6 +130,18 @@ A execução QA final usa um diretório temporário próprio (`artisys-financeir
 ## Arquitetura atual
 
 ```text
+CSV / OFX / PDF texto / Manual
+            ↓
+     Statement Import Service
+            ↓
+   artisys-finance-domain
+ normalização / fingerprint
+ regras / conciliação / score
+            ↓
+     revisão do usuário
+            ↓
+     SQLite local auditado
+
 Desktop React renderer                   Celular/tablet (opcional)
           ↓                                      ↓
 preload IPC restrito                    HTTP LAN pareado
@@ -124,7 +151,7 @@ IPC + RBAC                          API local read-first
                          ↓
 Auth / Finance / Registry / Alerts
 Cashflow / Analytics / Recurrence / Reports
-Backup / LAN
+Statements / Backup / LAN
                          ↓
                   DatabaseService
                          ↓
@@ -133,7 +160,7 @@ Backup / LAN
 vendor/utilidades
       ↓
 Desktop Shell / EventBus / Dashboard / PDF / Printing
-QA / Security / Release (opt-in)
+Finance Domain / QA / Security / Release (opt-in quando aplicável)
 ```
 
 O renderer desktop não recebe acesso direto a Node, filesystem ou SQLite. Valores monetários permanecem em centavos inteiros. Mutações financeiras e administrativas são autorizadas no processo principal e auditadas.
@@ -144,4 +171,4 @@ O banco `sistema-financeiro.sqlite` fica em `app.getPath('userData')`. Dados do 
 
 ## Release final
 
-O release só deve ser considerado homologado depois de `npm run final:release` finalizar com sucesso no Windows e o fluxo `final-screens` gerar as dez evidências PNG do Electron real.
+O release só deve ser considerado homologado depois de `npm run final:release` finalizar com sucesso no Windows e o fluxo `final-screens` gerar as onze evidências PNG do Electron real.

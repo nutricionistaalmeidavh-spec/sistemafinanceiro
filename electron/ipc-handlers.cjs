@@ -1,6 +1,6 @@
 'use strict';
 
-function registerIpcHandlers({ ipcMain, app, dialog, database, auth, finance, registry, cashflow, analytics, recurrence, alerts, reports, backup, lan, documents }) {
+function registerIpcHandlers({ ipcMain, app, dialog, database, auth, finance, registry, cashflow, analytics, recurrence, alerts, reports, backup, lan, documents, statements }) {
   if (!ipcMain?.handle) throw new TypeError('ipcMain is required');
   ipcMain.handle('system:health', () => database.health());
 
@@ -21,6 +21,13 @@ function registerIpcHandlers({ ipcMain, app, dialog, database, auth, finance, re
   ipcMain.handle('finance:settlements:reverse', (_event, token, settlementId, reason) => { const actor = auth.require(token, 'finance.manage'); return finance.reverseSettlement(settlementId, { reason, actor }); });
   ipcMain.handle('finance:entries:cancel', (_event, token, entryId, reason) => { const actor = auth.require(token, 'finance.manage'); return finance.cancelEntry(entryId, { reason, actor }); });
   ipcMain.handle('finance:summary', (_event, token, filters) => { auth.require(token, 'finance.view'); return finance.getSummary(filters || {}); });
+
+  ipcMain.handle('statements:preview', async (_event, token, input) => { auth.require(token, 'finance.view'); return statements.preview(input || {}); });
+  ipcMain.handle('statements:commit', async (_event, token, input) => { const actor = auth.require(token, 'finance.manage'); return statements.commit(input || {}, actor); });
+  ipcMain.handle('statements:list', (_event, token, filters) => { auth.require(token, 'finance.view'); return statements.listTransactions(filters || {}); });
+  ipcMain.handle('statements:suggest-transfers', async (_event, token, filters) => { auth.require(token, 'finance.view'); return statements.suggestTransfers(filters || {}); });
+  ipcMain.handle('statements:suggest-entries', async (_event, token, filters) => { auth.require(token, 'finance.view'); return statements.suggestEntries(filters || {}); });
+  ipcMain.handle('statements:decision', async (_event, token, input) => { const actor = auth.require(token, 'finance.manage'); return statements.recordDecision(input || {}, actor); });
 
   ipcMain.handle('cashflow:movements:list', (_event, token, filters) => { auth.require(token, 'finance.view'); return cashflow.listMovements(filters || {}); });
   ipcMain.handle('cashflow:movements:create', (_event, token, input) => { const actor = auth.require(token, 'finance.manage'); return cashflow.createManualMovement(input, actor); });
