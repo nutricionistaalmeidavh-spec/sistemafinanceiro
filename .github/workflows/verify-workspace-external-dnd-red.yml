@@ -1,0 +1,25 @@
+name: Verify Workspace External Drop RED
+
+on:
+  push:
+    branches:
+      - verify/workspace-external-dnd-red
+
+permissions:
+  contents: read
+
+jobs:
+  red:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 5cb42e954a6c15400729fdcad83110a614abb7ea
+          fetch-depth: 1
+          submodules: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: External drop contract must fail before implementation
+        run: node --test tests/workspace-external-dnd.test.mjs
