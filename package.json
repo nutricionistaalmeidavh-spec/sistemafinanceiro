@@ -29,9 +29,11 @@
     "lucide-react": "1.28.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
+    "pdfjs-dist": "6.3.289",
     "@artisys/desktop-shell": "file:vendor/utilidades/modules/artisys-desktop-shell",
     "@artisys/eventbus": "file:vendor/utilidades/modules/artisys-eventbus",
     "@artisys/dashboard": "file:vendor/utilidades/modules/artisys-dashboard",
+    "@artisys/finance-domain": "file:vendor/utilidades/modules/artisys-finance-domain",
     "@artisys/pdf": "file:vendor/utilidades/modules/artisys-pdf",
     "@artisys/printing": "file:vendor/utilidades/modules/artisys-printing"
   },
