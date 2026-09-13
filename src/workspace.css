@@ -14,3 +14,11 @@
 .workspace-trash-view{overflow:auto}.workspace-trash-view .workspace-list-head,.workspace-trash-view .workspace-list-row{grid-template-columns:minmax(220px,1.2fr) minmax(220px,1.2fr) minmax(150px,.7fr) 100px}.workspace-row-actions{display:flex;gap:4px}.workspace-row-actions button{border:1px solid #d9dee6;background:#fff;border-radius:7px;width:32px;height:32px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
 @media(max-width:1100px){.workspace-explorer{grid-template-columns:190px minmax(0,1fr)}.workspace-commandbar{grid-template-columns:auto 1fr}.workspace-search{grid-column:1/-1}.workspace-list{overflow:auto}}
 @media(max-width:760px){.workspace-heading{flex-direction:column}.workspace-explorer{grid-template-columns:1fr}.workspace-tree{border-right:0;border-bottom:1px solid #dfe3e8;max-height:190px}.workspace-commandbar{grid-template-columns:auto 1fr}.workspace-toolbar{align-items:flex-start;flex-direction:column}.workspace-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.workspace-list{overflow:auto}.workspace-context-menu{max-width:calc(100vw - 24px)}}
+
+
+/* External Windows drag-and-drop */
+.workspace-main { position: relative; }
+.workspace-main.external-drop-active { outline: 2px dashed var(--primary, #2563eb); outline-offset: -6px; }
+.workspace-drop-overlay { position: absolute; inset: 8px; z-index: 30; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; border: 2px dashed currentColor; border-radius: 12px; background: color-mix(in srgb, Canvas 94%, transparent); color: inherit; pointer-events: none; text-align: center; }
+.workspace-drop-overlay strong { font-size: 1rem; }
+.workspace-drop-overlay span { max-width: 440px; font-size: .86rem; opacity: .72; }

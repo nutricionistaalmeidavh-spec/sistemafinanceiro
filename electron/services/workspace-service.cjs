@@ -150,9 +150,21 @@ function createWorkspaceService({
     const imported = [];
     for (const sourceValue of sourcePaths) {
       const source = path.resolve(String(sourceValue || ''));
-      if (!fs.existsSync(source) || !fs.statSync(source).isFile()) continue;
+      if (!sourceValue || !fs.existsSync(source)) continue;
+      if (source === root || source.startsWith(root + path.sep)) continue;
+      const stat = fs.lstatSync(source);
+      if (stat.isSymbolicLink() || (!stat.isFile() && !stat.isDirectory())) continue;
       const destination = uniqueDestination(targetPath, path.basename(source));
-      fs.copyFileSync(source, destination.full, fs.constants.COPYFILE_EXCL);
+      if (stat.isDirectory()) {
+        fs.cpSync(source, destination.full, {
+          recursive: true,
+          errorOnExist: true,
+          force: false,
+          filter: (entry) => !fs.lstatSync(entry).isSymbolicLink(),
+        });
+      } else {
+        fs.copyFileSync(source, destination.full, fs.constants.COPYFILE_EXCL);
+      }
       imported.push(fileInfo(destination.full, destination.rel));
     }
     return imported;

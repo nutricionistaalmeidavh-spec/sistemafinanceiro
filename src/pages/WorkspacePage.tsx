@@ -1,4 +1,4 @@
-import { type DragEvent, type FormEvent, type MouseEvent, useEffect, useMemo, useState } from 'react';
+import { type DragEvent, type FormEvent, type MouseEvent, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
   ArrowRight,
@@ -79,6 +79,8 @@ export default function WorkspacePage({ token, session }: WorkspacePageProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [contextMenu, setContextMenu] = useState<ContextMenu>(null);
+  const [externalDropActive, setExternalDropActive] = useState(false);
+  const externalDragDepth = useRef(0);
 
   async function loadTree() {
     setTree(await api.tree(token));
@@ -220,13 +222,61 @@ export default function WorkspacePage({ token, session }: WorkspacePageProps) {
     event.dataTransfer.setData('application/x-artisys-workspace-path', item.path);
   }
 
+  function hasExternalFiles(event: DragEvent) {
+    const types = Array.from(event.dataTransfer.types || []);
+    return types.includes('Files') && !types.includes('application/x-artisys-workspace-path');
+  }
+
+  async function importDropped(event: DragEvent, targetPath = currentPath) {
+    if (!canManage || mode !== 'files') return;
+    event.preventDefault();
+    event.stopPropagation();
+    externalDragDepth.current = 0;
+    setExternalDropActive(false);
+    const files = Array.from(event.dataTransfer.files || []);
+    if (!files.length) return;
+    setError('');
+    try {
+      await api.importDropped(token, targetPath, files);
+      await refresh();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    }
+  }
+
+  function handleExternalDragEnter(event: DragEvent) {
+    if (!canManage || mode !== 'files' || !hasExternalFiles(event)) return;
+    event.preventDefault();
+    externalDragDepth.current += 1;
+    setExternalDropActive(true);
+  }
+
+  function handleExternalDragOver(event: DragEvent) {
+    if (!canManage || mode !== 'files' || !hasExternalFiles(event)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'copy';
+    setExternalDropActive(true);
+  }
+
+  function handleExternalDragLeave(event: DragEvent) {
+    if (!externalDropActive) return;
+    event.preventDefault();
+    externalDragDepth.current = Math.max(0, externalDragDepth.current - 1);
+    if (externalDragDepth.current === 0) setExternalDropActive(false);
+  }
+
   function dropOnFolder(event: DragEvent, folderPath: string) {
     if (!canManage) return;
     event.preventDefault();
+    event.stopPropagation();
     const sourcePath = event.dataTransfer.getData('application/x-artisys-workspace-path');
-    if (!sourcePath || sourcePath === folderPath) return;
-    const source = items.find((item) => item.path === sourcePath) || searchResults?.find((item) => item.path === sourcePath);
-    if (source) void moveItem(source, folderPath);
+    if (sourcePath) {
+      if (sourcePath === folderPath) return;
+      const source = items.find((item) => item.path === sourcePath) || searchResults?.find((item) => item.path === sourcePath);
+      if (source) void moveItem(source, folderPath);
+      return;
+    }
+    if (event.dataTransfer.files?.length) void importDropped(event, folderPath);
   }
 
   function showContext(event: MouseEvent, item: WorkspaceItem) {
@@ -287,7 +337,14 @@ export default function WorkspacePage({ token, session }: WorkspacePageProps) {
         <button type="button" className={`workspace-trash-link ${mode === 'trash' ? 'active' : ''}`} onClick={() => { setMode('trash'); setSearchResults(null); }}><Trash2 size={16}/> Lixeira</button>
       </aside>
 
-      <div className="workspace-main">
+      <div
+        className={`workspace-main ${externalDropActive ? 'external-drop-active' : ''}`}
+        onDragEnter={handleExternalDragEnter}
+        onDragOver={handleExternalDragOver}
+        onDragLeave={handleExternalDragLeave}
+        onDrop={(event) => { if (hasExternalFiles(event)) void importDropped(event, currentPath); }}
+      >
+        {externalDropActive && canManage && mode === 'files' && <div className="workspace-drop-overlay" data-testid="workspace-external-drop-overlay"><Upload size={34}/><strong>Solte para adicionar</strong><span>Arquivos e pastas serão copiados para esta pasta do Workspace.</span></div>}
         <div className="workspace-commandbar">
           <div className="workspace-history">
             <button type="button" aria-label="Voltar" disabled={historyIndex <= 0} onClick={goBack}><ArrowLeft size={17}/></button>
