@@ -75,6 +75,15 @@ function directionOf(row, parsedAmount) {
   if(['DEBIT','DEBITO','D','OUT','SAIDA','CHECK','ATM'].includes(raw))return 'debit';
   return parsedAmount.negative ? 'debit' : 'credit';
 }
+function sha256(value){return crypto.createHash('sha256').update(value).digest('hex');}
+function documentIdentity(input, sourceType, now) {
+  if(sourceType!=='MANUAL'){
+    if(input.dataBase64)return `${sourceType.toLowerCase()}:sha256:${sha256(Buffer.from(String(input.dataBase64),'base64'))}`;
+    const raw=input.content ?? input.text;
+    if(raw!=null)return `${sourceType.toLowerCase()}:sha256:${sha256(String(raw))}`;
+  }
+  return String(input.documentId||input.filename||`${sourceType.toLowerCase()}-${now()}`).trim();
+}
 async function defaultPdfTextLoader(dataBase64) {
   const [{ loadPdfDocument }, pdfjs] = await Promise.all([import('@artisys/pdf'), import('pdfjs-dist/legacy/build/pdf.mjs')]);
   const bytes = Uint8Array.from(Buffer.from(String(dataBase64 || ''), 'base64'));
@@ -82,8 +91,9 @@ async function defaultPdfTextLoader(dataBase64) {
   const doc = await loadPdfDocument({ data: bytes }, { pdfjs });
   const pages=[];
   for(let pageNo=1;pageNo<=doc.numPages;pageNo++){
-    const page=await doc.getPage(pageNo); const content=await page.getTextContent();
-    pages.push(content.items.map(item=>String(item.str||'')).join(' '));
+    const page=await doc.getPage(pageNo); const content=await page.getTextContent(); let text='';
+    for(const item of content.items){ text += `${String(item.str||'')}${item.hasEOL?'\n':' '}`; }
+    pages.push(text.trim());
   }
   return pages.join('\n');
 }
@@ -92,6 +102,7 @@ function withTransaction(db, fn) {
   try { const result=fn(); db.exec('COMMIT'); return result; }
   catch(error){ try{db.exec('ROLLBACK');}catch{} throw error; }
 }
+function rowTotal(db,sql,...args){return Number(db.prepare(sql).get(...args)?.total||0);}
 
 function createStatementImportService({ db=null, now=()=>new Date().toISOString(), idFactory=(prefix)=>`${prefix}-${crypto.randomUUID()}`, domainLoader=()=>import('@artisys/finance-domain'), pdfTextLoader=defaultPdfTextLoader }={}) {
   async function parseInput(input, sourceType) {
@@ -111,7 +122,7 @@ function createStatementImportService({ db=null, now=()=>new Date().toISOString(
   async function preview(input={}) {
     const sourceType=normalizeSourceType(input.sourceType); const accountId=String(input.accountId||'').trim(); if(!accountId)throw new TypeError('accountId is required');
     ensureAccount(accountId);
-    const documentId=String(input.documentId||input.filename||`${sourceType.toLowerCase()}-${now()}`).trim();
+    const documentId=documentIdentity(input,sourceType,now);
     const rows=await parseInput(input,sourceType);
     const domain=await domainLoader(); const rules=Array.isArray(input.rules)?input.rules:domain.BASIC_PT_BR_FINANCE_RULES;
     const transactions=rows.map((row,index)=>{
@@ -164,7 +175,15 @@ function createStatementImportService({ db=null, now=()=>new Date().toISOString(
     if(!db)throw new Error('database is required');
     const domain=await domainLoader();
     const transactions=listTransactions(filters).filter(row=>row.direction==='debit').map(row=>({id:row.id,date:row.occurred_at,description:row.description,amountCents:row.amount_cents,direction:row.direction,category:row.category_label||null}));
-    const obligations=db.prepare("SELECT e.id,e.amount_cents AS amountCents,e.due_at AS dueDate,c.name AS category,COALESCE(cr.name,e.description) AS beneficiaryName FROM financial_entries e LEFT JOIN creditors cr ON cr.id=e.creditor_id LEFT JOIN financial_categories c ON c.id=e.category_id WHERE e.kind='PAYABLE' AND e.status IN ('OPEN','PARTIAL')").all();
+    const obligations=db.prepare(`SELECT e.id,
+      MAX(0,e.amount_cents-COALESCE(SUM(CASE WHEN s.reversed_at IS NULL THEN s.amount_cents ELSE 0 END),0)) AS amountCents,
+      e.due_at AS dueDate,c.name AS category,COALESCE(cr.name,e.description) AS beneficiaryName
+      FROM financial_entries e
+      LEFT JOIN financial_settlements s ON s.entry_id=e.id
+      LEFT JOIN creditors cr ON cr.id=e.creditor_id
+      LEFT JOIN financial_categories c ON c.id=e.category_id
+      WHERE e.kind='PAYABLE' AND e.status IN ('OPEN','PARTIAL')
+      GROUP BY e.id,e.amount_cents,e.due_at,c.name,cr.name,e.description`).all().filter(item=>Number(item.amountCents)>0);
     const links=db.prepare("SELECT transaction_id AS transactionId,entry_id AS obligationId,amount_cents AS amountCents FROM bank_reconciliation_links WHERE decision IN ('accepted','manual')").all();
     const confirmedMap=new Map(); for(const link of links){if(!confirmedMap.has(link.transactionId))confirmedMap.set(link.transactionId,[]);confirmedMap.get(link.transactionId).push({obligationId:link.obligationId,amountCents:link.amountCents});}
     const confirmedMatches=[...confirmedMap].map(([transactionId,allocations])=>({transactionId,allocations}));
@@ -174,21 +193,31 @@ function createStatementImportService({ db=null, now=()=>new Date().toISOString(
   async function recordDecision({transactionId,entryId,decision,amountCents},actor=null) {
     if(!db)throw new Error('database is required');
     const domain=await domainLoader(); if(!['accepted','rejected','manual'].includes(decision))throw new TypeError('invalid decision');
+    const tx=db.prepare('SELECT id,amount_cents FROM bank_transactions WHERE id=?').get(transactionId);
+    const entry=db.prepare('SELECT id,amount_cents FROM financial_entries WHERE id=?').get(entryId);
+    if(!tx||!entry)throw new Error('transaction or entry not found');
     const current=db.prepare('SELECT accepted,rejected,manual FROM bank_reconciliation_feedback WHERE transaction_id=? AND entry_id=?').get(transactionId,entryId)||{accepted:0,rejected:0,manual:0};
     const next=domain.updatePairStats(current,decision); const createdAt=now();
     return withTransaction(db,()=>{
       db.prepare('INSERT INTO bank_reconciliation_feedback(transaction_id,entry_id,accepted,rejected,manual,updated_at) VALUES (?,?,?,?,?,?) ON CONFLICT(transaction_id,entry_id) DO UPDATE SET accepted=excluded.accepted,rejected=excluded.rejected,manual=excluded.manual,updated_at=excluded.updated_at').run(transactionId,entryId,next.accepted,next.rejected,next.manual,createdAt);
       if(decision==='rejected')db.prepare('DELETE FROM bank_reconciliation_links WHERE transaction_id=? AND entry_id=?').run(transactionId,entryId);
       else {
-        const tx=db.prepare('SELECT amount_cents FROM bank_transactions WHERE id=?').get(transactionId); const entry=db.prepare('SELECT amount_cents FROM financial_entries WHERE id=?').get(entryId); if(!tx||!entry)throw new Error('transaction or entry not found');
-        const allocated=Math.max(1,Math.min(Number(amountCents||tx.amount_cents),Number(tx.amount_cents),Number(entry.amount_cents)));
+        const txUsed=rowTotal(db,'SELECT COALESCE(SUM(amount_cents),0) total FROM bank_reconciliation_links WHERE transaction_id=? AND entry_id<>?',transactionId,entryId);
+        const entryUsed=rowTotal(db,'SELECT COALESCE(SUM(amount_cents),0) total FROM bank_reconciliation_links WHERE entry_id=? AND transaction_id<>?',entryId,transactionId);
+        const settled=rowTotal(db,'SELECT COALESCE(SUM(amount_cents),0) total FROM financial_settlements WHERE entry_id=? AND reversed_at IS NULL',entryId);
+        const txAvailable=Math.max(0,Number(tx.amount_cents)-txUsed);
+        const entryAvailable=Math.max(0,Number(entry.amount_cents)-settled-entryUsed);
+        const requested=Number(amountCents||tx.amount_cents);
+        const allocated=Math.min(requested,txAvailable,entryAvailable);
+        if(!Number.isSafeInteger(allocated)||allocated<=0)throw new Error('no remaining amount available for reconciliation');
         db.prepare('INSERT INTO bank_reconciliation_links(id,transaction_id,entry_id,amount_cents,decision,created_by,created_at) VALUES (?,?,?,?,?,?,?) ON CONFLICT(transaction_id,entry_id) DO UPDATE SET amount_cents=excluded.amount_cents,decision=excluded.decision,created_by=excluded.created_by,created_at=excluded.created_at').run(idFactory('bank-link'),transactionId,entryId,allocated,decision,actor?.id||null,createdAt);
       }
-      db.prepare("UPDATE bank_transactions SET review_status=? WHERE id=?").run(decision==='rejected'?'REVIEWED':'MATCHED',transactionId);
+      const hasLinks=rowTotal(db,'SELECT COUNT(*) total FROM bank_reconciliation_links WHERE transaction_id=?',transactionId)>0;
+      db.prepare('UPDATE bank_transactions SET review_status=? WHERE id=?').run(hasLinks?'MATCHED':'REVIEWED',transactionId);
       db.prepare('INSERT INTO audit_log(action,entity,entity_id,actor_id,actor_role,context_json,created_at) VALUES (?,?,?,?,?,?,?)').run('bank_reconciliation_decision','bank_transaction',transactionId,actor?.id||null,actor?.role||null,JSON.stringify({entryId,decision,stats:next}),createdAt);
       return {transactionId,entryId,decision,stats:next};
     });
   }
   return {preview,commit,listTransactions,suggestTransfers,suggestEntries,recordDecision};
 }
-module.exports={createStatementImportService,parseCsv,parseOfx,parsePdfText,parseDate,parseAmount,defaultPdfTextLoader};
+module.exports={createStatementImportService,parseCsv,parseOfx,parsePdfText,parseDate,parseAmount,defaultPdfTextLoader,documentIdentity};
