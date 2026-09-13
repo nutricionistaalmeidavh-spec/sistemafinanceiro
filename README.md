@@ -1,6 +1,6 @@
 # ArtiSys Sistema Financeiro
 
-Aplicativo desktop **local-first** para gestão financeira. O núcleo funciona no computador do cliente, com SQLite local, sem SaaS, cloud ou serviço pago obrigatório.
+Aplicativo desktop **local-first** para gestão financeira pessoal. O núcleo funciona no computador do usuário, com SQLite local, sem SaaS, cloud ou serviço pago obrigatório. O produto pode ser usado por alguém que também possua empresa/CNPJ, mas não depende de estrutura multiempresa, tenant ou `companyId`.
 
 ## Estado do roadmap
 
@@ -8,7 +8,7 @@ Aplicativo desktop **local-first** para gestão financeira. O núcleo funciona n
 Electron + React + Vite, SQLite com migrations versionadas, preload restrito e preparação para NSIS Windows.
 
 ### 02 — Utilidades ArtiSys ✅
-`utilidades` entra como submódulo fixado em commit conhecido. Integrados: Desktop Shell, EventBus, Dashboard, PDF, Printing, Finance Domain, QA, Security e Release. QA/segurança/release permanecem **opt-in**.
+`utilidades` entra como submódulo fixado em commit conhecido. Integrados: Desktop Shell, EventBus, Dashboard, PDF, Printing, Finance Domain, Storage, QA, Security e Release. QA/segurança/release permanecem **opt-in**.
 
 ### 03 — Autenticação e permissões ✅
 Administrador local, `scrypt` + salt, sessões locais, perfis `ADMIN`, `FINANCE`, `MANAGER`, `READONLY`, RBAC no processo principal e auditoria.
@@ -77,7 +77,7 @@ Para acesso pelo celular/tablet, o administrador deve abrir **Sistema → Rede l
 ### 15 — Gates finais e QA real ✅
 - fixture determinística e isolada, ativa apenas com `ARTISYS_QA=1`;
 - fluxo Playwright sobre o **Electron real**, não mockups;
-- 11 capturas finais nomeadas das telas principais;
+- 12 capturas finais nomeadas das telas principais;
 - gate local fail-closed para testes, sintaxe Node, TypeScript/Vite, segurança e release;
 - empacotamento Windows NSIS executado localmente;
 - nenhum GitHub Actions é necessário para o fechamento.
@@ -96,6 +96,23 @@ Para acesso pelo celular/tablet, o administrador deve abrir **Sistema → Rede l
 - toda importação e decisão de conciliação é auditada.
 
 A tela **Extratos** permite selecionar conta, fonte, analisar o arquivo, revisar classificação/duplicidades e somente então confirmar a importação. PDF escaneado continua fora do núcleo: OCR será um adapter local opcional, sem virar dependência obrigatória.
+
+### 17 — Workspace pessoal / Explorer local ✅
+- nova aba **Organização → Workspace** no menu principal;
+- navegação por árvore de pastas e breadcrumbs, com voltar/avançar;
+- visualização em lista ou grade, ordenação e busca recursiva;
+- criação de pastas e arquivos vazios;
+- importação de múltiplos arquivos pelo seletor nativo do sistema operacional;
+- renomear, copiar e mover arquivos/pastas;
+- drag-and-drop interno para mover itens entre pastas;
+- menu de contexto para abrir, revelar no Explorer, renomear, mover, copiar e excluir;
+- lixeira interna com restauração e exclusão definitiva;
+- arquivos físicos permanecem em `app.getPath('userData')/workspace`;
+- `@artisys/storage` guarda metadados da lixeira e preferências do Explorer em SQLite local;
+- o renderer nunca recebe acesso direto ao filesystem nem caminhos absolutos;
+- caminhos absolutos, `..`, nomes reservados do Windows e path traversal são bloqueados no processo principal.
+
+O Workspace é **pessoal**. Ele não cria empresas, tenants, `companyId` ou workspaces corporativos. O nome representa apenas uma área de arquivos organizada dentro do aplicativo.
 
 ## Primeiro uso no desenvolvimento
 
@@ -142,6 +159,16 @@ CSV / OFX / PDF texto / Manual
             ↓
      SQLite local auditado
 
+Workspace React
+      ↓
+preload IPC restrito
+      ↓
+Workspace Service ─────────→ arquivos em userData/workspace
+      ↓
+@artisys/storage
+      ↓
+metadados/preferências SQLite
+
 Desktop React renderer                   Celular/tablet (opcional)
           ↓                                      ↓
 preload IPC restrito                    HTTP LAN pareado
@@ -151,7 +178,7 @@ IPC + RBAC                          API local read-first
                          ↓
 Auth / Finance / Registry / Alerts
 Cashflow / Analytics / Recurrence / Reports
-Statements / Backup / LAN
+Statements / Workspace / Backup / LAN
                          ↓
                   DatabaseService
                          ↓
@@ -160,15 +187,15 @@ Statements / Backup / LAN
 vendor/utilidades
       ↓
 Desktop Shell / EventBus / Dashboard / PDF / Printing
-Finance Domain / QA / Security / Release (opt-in quando aplicável)
+Finance Domain / Storage / QA / Security / Release (opt-in quando aplicável)
 ```
 
 O renderer desktop não recebe acesso direto a Node, filesystem ou SQLite. Valores monetários permanecem em centavos inteiros. Mutações financeiras e administrativas são autorizadas no processo principal e auditadas.
 
 ## Dados locais
 
-O banco `sistema-financeiro.sqlite` fica em `app.getPath('userData')`. Dados do usuário não são versionados no Git.
+O banco `sistema-financeiro.sqlite` fica em `app.getPath('userData')`. O Workspace fica em `app.getPath('userData')/workspace`, com metadados auxiliares em `workspace-meta.sqlite`. Dados do usuário não são versionados no Git.
 
 ## Release final
 
-O release só deve ser considerado homologado depois de `npm run final:release` finalizar com sucesso no Windows e o fluxo `final-screens` gerar as onze evidências PNG do Electron real.
+O release só deve ser considerado homologado depois de `npm run final:release` finalizar com sucesso no Windows e o fluxo `final-screens` gerar as doze evidências PNG do Electron real.
