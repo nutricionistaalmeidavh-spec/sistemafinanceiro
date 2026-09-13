@@ -1,9 +1,10 @@
-name: Final Release E14-E15
+name: Final Release E16
 
 on:
   push:
     branches:
       - feat/e14-e15-final-polish
+      - feat/e16-finance-ui
   workflow_dispatch:
 
 permissions:
