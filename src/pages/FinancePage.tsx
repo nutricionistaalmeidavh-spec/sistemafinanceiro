@@ -1,5 +1,5 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
-import { FileDown, Landmark, Plus, Printer, RotateCcw, XCircle } from 'lucide-react';
+import { FileDown, Landmark, Plus, Printer, RotateCcw, Search, XCircle } from 'lucide-react';
 import { FinanceButton, FinanceDrawer, FinanceStatusBadge, FinanceToolbar } from '../components/finance-ui';
 import { brl, can, toCents, today } from '../lib/format';
 
@@ -124,11 +124,7 @@ export default function FinancePage({ token, session }: Props) {
     {error && <div className="error-box">{error}</div>}
     <div className="segmented"><button type="button" className={kind==='PAYABLE'?'active':''} onClick={() => setKind('PAYABLE')}>Contas a pagar</button><button type="button" className={kind==='RECEIVABLE'?'active':''} onClick={() => setKind('RECEIVABLE')}>Contas a receber</button></div>
     <FinanceToolbar
-      search={search}
-      onSearchChange={setSearch}
-      searchTestId="finance-search"
-      placeholder="Buscar descrição, pessoa ou categoria"
-      filters={<label className="filter-control"><span>Status</span><select aria-label="Filtrar status" value={statusFilter} onChange={(e)=>setStatusFilter(e.target.value as StatusFilter)}><option value="ALL">Todos os status</option><option value="OPEN">Em aberto</option><option value="PARTIAL">Parcial</option><option value="SETTLED">Quitado</option><option value="OVERDUE">Vencido</option><option value="CANCELLED">Cancelado</option></select></label>}
+      filters={<><label className="finance-search-control"><Search size={16}/><input data-testid="finance-search" aria-label="Buscar lançamentos" value={search} onChange={(e)=>setSearch(e.target.value)} placeholder="Buscar descrição, pessoa ou categoria"/></label><label className="filter-control"><span>Status</span><select aria-label="Filtrar status" value={statusFilter} onChange={(e)=>setStatusFilter(e.target.value as StatusFilter)}><option value="ALL">Todos os status</option><option value="OPEN">Em aberto</option><option value="PARTIAL">Parcial</option><option value="SETTLED">Quitado</option><option value="OVERDUE">Vencido</option><option value="CANCELLED">Cancelado</option></select></label></>}
       actions={editable ? <FinanceButton type="button" data-testid="finance-new-entry" onClick={()=>setEntryDrawerOpen(true)}><Plus size={16}/>Novo lançamento</FinanceButton> : undefined}
     />
 
