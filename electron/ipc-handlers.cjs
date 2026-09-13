@@ -1,6 +1,6 @@
 'use strict';
 
-function registerIpcHandlers({ ipcMain, app, dialog, database, auth, finance, registry, cashflow, analytics, recurrence, alerts, reports, backup, lan, documents, statements }) {
+function registerIpcHandlers({ ipcMain, app, dialog, database, auth, finance, registry, cashflow, analytics, recurrence, alerts, reports, backup, lan, documents, statements, workspace }) {
   if (!ipcMain?.handle) throw new TypeError('ipcMain is required');
   ipcMain.handle('system:health', () => database.health());
 
@@ -28,6 +28,30 @@ function registerIpcHandlers({ ipcMain, app, dialog, database, auth, finance, re
   ipcMain.handle('statements:suggest-transfers', async (_event, token, filters) => { auth.require(token, 'finance.view'); return statements.suggestTransfers(filters || {}); });
   ipcMain.handle('statements:suggest-entries', async (_event, token, filters) => { auth.require(token, 'finance.view'); return statements.suggestEntries(filters || {}); });
   ipcMain.handle('statements:decision', async (_event, token, input) => { const actor = auth.require(token, 'finance.manage'); return statements.recordDecision(input || {}, actor); });
+
+  ipcMain.handle('workspace:list', (_event, token, relativePath) => { auth.require(token, 'finance.view'); return workspace.list(relativePath || ''); });
+  ipcMain.handle('workspace:tree', (_event, token) => { auth.require(token, 'finance.view'); return workspace.tree(); });
+  ipcMain.handle('workspace:search', (_event, token, query) => { auth.require(token, 'finance.view'); return workspace.search(query || ''); });
+  ipcMain.handle('workspace:trash:list', (_event, token) => { auth.require(token, 'finance.view'); return workspace.listTrash(); });
+  ipcMain.handle('workspace:preferences', (_event, token) => { auth.require(token, 'finance.view'); return workspace.preferences(); });
+  ipcMain.handle('workspace:create-folder', (_event, token, parentPath, name) => { auth.require(token, 'finance.manage'); return workspace.createFolder(parentPath || '', name); });
+  ipcMain.handle('workspace:create-file', (_event, token, parentPath, name, content) => { auth.require(token, 'finance.manage'); return workspace.createFile(parentPath || '', name, content || ''); });
+  ipcMain.handle('workspace:rename', (_event, token, relativePath, name) => { auth.require(token, 'finance.manage'); return workspace.rename(relativePath, name); });
+  ipcMain.handle('workspace:move', (_event, token, relativePath, targetPath) => { auth.require(token, 'finance.manage'); return workspace.move(relativePath, targetPath || ''); });
+  ipcMain.handle('workspace:copy', (_event, token, relativePath, targetPath) => { auth.require(token, 'finance.manage'); return workspace.copy(relativePath, targetPath || ''); });
+  ipcMain.handle('workspace:trash', (_event, token, relativePath) => { auth.require(token, 'finance.manage'); return workspace.trash(relativePath); });
+  ipcMain.handle('workspace:trash:restore', (_event, token, id) => { auth.require(token, 'finance.manage'); return workspace.restore(id); });
+  ipcMain.handle('workspace:trash:delete', (_event, token, id) => { auth.require(token, 'finance.manage'); return workspace.deleteForever(id); });
+  ipcMain.handle('workspace:preferences:set', (_event, token, input) => { auth.require(token, 'finance.manage'); return workspace.setPreferences(input || {}); });
+  ipcMain.handle('workspace:import-select', async (_event, token, targetPath) => {
+    auth.require(token, 'finance.manage');
+    if (!dialog) throw new Error('file dialog unavailable');
+    const selected = await dialog.showOpenDialog({ title: 'Adicionar arquivos ao Workspace', properties: ['openFile', 'multiSelections'] });
+    if (selected.canceled || !selected.filePaths?.length) return { canceled: true, items: [] };
+    return { canceled: false, items: await workspace.importFiles(targetPath || '', selected.filePaths) };
+  });
+  ipcMain.handle('workspace:open', (_event, token, relativePath) => { auth.require(token, 'finance.view'); return workspace.open(relativePath); });
+  ipcMain.handle('workspace:reveal', (_event, token, relativePath) => { auth.require(token, 'finance.view'); return workspace.reveal(relativePath); });
 
   ipcMain.handle('cashflow:movements:list', (_event, token, filters) => { auth.require(token, 'finance.view'); return cashflow.listMovements(filters || {}); });
   ipcMain.handle('cashflow:movements:create', (_event, token, input) => { const actor = auth.require(token, 'finance.manage'); return cashflow.createManualMovement(input, actor); });
