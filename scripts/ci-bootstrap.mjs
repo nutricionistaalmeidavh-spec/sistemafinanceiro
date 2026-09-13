@@ -119,6 +119,10 @@ const sourceFinanceDomain = path.resolve('ci/artisys-finance-domain');
 const targetFinanceDomain = path.join(root, 'artisys-finance-domain');
 fs.cpSync(sourceFinanceDomain, targetFinanceDomain, { recursive: true });
 
+const sourceStorage = path.resolve('ci/artisys-storage');
+const targetStorage = path.join(root, 'artisys-storage');
+fs.cpSync(sourceStorage, targetStorage, { recursive: true });
+
 const sourceSecurity = path.resolve('ci/artisys-security');
 const targetSecurity = path.join(root, 'artisys-security');
 fs.cpSync(sourceSecurity, targetSecurity, { recursive: true });
