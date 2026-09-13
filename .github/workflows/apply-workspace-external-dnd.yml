@@ -1,0 +1,56 @@
+name: Apply Workspace External Drop
+
+on:
+  push:
+    branches:
+      - feat/workspace-external-dnd
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: feat/workspace-external-dnd
+          fetch-depth: 0
+          submodules: false
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Apply implementation patch
+        run: node scripts/apply-workspace-external-dnd.mjs
+
+      - name: Prepare pinned ArtiSys dependencies
+        run: npm run ci:bootstrap
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Syntax checks
+        run: |
+          node --check electron/services/workspace-service.cjs
+          node --check electron/ipc-handlers.cjs
+          node --check electron/preload.cjs
+
+      - name: Full tests
+        run: npm test
+
+      - name: TypeScript and Vite build
+        run: npm run build
+
+      - name: Commit verified implementation
+        run: |
+          rm -f scripts/apply-workspace-external-dnd.mjs .github/workflows/apply-workspace-external-dnd.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "feat: importar arquivos externos por arrastar e soltar"
+          git push origin HEAD:feat/workspace-external-dnd
