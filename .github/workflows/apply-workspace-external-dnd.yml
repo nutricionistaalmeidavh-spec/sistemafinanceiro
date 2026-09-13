@@ -25,6 +25,16 @@ jobs:
         with:
           node-version: '22'
 
+      - name: Fix temporary patch interpolation
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('scripts/apply-workspace-external-dnd.mjs')
+          s = p.read_text()
+          s = s.replace(r"source.startsWith(\`${root}\${path.sep}\`)", "source.startsWith(root + path.sep)")
+          p.write_text(s)
+          PY
+
       - name: Apply implementation patch
         run: node scripts/apply-workspace-external-dnd.mjs
 
