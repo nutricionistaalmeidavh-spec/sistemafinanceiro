@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('financeiro', {
   system: { health: () => ipcRenderer.invoke('system:health') },
@@ -40,6 +40,10 @@ contextBridge.exposeInMainWorld('financeiro', {
     createFolder: (token, parentPath, name) => ipcRenderer.invoke('workspace:create-folder', token, parentPath, name),
     createFile: (token, parentPath, name, content) => ipcRenderer.invoke('workspace:create-file', token, parentPath, name, content),
     importFiles: (token, targetPath) => ipcRenderer.invoke('workspace:import-select', token, targetPath),
+    importDropped: (token, targetPath, files) => {
+      const sourcePaths = Array.from(files || []).map((file) => webUtils.getPathForFile(file)).filter(Boolean);
+      return ipcRenderer.invoke('workspace:import-paths', token, targetPath, sourcePaths);
+    },
     rename: (token, relativePath, name) => ipcRenderer.invoke('workspace:rename', token, relativePath, name),
     move: (token, relativePath, targetPath) => ipcRenderer.invoke('workspace:move', token, relativePath, targetPath),
     copy: (token, relativePath, targetPath) => ipcRenderer.invoke('workspace:copy', token, relativePath, targetPath),

@@ -36,6 +36,12 @@ function registerIpcHandlers({ ipcMain, app, dialog, database, auth, finance, re
   ipcMain.handle('workspace:preferences', (_event, token) => { auth.require(token, 'finance.view'); return workspace.preferences(); });
   ipcMain.handle('workspace:create-folder', (_event, token, parentPath, name) => { auth.require(token, 'finance.manage'); return workspace.createFolder(parentPath || '', name); });
   ipcMain.handle('workspace:create-file', (_event, token, parentPath, name, content) => { auth.require(token, 'finance.manage'); return workspace.createFile(parentPath || '', name, content || ''); });
+  ipcMain.handle('workspace:import-paths', (_event, token, targetPath, sourcePaths) => {
+    auth.require(token, 'finance.manage');
+    if (!Array.isArray(sourcePaths)) throw new TypeError('sourcePaths must be an array');
+    const paths = sourcePaths.filter((value) => typeof value === 'string' && value.trim()).slice(0, 200);
+    return workspace.importFiles(targetPath || '', paths);
+  });
   ipcMain.handle('workspace:rename', (_event, token, relativePath, name) => { auth.require(token, 'finance.manage'); return workspace.rename(relativePath, name); });
   ipcMain.handle('workspace:move', (_event, token, relativePath, targetPath) => { auth.require(token, 'finance.manage'); return workspace.move(relativePath, targetPath || ''); });
   ipcMain.handle('workspace:copy', (_event, token, relativePath, targetPath) => { auth.require(token, 'finance.manage'); return workspace.copy(relativePath, targetPath || ''); });
