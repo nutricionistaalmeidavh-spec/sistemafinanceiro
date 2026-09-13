@@ -122,7 +122,7 @@ try {
   }
 
   const files = fs.readdirSync(output).filter((file) => file.endsWith('.png')).sort();
-  if (files.length !== 11) throw new Error(`Expected 11 final screenshots, found ${files.length}`);
+  if (files.length !== 12) throw new Error(`Expected 12 final screenshots, found ${files.length}`);
   console.log(`FINAL_SCREENSHOTS_OK ${files.length}`);
 } catch (error) {
   console.error(error.stack || error.message || error);
