@@ -57,7 +57,7 @@ export default function App() {
       <nav aria-label="Navegação principal">
         {group('Visão geral', <>{nav('dashboard','Dashboard',<Database size={18}/>)}{nav('alerts','Alertas',<BellRing size={18}/>)}</>)}
         {group('Financeiro', <>{nav('cashflow','Fluxo de Caixa',<ArrowLeftRight size={18}/>)}{nav('finance','Pagar / Receber',<ReceiptText size={18}/>)}{nav('statements','Extratos',<FileInput size={18}/>)}{nav('dre','DRE',<BarChart3 size={18}/>)}{nav('reports','Relatórios',<FileText size={18}/>)}{nav('recurring','Recorrências',<Repeat2 size={18}/>)}</>)}
-        {group('Organização', <>{nav('workspace','Workspace',<Folder size={18}/>)}{nav('registry','Cadastros',<Users size={18}/>)}</>)}
+        {group('Dados', <>{nav('workspace','Workspace',<Folder size={18}/>)}{nav('registry','Cadastros',<Users size={18}/>)}</>)}
         {(showUsers || showSystem) && group('Administração', <>{showUsers && nav('users','Acessos',<Users size={18}/>)}{showSystem && nav('system','Sistema',<Settings size={18}/>)}</>)}
       </nav>
       <div className="sidebar-footer"><div><strong>{session.user.name}</strong><small>{session.user.role}</small></div><button type="button" title="Sair" aria-label="Sair" data-testid="logout" onClick={()=>void logout()}><LogOut size={17}/></button></div>
