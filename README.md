@@ -77,7 +77,7 @@ Para acesso pelo celular/tablet, o administrador deve abrir **Sistema → Rede l
 ### 15 — Gates finais e QA real ✅
 - fixture determinística e isolada, ativa apenas com `ARTISYS_QA=1`;
 - fluxo Playwright sobre o **Electron real**, não mockups;
-- 10 capturas finais nomeadas das telas principais;
+- 11 capturas finais nomeadas das telas principais;
 - gate local fail-closed para testes, sintaxe Node, TypeScript/Vite, segurança e release;
 - empacotamento Windows NSIS executado localmente;
 - nenhum GitHub Actions é necessário para o fechamento.
@@ -171,4 +171,4 @@ O banco `sistema-financeiro.sqlite` fica em `app.getPath('userData')`. Dados do 
 
 ## Release final
 
-O release só deve ser considerado homologado depois de `npm run final:release` finalizar com sucesso no Windows e o fluxo `final-screens` gerar as dez evidências PNG do Electron real.
+O release só deve ser considerado homologado depois de `npm run final:release` finalizar com sucesso no Windows e o fluxo `final-screens` gerar as onze evidências PNG do Electron real.
