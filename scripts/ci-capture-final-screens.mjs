@@ -92,7 +92,7 @@ try {
   for (const step of flow.steps) {
     switch (step.action) {
       case 'waitFor':
-        await locator(page, step).waitFor({ state: step.state || 'visible', timeout: step.timeoutMs || 15000 });
+        await locator(page, step).first().waitFor({ state: step.state || 'visible', timeout: step.timeoutMs || 15000 });
         break;
       case 'fill': {
         const value = step.valueFromEnv === 'ARTISYS_QA_PASSWORD'
