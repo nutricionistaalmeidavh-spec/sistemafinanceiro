@@ -8,10 +8,15 @@ const root = process.cwd();
 const output = path.resolve('qa-artifacts/final/screenshots');
 const flow = JSON.parse(fs.readFileSync('qa/flows/final-screens.json', 'utf8'));
 const qaPassword = process.env.ARTISYS_QA_PASSWORD || `Qa-${randomBytes(18).toString('hex')}`;
-const viteCli = path.resolve('node_modules/vite/bin/vite.js');
+const packagedExecutable = process.platform === 'win32'
+  ? path.resolve('release/win-unpacked/ArtiSys Financeiro.exe')
+  : null;
 const electronExecutable = process.platform === 'win32'
   ? path.resolve('node_modules/electron/dist/electron.exe')
   : path.resolve('node_modules/electron/dist/electron');
+const usePackagedApp = Boolean(packagedExecutable && fs.existsSync(packagedExecutable));
+const executablePath = usePackagedApp ? packagedExecutable : electronExecutable;
+const viteCli = path.resolve('node_modules/vite/bin/vite.js');
 
 fs.rmSync(path.resolve('qa-artifacts/final'), { recursive: true, force: true });
 fs.mkdirSync(output, { recursive: true });
@@ -47,33 +52,38 @@ function stopTree(child) {
   }
 }
 
-if (!fs.existsSync(viteCli)) throw new Error(`Vite CLI not found: ${viteCli}`);
-const vite = spawn(process.execPath, [viteCli, '--host', '127.0.0.1', '--port', '5173', '--strictPort'], {
-  cwd: root,
-  env: process.env,
-  stdio: ['ignore', 'pipe', 'pipe'],
-  shell: false,
-});
+let vite = null;
 const viteLogs = [];
-vite.stdout.on('data', (chunk) => viteLogs.push(String(chunk)));
-vite.stderr.on('data', (chunk) => viteLogs.push(String(chunk)));
+if (!usePackagedApp) {
+  if (!fs.existsSync(viteCli)) throw new Error(`Vite CLI not found: ${viteCli}`);
+  vite = spawn(process.execPath, [viteCli, '--host', '127.0.0.1'], {
+    cwd: root,
+    env: process.env,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    shell: false,
+  });
+  vite.stdout.on('data', (chunk) => viteLogs.push(String(chunk)));
+  vite.stderr.on('data', (chunk) => viteLogs.push(String(chunk)));
+}
 
 let app = null;
 try {
-  await waitForServer('http://127.0.0.1:5173', 60000);
-  if (!fs.existsSync(electronExecutable)) throw new Error(`Electron executable not found: ${electronExecutable}`);
+  if (!usePackagedApp) await waitForServer('http://127.0.0.1:5173', 60000);
+  if (!fs.existsSync(executablePath)) throw new Error(`Electron executable not found: ${executablePath}`);
+
+  const appEnv = {
+    ...process.env,
+    ARTISYS_QA: '1',
+    ARTISYS_QA_RESET: '1',
+    ARTISYS_QA_PASSWORD: qaPassword,
+  };
+  if (!usePackagedApp) appEnv.VITE_DEV_SERVER_URL = 'http://127.0.0.1:5173';
 
   app = await electron.launch({
-    executablePath: electronExecutable,
-    args: [path.resolve('electron/main.cjs')],
+    executablePath,
+    args: usePackagedApp ? [] : [path.resolve('electron/main.cjs')],
     cwd: root,
-    env: {
-      ...process.env,
-      ARTISYS_QA: '1',
-      ARTISYS_QA_RESET: '1',
-      ARTISYS_QA_PASSWORD: qaPassword,
-      VITE_DEV_SERVER_URL: 'http://127.0.0.1:5173',
-    },
+    env: appEnv,
     timeout: 60000,
   });
   const page = await app.firstWindow();
