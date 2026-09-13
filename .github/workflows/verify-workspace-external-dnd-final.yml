@@ -1,0 +1,38 @@
+name: Verify Workspace External Drop Final
+
+on:
+  push:
+    branches:
+      - verify/workspace-external-dnd-final
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact feature commit
+        uses: actions/checkout@v4
+        with:
+          ref: 602f84e8cf4bbb1f62ba0f33b325d2f44ca50234
+          fetch-depth: 1
+          submodules: false
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Prepare pinned ArtiSys dependencies
+        run: npm run ci:bootstrap
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Syntax checks
+        run: |
+          node --check electron/services/workspace-service.cjs
+          node --check electron/ipc-handlers.cjs
+          node --check electron/preload.cjs
+      - name: Tests
+        run: npm test
+      - name: Build
+        run: npm run build
