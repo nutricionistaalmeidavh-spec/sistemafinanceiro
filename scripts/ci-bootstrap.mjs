@@ -63,6 +63,10 @@ pkg('artisys-pdf', {
 write('artisys-pdf/src/index.mjs', `
 export function normalizePdfInputs(value){ return Array.isArray(value) ? value.map((item)=>({ ...item })) : value; }
 export function validatePdfTemplate(value){ return Boolean(value && typeof value === 'object'); }
+export async function loadPdfDocument(source, { pdfjs } = {}) {
+  if (!pdfjs || typeof pdfjs.getDocument !== 'function') throw new TypeError('PDF.js runtime must expose getDocument');
+  return pdfjs.getDocument(source).promise;
+}
 `);
 
 pkg('artisys-printing', {
@@ -111,8 +115,12 @@ export async function runReleaseGate(runners,value){const plan=createReleasePlan
 export function hashArtifact(data){return createHash('sha256').update(data).digest('hex')}
 `);
 
+const sourceFinanceDomain = path.resolve('ci/artisys-finance-domain');
+const targetFinanceDomain = path.join(root, 'artisys-finance-domain');
+fs.cpSync(sourceFinanceDomain, targetFinanceDomain, { recursive: true });
+
 const sourceSecurity = path.resolve('ci/artisys-security');
 const targetSecurity = path.join(root, 'artisys-security');
 fs.cpSync(sourceSecurity, targetSecurity, { recursive: true });
 
-console.log('[ci-bootstrap] Prepared pinned credential-free ArtiSys CI fallback at utilidades commit 1c8d00810dcaa9010330ce7adc2877c90484d17d.');
+console.log('[ci-bootstrap] Prepared pinned credential-free ArtiSys CI fallback at utilidades commit 1a5854d83e4253924150a9313f6f556d68f3108e.');
