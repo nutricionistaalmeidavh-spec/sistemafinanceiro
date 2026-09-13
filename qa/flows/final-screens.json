@@ -34,7 +34,7 @@
     { "action": "screenshot", "name": "07-alertas-final" },
     { "action": "click", "testId": "nav-reports", "name": "open-reports" },
     { "action": "waitFor", "text": "Financeiro e exportações", "name": "reports-ready" },
-    { "action": "waitFor", "text": "Aluguel escritório", "name": "reports-data-ready" },
+    { "action": "waitFor", "text": "Energia elétrica", "name": "reports-data-ready" },
     { "action": "screenshot", "name": "08-relatorios-final" },
     { "action": "click", "testId": "nav-system", "name": "open-system" },
     { "action": "waitFor", "text": "Backup e acesso local", "name": "system-ready" },
