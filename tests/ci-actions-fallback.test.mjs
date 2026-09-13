@@ -15,6 +15,8 @@ test('GitHub Actions can prepare pinned ArtiSys tooling without cross-repo crede
   for (const name of ['desktop-shell','eventbus','dashboard','pdf','printing','qa','release']) {
     assert.match(bootstrap, new RegExp(`@artisys/${name.replace('desktop-shell','desktop-shell')}`));
   }
+  assert.match(bootstrap, /artisys-finance-domain/);
+  assert.equal(JSON.parse(read('ci/artisys-finance-domain/package.json')).name, '@artisys/finance-domain');
   assert.match(security, /ci[\\/]artisys-security/);
   assert.doesNotMatch(workflow, /submodules:\s*recursive/);
   assert.match(workflow, /npm run ci:bootstrap/);
