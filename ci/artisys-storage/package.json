@@ -1,0 +1,8 @@
+{
+  "name": "@artisys/storage",
+  "version": "0.2.1-ci-pinned",
+  "type": "module",
+  "exports": "./src/index.mjs",
+  "engines": { "node": ">=22" },
+  "license": "MIT"
+}
