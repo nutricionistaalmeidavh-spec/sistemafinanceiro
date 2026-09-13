@@ -1,0 +1,41 @@
+name: Verify Statement Import
+
+on:
+  push:
+    branches:
+      - verify/statement-import-pipeline-7730
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact feature commit
+        uses: actions/checkout@v4
+        with:
+          ref: 7730caa5e32bf14ab39178b70720907d4bfcea04
+          fetch-depth: 1
+          submodules: false
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Prepare pinned ArtiSys dependencies
+        run: npm run ci:bootstrap
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Syntax check statement service
+        run: node --check electron/services/statement-import-service.cjs
+
+      - name: Unit and contract tests
+        run: npm test
+
+      - name: TypeScript and Vite build
+        run: npm run build
