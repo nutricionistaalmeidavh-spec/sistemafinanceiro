@@ -1,7 +1,7 @@
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const { DatabaseService } = require('./services/database.cjs');
 const { createAuthService } = require('./services/auth-service.cjs');
 const { createFinanceService } = require('./services/finance-service.cjs');
@@ -15,6 +15,7 @@ const { createBackupService } = require('./services/backup-service.cjs');
 const { createLanService } = require('./services/lan-service.cjs');
 const { createDocumentService } = require('./services/document-service.cjs');
 const { createStatementImportService } = require('./services/statement-import-service.cjs');
+const { createWorkspaceService } = require('./services/workspace-service.cjs');
 const { seedQaFixture } = require('./services/qa-fixture-service.cjs');
 const { registerIpcHandlers } = require('./ipc-handlers.cjs');
 
@@ -27,6 +28,7 @@ if (qaMode) {
 
 let database;
 let lanService;
+let workspaceService;
 
 function createWindow() {
   const window = new BrowserWindow({
@@ -68,12 +70,17 @@ app.whenReady().then(async () => {
   const backup = createBackupService({ database, backupsDir: path.join(app.getPath('userData'), 'backups') });
   const documents = createDocumentService({ BrowserWindow, dialog });
   const statements = createStatementImportService({ db });
+  workspaceService = createWorkspaceService({
+    rootDir: path.join(app.getPath('userData'), 'workspace'),
+    storageFile: path.join(app.getPath('userData'), 'workspace-meta.sqlite'),
+    shell,
+  });
   lanService = createLanService({ db, finance, cashflow, analytics, alerts });
 
   try { backup.runAutomaticBackup(); } catch (error) { console.error('Automatic backup failed:', error); }
   try { await lanService.startConfigured(); } catch (error) { console.error('LAN server failed to start:', error); }
 
-  registerIpcHandlers({ ipcMain, app, dialog, database, auth, finance, registry, cashflow, analytics, recurrence, alerts, reports, backup, lan: lanService, documents, statements });
+  registerIpcHandlers({ ipcMain, app, dialog, database, auth, finance, registry, cashflow, analytics, recurrence, alerts, reports, backup, lan: lanService, documents, statements, workspace: workspaceService });
 
   createWindow();
   app.on('activate', () => {
@@ -87,5 +94,6 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   lanService?.stop().catch(() => {});
+  workspaceService?.close().catch(() => {});
   database?.close();
 });
