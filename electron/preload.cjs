@@ -22,6 +22,14 @@ contextBridge.exposeInMainWorld('financeiro', {
     cancelEntry: (token, entryId, reason) => ipcRenderer.invoke('finance:entries:cancel', token, entryId, reason),
     summary: (token, filters) => ipcRenderer.invoke('finance:summary', token, filters),
   },
+  statements: {
+    preview: (token, input) => ipcRenderer.invoke('statements:preview', token, input),
+    commit: (token, input) => ipcRenderer.invoke('statements:commit', token, input),
+    list: (token, filters) => ipcRenderer.invoke('statements:list', token, filters),
+    suggestTransfers: (token, filters) => ipcRenderer.invoke('statements:suggest-transfers', token, filters),
+    suggestEntries: (token, filters) => ipcRenderer.invoke('statements:suggest-entries', token, filters),
+    decision: (token, input) => ipcRenderer.invoke('statements:decision', token, input),
+  },
   cashflow: {
     listMovements: (token, filters) => ipcRenderer.invoke('cashflow:movements:list', token, filters),
     createMovement: (token, input) => ipcRenderer.invoke('cashflow:movements:create', token, input),
