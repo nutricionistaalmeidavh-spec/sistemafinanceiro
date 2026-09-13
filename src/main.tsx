@@ -4,7 +4,6 @@ import App from './App';
 import './styles.css';
 import './final-polish.css';
 import './finance-ui.css';
-import './lote-c-theme.css';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
