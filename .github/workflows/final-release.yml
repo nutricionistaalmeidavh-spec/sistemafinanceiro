@@ -5,7 +5,6 @@ on:
     branches:
       - feat/e14-e15-final-polish
       - feat/e16-finance-ui
-      - main
   workflow_dispatch:
 
 permissions:
