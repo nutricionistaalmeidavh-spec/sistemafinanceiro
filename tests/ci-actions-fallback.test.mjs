@@ -17,6 +17,9 @@ test('GitHub Actions can prepare pinned ArtiSys tooling without cross-repo crede
   }
   assert.match(bootstrap, /artisys-finance-domain/);
   assert.equal(JSON.parse(read('ci/artisys-finance-domain/package.json')).name, '@artisys/finance-domain');
+  assert.match(bootstrap, /artisys-storage/);
+  assert.equal(JSON.parse(read('ci/artisys-storage/package.json')).name, '@artisys/storage');
+  assert.equal(pkg.dependencies['@artisys/storage'], 'file:vendor/utilidades/modules/artisys-storage');
   assert.match(security, /ci[\\/]artisys-security/);
   assert.doesNotMatch(workflow, /submodules:\s*recursive/);
   assert.match(workflow, /npm run ci:bootstrap/);
