@@ -16,7 +16,7 @@ jobs:
       - name: Checkout exact feature commit
         uses: actions/checkout@v4
         with:
-          ref: c240158b69600031dc17c8933da7516229436399
+          ref: ed9c3733da949b78dbd997a15f1bfe657686fabe
           fetch-depth: 1
           submodules: false
 
