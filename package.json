@@ -35,7 +35,8 @@
     "@artisys/dashboard": "file:vendor/utilidades/modules/artisys-dashboard",
     "@artisys/finance-domain": "file:vendor/utilidades/modules/artisys-finance-domain",
     "@artisys/pdf": "file:vendor/utilidades/modules/artisys-pdf",
-    "@artisys/printing": "file:vendor/utilidades/modules/artisys-printing"
+    "@artisys/printing": "file:vendor/utilidades/modules/artisys-printing",
+    "@artisys/storage": "file:vendor/utilidades/modules/artisys-storage"
   },
   "devDependencies": {
     "@types/react": "19.2.18",
