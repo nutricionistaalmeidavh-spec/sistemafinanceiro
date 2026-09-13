@@ -10,6 +10,7 @@ const { createFinanceService } = require('../../electron/services/finance-servic
 const { createCashflowService } = require('../../electron/services/cashflow-service.cjs');
 const { createAnalyticsService } = require('../../electron/services/analytics-service.cjs');
 const { createRecurrenceService } = require('../../electron/services/recurrence-service.cjs');
+const { createStatementImportService } = require('../../electron/services/statement-import-service.cjs');
 
 export function createHarness() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sistemafinanceiro-e06e09-'));
@@ -21,5 +22,6 @@ export function createHarness() {
   const cashflow = createCashflowService({ db, now });
   const analytics = createAnalyticsService({ db, finance, cashflow, now });
   const recurrence = createRecurrenceService({ db, finance, now });
-  return { root, database, db, finance, cashflow, analytics, recurrence, cleanup() { database.close(); fs.rmSync(root, { recursive: true, force: true }); } };
+  const statements = createStatementImportService({ db, now });
+  return { root, database, db, finance, cashflow, analytics, recurrence, statements, cleanup() { database.close(); fs.rmSync(root, { recursive: true, force: true }); } };
 }
