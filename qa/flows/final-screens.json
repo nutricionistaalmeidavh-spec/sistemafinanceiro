@@ -47,6 +47,10 @@
     { "action": "click", "testId": "nav-statements", "name": "open-statements" },
     { "action": "waitFor", "text": "Importação e conciliação bancária", "name": "statements-ready" },
     { "action": "waitFor", "text": "Nenhum extrato importado", "name": "statements-empty-ready" },
-    { "action": "screenshot", "name": "11-extratos-final" }
+    { "action": "screenshot", "name": "11-extratos-final" },
+    { "action": "click", "testId": "nav-workspace", "name": "open-workspace" },
+    { "action": "waitFor", "testId": "workspace-page", "name": "personal-workspace-ready" },
+    { "action": "waitFor", "text": "Esta pasta está vazia", "name": "workspace-empty-ready" },
+    { "action": "screenshot", "name": "12-workspace-final" }
   ]
 }
