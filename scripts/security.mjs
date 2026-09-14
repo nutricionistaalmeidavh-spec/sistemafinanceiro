@@ -5,9 +5,13 @@ import path from 'node:path';
 const python = process.platform === 'win32' ? 'python' : 'python3';
 const primary = path.resolve('vendor/utilidades/modules/artisys-security/security.py');
 const fallback = path.resolve('ci/artisys-security/security.py');
-const scanner = fs.existsSync(primary) ? primary : fallback;
+const engine = process.env.ARTISYS_SECURITY_ENGINE || 'docker';
+const preferPortableSnapshot = process.platform === 'win32' && engine === 'docker';
+const scanner = preferPortableSnapshot && fs.existsSync(fallback)
+  ? fallback
+  : (fs.existsSync(primary) ? primary : fallback);
 const mode = process.argv.includes('--release') ? 'release' : 'commit';
-const args = [scanner, process.cwd(), '--engine', process.env.ARTISYS_SECURITY_ENGINE || 'docker'];
+const args = [scanner, process.cwd(), '--engine', engine];
 if (mode === 'release') args.push('--mode', 'release');
 
 if (!fs.existsSync(scanner)) {
