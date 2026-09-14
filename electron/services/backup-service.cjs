@@ -3,6 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { createHash, randomUUID } = require('node:crypto');
+const { DatabaseSync } = require('node:sqlite');
 const { writeAudit } = require('./audit.cjs');
 
 function sha256File(filePath) {
@@ -21,10 +22,7 @@ function createBackupService({
 } = {}) {
   if (!database || !backupsDir) throw new TypeError('database and backupsDir are required');
   const nowIso = () => String(now());
-  const factory = verifyDatabaseFactory || ((filename) => {
-    const Database = require('better-sqlite3');
-    return new Database(filename, { readonly: true });
-  });
+  const factory = verifyDatabaseFactory || ((filename) => new DatabaseSync(filename, { readOnly: true }));
   fs.mkdirSync(backupsDir, { recursive: true });
 
   function recordBackup({ id, kind, filePath, hash, bytes, schemaVersion, status = 'VERIFIED', createdAt = nowIso(), verifiedAt = nowIso() }) {
