@@ -16,8 +16,10 @@ const { createLanService } = require('./services/lan-service.cjs');
 const { createDocumentService } = require('./services/document-service.cjs');
 const { createStatementImportService } = require('./services/statement-import-service.cjs');
 const { createWorkspaceService } = require('./services/workspace-service.cjs');
+const { createPlanningService } = require('./services/planning-service.cjs');
 const { seedQaFixture } = require('./services/qa-fixture-service.cjs');
 const { registerIpcHandlers } = require('./ipc-handlers.cjs');
+const { registerPlanningIpcHandlers } = require('./planning-ipc.cjs');
 
 const qaMode = process.env.ARTISYS_QA === '1';
 if (qaMode) {
@@ -38,7 +40,7 @@ function createWindow() {
     minHeight: 640,
     show: false,
     webPreferences: {
-      preload: path.join(__dirname, 'preload.cjs'),
+      preload: path.join(__dirname, 'preload-entry.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
@@ -67,6 +69,7 @@ app.whenReady().then(async () => {
   const recurrence = createRecurrenceService({ db, finance });
   const alerts = createAlertService({ db, finance, cashflow });
   const reports = createReportService({ db, finance, analytics });
+  const planning = createPlanningService({ db, cashflow });
   const backup = createBackupService({ database, backupsDir: path.join(app.getPath('userData'), 'backups') });
   const documents = createDocumentService({ BrowserWindow, dialog });
   const statements = createStatementImportService({ db });
@@ -81,6 +84,7 @@ app.whenReady().then(async () => {
   try { await lanService.startConfigured(); } catch (error) { console.error('LAN server failed to start:', error); }
 
   registerIpcHandlers({ ipcMain, app, dialog, database, auth, finance, registry, cashflow, analytics, recurrence, alerts, reports, backup, lan: lanService, documents, statements, workspace: workspaceService });
+  registerPlanningIpcHandlers({ ipcMain, auth, planning });
 
   createWindow();
   app.on('activate', () => {
