@@ -5,17 +5,27 @@ import fs from 'node:fs';
 const pkg = JSON.parse(fs.readFileSync('package.json','utf8'));
 const gates = fs.readFileSync('scripts/final-gates.mjs','utf8');
 const qaLocal = fs.readFileSync('scripts/qa-final-local.mjs','utf8');
+const packageWindows = fs.readFileSync('scripts/package-windows.mjs','utf8');
 
 test('final release gates are local, fail-closed and include build/security/release checks', () => {
   assert.equal(pkg.scripts['final:prepare'], 'node ./scripts/final-gates.mjs');
   assert.equal(pkg.scripts['qa:final'], 'node ./scripts/qa-final-local.mjs');
   assert.match(qaLocal, /final-screens/);
   assert.match(qaLocal, /ELECTRON_RUN_AS_NODE/);
-  assert.equal(pkg.scripts['dist:package'], 'electron-builder --win nsis --x64 --publish never');
+
+  assert.equal(pkg.scripts['dist:package'], 'node ./scripts/package-windows.mjs');
+  assert.match(packageWindows, /electron-builder/);
+  assert.match(packageWindows, /'--win'/);
+  assert.match(packageWindows, /'nsis'/);
+  assert.match(packageWindows, /'--x64'/);
+  assert.match(packageWindows, /'--publish'/);
+  assert.match(packageWindows, /'never'/);
+  assert.match(packageWindows, /attempt <= 3/);
+  assert.match(packageWindows, /cleanRelease/);
+
   assert.match(pkg.scripts['final:release'], /final:prepare/);
   assert.match(pkg.scripts['final:release'], /qa:final/);
   assert.match(pkg.scripts['final:release'], /dist:package/);
-  assert.match(pkg.scripts['dist:package'], /--publish never/);
 
   const localArtifacts = pkg.scripts['artifacts:local'];
   assert.match(localArtifacts, /npm test/);
