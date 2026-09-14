@@ -11,6 +11,7 @@ declare global {
   interface PlanningProjectionRow { month:string; openingBalanceCents:number; baseNetCents:number; adjustmentCents:number; netCents:number; closingBalanceCents:number }
   interface EntryAttachmentRecord { id:string; entry_id:string; workspace_path:string; filename:string; mime_type?:string|null; extracted_text?:string|null; review_status:'PENDING'|'REVIEWED'; created_at:string }
   interface AttachmentOcrResult { id:string; entryId:string; extractedText:string; provider:string|null; confidence:number|null; reviewStatus:'PENDING' }
+  interface FinancialReportRow { costCenters?:string; tags?:string }
   interface Window {
     financeiroPlanning?: {
       listCostCenters(token:string,filters?:Record<string,unknown>):Promise<PlanningCostCenter[]>;
