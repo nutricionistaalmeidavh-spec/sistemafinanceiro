@@ -3,22 +3,46 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 const root = process.cwd();
-const electronExe = path.resolve(root, 'node_modules/electron/dist/electron.exe');
+const electronDir = path.resolve(root, 'node_modules/electron');
+const electronExe = path.resolve(electronDir, 'dist/electron.exe');
+const electronInstall = path.resolve(electronDir, 'install.js');
 const qaCli = path.resolve(root, 'node_modules/@artisys/qa/src/cli.mjs');
-
-if (!fs.existsSync(electronExe)) {
-  console.error(`[qa-local] Electron nao encontrado em ${electronExe}`);
-  process.exit(2);
-}
-if (!fs.existsSync(qaCli)) {
-  console.error(`[qa-local] CLI do ArtiSys QA nao encontrado em ${qaCli}`);
-  process.exit(2);
-}
 
 const env = { ...process.env };
 // Electron must run as Electron, not as a Node subprocess. Some shells/tools leave
 // this variable set and Playwright then reports only "Process failed to launch!".
 delete env.ELECTRON_RUN_AS_NODE;
+
+function ensureElectronBinary() {
+  if (fs.existsSync(electronExe)) return;
+
+  if (!fs.existsSync(electronInstall)) {
+    console.error(`[qa-local] Electron nao encontrado e install.js ausente em ${electronDir}`);
+    process.exit(2);
+  }
+
+  console.log('[qa-local] Electron binario ausente; executando instalador oficial do pacote...');
+  const install = spawnSync(process.execPath, [electronInstall], {
+    cwd: electronDir,
+    env,
+    stdio: 'inherit',
+    windowsHide: false,
+  });
+
+  if (install.error || install.status !== 0 || !fs.existsSync(electronExe)) {
+    console.error(`[qa-local] Falha ao preparar Electron${install.error ? `: ${install.error.message}` : ` com codigo ${install.status}`}.`);
+    process.exit(2);
+  }
+
+  console.log('[qa-local] Electron preparado com sucesso.');
+}
+
+ensureElectronBinary();
+
+if (!fs.existsSync(qaCli)) {
+  console.error(`[qa-local] CLI do ArtiSys QA nao encontrado em ${qaCli}`);
+  process.exit(2);
+}
 
 const probe = spawnSync(electronExe, ['--version'], {
   cwd: root,
