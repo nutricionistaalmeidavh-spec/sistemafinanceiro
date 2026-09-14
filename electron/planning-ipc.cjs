@@ -1,6 +1,6 @@
 'use strict';
 
-function registerPlanningIpcHandlers({ ipcMain, auth, planning }) {
+function registerPlanningIpcHandlers({ ipcMain, auth, planning, attachmentOcr = null }) {
   if (!ipcMain?.handle || !auth || !planning) throw new TypeError('planning IPC dependencies are required');
   const view = (token) => auth.require(token, 'finance.view');
   const manage = (token) => auth.require(token, 'finance.manage');
@@ -25,6 +25,11 @@ function registerPlanningIpcHandlers({ ipcMain, auth, planning }) {
   ipcMain.handle('planning:attachments:list', (_event, token, entryId) => { view(token); return planning.listAttachments(entryId); });
   ipcMain.handle('planning:attachments:add', (_event, token, entryId, input) => planning.addAttachment(entryId, input || {}, manage(token)));
   ipcMain.handle('planning:attachments:review', (_event, token, id) => planning.reviewAttachment(id, manage(token)));
+  ipcMain.handle('planning:attachments:ocr', async (_event, token, id) => {
+    const actor = manage(token);
+    if (!attachmentOcr) throw new Error('OCR local não configurado');
+    return attachmentOcr.extract(id, actor);
+  });
 
   ipcMain.handle('planning:approval-policies:list', (_event, token, filters) => { view(token); return planning.listApprovalPolicies(filters || {}); });
   ipcMain.handle('planning:approval-policies:save', (_event, token, input) => planning.saveApprovalPolicy(input || {}, manage(token)));
