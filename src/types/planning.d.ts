@@ -10,6 +10,7 @@ declare global {
   interface ApprovalRequestRecord { id:string; entry_id?:string|null; entry_description?:string|null; amount_cents?:number|null; policy_id?:string|null; status:'PENDING'|'APPROVED'|'REJECTED'|'CANCELLED'; required_approvals:number; created_at:string }
   interface PlanningProjectionRow { month:string; openingBalanceCents:number; baseNetCents:number; adjustmentCents:number; netCents:number; closingBalanceCents:number }
   interface EntryAttachmentRecord { id:string; entry_id:string; workspace_path:string; filename:string; mime_type?:string|null; extracted_text?:string|null; review_status:'PENDING'|'REVIEWED'; created_at:string }
+  interface AttachmentOcrResult { id:string; entryId:string; extractedText:string; provider:string|null; confidence:number|null; reviewStatus:'PENDING' }
   interface Window {
     financeiroPlanning?: {
       listCostCenters(token:string,filters?:Record<string,unknown>):Promise<PlanningCostCenter[]>;
@@ -30,6 +31,7 @@ declare global {
       listAttachments(token:string,entryId:string):Promise<EntryAttachmentRecord[]>;
       addAttachment(token:string,entryId:string,input:Record<string,unknown>):Promise<EntryAttachmentRecord>;
       reviewAttachment(token:string,id:string):Promise<EntryAttachmentRecord>;
+      runAttachmentOcr(token:string,id:string):Promise<AttachmentOcrResult>;
       listApprovalPolicies(token:string,filters?:Record<string,unknown>):Promise<ApprovalPolicyRecord[]>;
       saveApprovalPolicy(token:string,input:Record<string,unknown>):Promise<ApprovalPolicyRecord>;
       listApprovals(token:string,filters?:Record<string,unknown>):Promise<ApprovalRequestRecord[]>;
