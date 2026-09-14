@@ -17,6 +17,7 @@ const { createDocumentService } = require('./services/document-service.cjs');
 const { createStatementImportService } = require('./services/statement-import-service.cjs');
 const { createWorkspaceService } = require('./services/workspace-service.cjs');
 const { createPlanningService } = require('./services/planning-service.cjs');
+const { createAttachmentOcrService } = require('./services/attachment-ocr-service.cjs');
 const { seedQaFixture } = require('./services/qa-fixture-service.cjs');
 const { registerIpcHandlers } = require('./ipc-handlers.cjs');
 const { registerPlanningIpcHandlers } = require('./planning-ipc.cjs');
@@ -40,7 +41,7 @@ function createWindow() {
     minHeight: 640,
     show: false,
     webPreferences: {
-      preload: path.join(__dirname, 'preload-entry.cjs'),
+      preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
@@ -73,18 +74,20 @@ app.whenReady().then(async () => {
   const backup = createBackupService({ database, backupsDir: path.join(app.getPath('userData'), 'backups') });
   const documents = createDocumentService({ BrowserWindow, dialog });
   const statements = createStatementImportService({ db });
+  const workspaceRoot = path.join(app.getPath('userData'), 'workspace');
   workspaceService = createWorkspaceService({
-    rootDir: path.join(app.getPath('userData'), 'workspace'),
+    rootDir: workspaceRoot,
     storageFile: path.join(app.getPath('userData'), 'workspace-meta.sqlite'),
     shell,
   });
+  const attachmentOcr = createAttachmentOcrService({ db, workspaceRoot });
   lanService = createLanService({ db, finance, cashflow, analytics, alerts });
 
   try { backup.runAutomaticBackup(); } catch (error) { console.error('Automatic backup failed:', error); }
   try { await lanService.startConfigured(); } catch (error) { console.error('LAN server failed to start:', error); }
 
   registerIpcHandlers({ ipcMain, app, dialog, database, auth, finance, registry, cashflow, analytics, recurrence, alerts, reports, backup, lan: lanService, documents, statements, workspace: workspaceService });
-  registerPlanningIpcHandlers({ ipcMain, auth, planning });
+  registerPlanningIpcHandlers({ ipcMain, auth, planning, attachmentOcr });
 
   createWindow();
   app.on('activate', () => {
