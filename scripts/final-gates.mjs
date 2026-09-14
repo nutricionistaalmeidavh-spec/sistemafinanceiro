@@ -2,8 +2,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 
-const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-
 function run(command, args, label) {
   console.log(`\n[final-gate] ${label}`);
   const result = spawnSync(command, args, { stdio: 'inherit', shell: false, env: process.env });
@@ -17,6 +15,20 @@ function run(command, args, label) {
   }
 }
 
+function runNpm(args, label) {
+  const npmExecPath = process.env.npm_execpath;
+  if (npmExecPath && fs.existsSync(npmExecPath)) {
+    return run(process.execPath, [npmExecPath, ...args], label);
+  }
+
+  if (process.platform === 'win32') {
+    const cmd = process.env.ComSpec || 'cmd.exe';
+    return run(cmd, ['/d', '/s', '/c', 'npm', ...args], label);
+  }
+
+  return run('npm', args, label);
+}
+
 function collectCjs(root) {
   const files = [];
   for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
@@ -28,12 +40,12 @@ function collectCjs(root) {
   return files.sort();
 }
 
-run(npm, ['test'], 'test');
+runNpm(['test'], 'test');
 for (const file of collectCjs(path.resolve('electron'))) {
   // node --check is intentionally explicit: syntax must fail closed before build/release.
   run(process.execPath, ['--check', file], `node --check ${path.relative(process.cwd(), file)}`);
 }
-run(npm, ['run', 'build'], 'build');
-run(npm, ['run', 'security'], 'security');
-run(npm, ['run', 'release:check'], 'release:check');
+runNpm(['run', 'build'], 'build');
+runNpm(['run', 'security'], 'security');
+runNpm(['run', 'release:check'], 'release:check');
 console.log('\nFINAL_GATES_OK');
