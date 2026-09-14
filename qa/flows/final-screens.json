@@ -10,7 +10,7 @@
     { "action": "screenshot", "name": "01-dashboard-final" },
     { "action": "click", "testId": "nav-cashflow", "name": "open-cashflow" },
     { "action": "waitFor", "text": "Movimentações e saldos", "name": "cashflow-ready" },
-    { "action": "waitFor", "text": "Aporte operacional", "exact": true, "name": "cashflow-data-ready" },
+    { "action": "waitFor", "testId": "cashflow-movements", "name": "cashflow-data-ready", "timeoutMs": 15000 },
     { "action": "screenshot", "name": "02-fluxo-caixa-final" },
     { "action": "click", "testId": "nav-finance", "name": "open-finance" },
     { "action": "waitFor", "text": "Contas a pagar e receber", "name": "finance-ready" },
