@@ -7,10 +7,11 @@ const read = (file) => fs.readFileSync(file, 'utf8');
 test('GitHub Actions can prepare pinned ArtiSys tooling without cross-repo credentials', () => {
   const pkg = JSON.parse(read('package.json'));
   const bootstrap = read('scripts/ci-bootstrap.mjs');
+  const ocrBootstrap = read('scripts/ci-bootstrap-ocr.mjs');
   const security = read('scripts/security.mjs');
   const workflow = read('.github/workflows/final-release.yml');
 
-  assert.equal(pkg.scripts['ci:bootstrap'], 'node ./scripts/ci-bootstrap.mjs');
+  assert.equal(pkg.scripts['ci:bootstrap'], 'node ./scripts/ci-bootstrap.mjs && node ./scripts/ci-bootstrap-ocr.mjs');
   assert.equal(pkg.scripts['ci:qa-final'], 'node ./scripts/ci-capture-final-screens.mjs');
   for (const name of ['desktop-shell','eventbus','dashboard','pdf','printing','qa','release']) {
     assert.match(bootstrap, new RegExp(`@artisys/${name.replace('desktop-shell','desktop-shell')}`));
@@ -20,6 +21,8 @@ test('GitHub Actions can prepare pinned ArtiSys tooling without cross-repo crede
   assert.match(bootstrap, /artisys-storage/);
   assert.equal(JSON.parse(read('ci/artisys-storage/package.json')).name, '@artisys/storage');
   assert.equal(pkg.dependencies['@artisys/storage'], 'file:vendor/utilidades/modules/artisys-storage');
+  assert.equal(pkg.dependencies['@artisys/ocr'], 'file:vendor/utilidades/modules/artisys-ocr');
+  assert.match(ocrBootstrap, /@artisys\/ocr/);
   assert.match(security, /ci[\\/]artisys-security/);
   assert.doesNotMatch(workflow, /submodules:\s*recursive/);
   assert.match(workflow, /npm run ci:bootstrap/);
