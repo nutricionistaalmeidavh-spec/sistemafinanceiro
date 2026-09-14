@@ -1,6 +1,6 @@
 # Entregas 18–24 — Sistema Financeiro
 
-Status: **implementadas** em `feature/finance-18-24`.
+Status: **implementadas e integradas ao `main`**.
 
 ## 18 — Centros de custo, tags e rateios
 - centros de custo hierárquicos;
