@@ -8,6 +8,7 @@ const electronDir = path.resolve(root, 'node_modules/electron');
 const electronExe = path.resolve(electronDir, 'dist/electron.exe');
 const electronInstall = path.resolve(electronDir, 'install.js');
 const qaCli = path.resolve(root, 'node_modules/@artisys/qa/src/cli.mjs');
+const qaOutputRoot = path.resolve(root, 'qa-artifacts/final');
 
 const env = { ...process.env };
 // Electron must run as Electron, not as a Node subprocess. Some shells/tools leave
@@ -47,6 +48,48 @@ function ensureElectronBinary() {
   console.log('[qa-local] Electron preparado com sucesso.');
 }
 
+function findLatestQaSummary() {
+  if (!fs.existsSync(qaOutputRoot)) return null;
+  const candidates = [];
+  for (const entry of fs.readdirSync(qaOutputRoot, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const summary = path.join(qaOutputRoot, entry.name, 'run-summary.json');
+    if (!fs.existsSync(summary)) continue;
+    const stat = fs.statSync(summary);
+    candidates.push({ summary, dir: path.dirname(summary), mtimeMs: stat.mtimeMs });
+  }
+  candidates.sort((a, b) => b.mtimeMs - a.mtimeMs);
+  return candidates[0] || null;
+}
+
+function printQaFailureDetails() {
+  try {
+    const latest = findLatestQaSummary();
+    if (!latest) {
+      console.error('[qa-local] QA falhou e nenhum run-summary.json foi encontrado.');
+      return;
+    }
+    const summary = JSON.parse(fs.readFileSync(latest.summary, 'utf8'));
+    const failedStep = Array.isArray(summary.steps)
+      ? [...summary.steps].reverse().find(step => step?.status === 'failed')
+      : null;
+
+    console.error('\n[qa-local] ===== DETALHE DA FALHA QA =====');
+    if (failedStep) {
+      console.error(`[qa-local] Passo: ${failedStep.name || failedStep.action || failedStep.index}`);
+      if (failedStep.error) console.error(`[qa-local] Erro do passo: ${failedStep.error}`);
+    }
+    if (summary.failure?.message) console.error(`[qa-local] Falha: ${summary.failure.message}`);
+
+    const failureShot = path.join(latest.dir, 'screenshots', 'failure.png');
+    if (fs.existsSync(failureShot)) console.error(`[qa-local] Screenshot: ${failureShot}`);
+    console.error(`[qa-local] Resumo: ${latest.summary}`);
+    console.error('[qa-local] ================================\n');
+  } catch (error) {
+    console.error(`[qa-local] Nao foi possivel ler o diagnostico do QA: ${error.message}`);
+  }
+}
+
 ensureElectronBinary();
 
 if (!fs.existsSync(qaCli)) {
@@ -84,6 +127,9 @@ const result = spawnSync(process.execPath, [
 
 if (result.error) {
   console.error(`[qa-local] Falha ao iniciar QA: ${result.error.message}`);
+  printQaFailureDetails();
   process.exit(2);
 }
+
+if ((result.status ?? 2) !== 0) printQaFailureDetails();
 process.exit(result.status ?? 2);
