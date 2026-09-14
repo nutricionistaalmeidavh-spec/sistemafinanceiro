@@ -32,13 +32,13 @@ test('backup service creates verified backup and restores only valid compatible 
     const future = path.join(backupsDir, 'future.sqlite');
     fs.copyFileSync(backup.path, future);
     const futureDb = new DatabaseSync(future);
-    futureDb.exec('PRAGMA user_version=6;');
+    futureDb.exec('PRAGMA user_version=7;');
     futureDb.close();
     assert.throws(() => service.restoreBackup(future, { id: 'local-admin', role: 'ADMIN' }), /incompatible backup schema/i);
 
     const malformed = path.join(backupsDir, 'malformed.sqlite');
     const malformedDb = new DatabaseSync(malformed);
-    malformedDb.exec('CREATE TABLE unrelated(id INTEGER); PRAGMA user_version=5;');
+    malformedDb.exec('CREATE TABLE unrelated(id INTEGER); PRAGMA user_version=6;');
     malformedDb.close();
     assert.equal(service.verifyBackup(malformed).valid, false);
     assert.throws(() => service.restoreBackup(malformed, { id: 'local-admin', role: 'ADMIN' }), /invalid backup/i);
