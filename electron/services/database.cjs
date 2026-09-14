@@ -1,9 +1,9 @@
 const fs = require('node:fs');
 const path = require('node:path');
+const { DatabaseSync } = require('node:sqlite');
 
 function defaultDatabaseFactory(filename) {
-  const Database = require('better-sqlite3');
-  return new Database(filename);
+  return new DatabaseSync(filename);
 }
 
 class DatabaseService {
