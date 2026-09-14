@@ -2,26 +2,44 @@
 
 function monthKey(value) { return String(value).slice(0, 7); }
 function yearRange(year) { const y = Number(year); if (!Number.isInteger(y) || y < 2000 || y > 2200) throw new Error('invalid year'); return { from: `${y}-01-01`, to: `${y}-12-31` }; }
+function proportionalCents(value, total, share) {
+  const denominator = Number(total || 0);
+  if (denominator <= 0) return 0;
+  return Math.round((Number(value || 0) * Number(share || 0)) / denominator);
+}
 
 function createAnalyticsService({ db, finance, cashflow, now = () => new Date().toISOString() } = {}) {
   if (!db || !finance || !cashflow) throw new TypeError('db, finance and cashflow are required');
   const nowIso = () => String(now());
 
-  function getDre({ from, to, basis = 'realized' } = {}) {
+  function getDre({ from, to, basis = 'realized', costCenterId = null, tagId = null } = {}) {
     const start = String(from || `${nowIso().slice(0, 4)}-01-01`);
     const end = String(to || `${nowIso().slice(0, 4)}-12-31`);
+    const center = costCenterId ? String(costCenterId) : null;
+    const tag = tagId ? String(tagId) : null;
+    const tagClause = tag ? ' AND EXISTS (SELECT 1 FROM entry_tags et WHERE et.entry_id=fe.id AND et.tag_id=?)' : '';
+    const centerJoin = center ? ' JOIN entry_allocations ea ON ea.entry_id=fe.id AND ea.cost_center_id=?' : '';
     let rows;
     if (basis === 'accrual') {
-      rows = db.prepare(`SELECT COALESCE(fc.dre_group,'UNCLASSIFIED') dre_group,fe.kind,SUM(fe.amount_cents) total
-        FROM financial_entries fe LEFT JOIN financial_categories fc ON fc.id=fe.category_id
-        WHERE fe.status<>'CANCELLED' AND fe.due_at>=? AND fe.due_at<=?
-        GROUP BY COALESCE(fc.dre_group,'UNCLASSIFIED'),fe.kind`).all(start, end);
+      const params = [];
+      if (center) params.push(center);
+      params.push(start, end);
+      if (tag) params.push(tag);
+      rows = db.prepare(`SELECT fe.id,COALESCE(fc.dre_group,'UNCLASSIFIED') dre_group,fe.kind,fe.amount_cents entry_amount_cents,${center ? 'ea.amount_cents' : 'fe.amount_cents'} scoped_amount_cents
+        FROM financial_entries fe LEFT JOIN financial_categories fc ON fc.id=fe.category_id${centerJoin}
+        WHERE fe.status<>'CANCELLED' AND fe.due_at>=? AND fe.due_at<=?${tagClause}`).all(...params)
+        .map((row) => ({ ...row, total: Number(row.scoped_amount_cents || 0) }));
     } else if (basis === 'realized') {
-      rows = db.prepare(`SELECT COALESCE(fc.dre_group,'UNCLASSIFIED') dre_group,fe.kind,SUM(fs.amount_cents) total
+      const params = [];
+      if (center) params.push(center);
+      params.push(start, end);
+      if (tag) params.push(tag);
+      rows = db.prepare(`SELECT fe.id,COALESCE(fc.dre_group,'UNCLASSIFIED') dre_group,fe.kind,fe.amount_cents entry_amount_cents,${center ? 'ea.amount_cents allocation_amount_cents,' : ''}SUM(fs.amount_cents) settled_cents
         FROM financial_settlements fs JOIN financial_entries fe ON fe.id=fs.entry_id
-        LEFT JOIN financial_categories fc ON fc.id=fe.category_id
-        WHERE fs.reversed_at IS NULL AND fe.status<>'CANCELLED' AND fs.occurred_at>=? AND fs.occurred_at<=?
-        GROUP BY COALESCE(fc.dre_group,'UNCLASSIFIED'),fe.kind`).all(start, end);
+        LEFT JOIN financial_categories fc ON fc.id=fe.category_id${centerJoin}
+        WHERE fs.reversed_at IS NULL AND fe.status<>'CANCELLED' AND fs.occurred_at>=? AND fs.occurred_at<=?${tagClause}
+        GROUP BY fe.id,COALESCE(fc.dre_group,'UNCLASSIFIED'),fe.kind,fe.amount_cents${center ? ',ea.amount_cents' : ''}`).all(...params)
+        .map((row) => ({ ...row, total: center ? proportionalCents(row.settled_cents, row.entry_amount_cents, row.allocation_amount_cents) : Number(row.settled_cents || 0) }));
     } else throw new Error('basis must be realized or accrual');
     const groups = new Map();
     for (const row of rows) {
@@ -70,4 +88,4 @@ function createAnalyticsService({ db, finance, cashflow, now = () => new Date().
   return { getDre, getIndicators, getDashboardSnapshot };
 }
 
-module.exports = { createAnalyticsService };
+module.exports = { createAnalyticsService, proportionalCents };
