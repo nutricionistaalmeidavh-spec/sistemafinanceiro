@@ -6,6 +6,7 @@ import CashflowPage from './pages/CashflowPage';
 import DashboardPage from './pages/DashboardPage';
 import DrePage from './pages/DrePage';
 import FinancePage from './pages/FinancePage';
+import PlanningPage from './pages/PlanningPage';
 import RecurringPage from './pages/RecurringPage';
 import RegistryPage from './pages/RegistryPage';
 import ReportsPage from './pages/ReportsPage';
@@ -15,10 +16,10 @@ import UsersPage from './pages/UsersPage';
 import WorkspacePage from './pages/WorkspacePage';
 import { can } from './lib/format';
 
-type Page = 'dashboard' | 'finance' | 'statements' | 'cashflow' | 'dre' | 'recurring' | 'alerts' | 'reports' | 'workspace' | 'registry' | 'users' | 'system';
+type Page = 'dashboard' | 'finance' | 'statements' | 'cashflow' | 'dre' | 'planning' | 'recurring' | 'alerts' | 'reports' | 'workspace' | 'registry' | 'users' | 'system';
 
 function Preview() {
-  return <main className="app-shell"><section className="hero-card"><div className="brand-mark"><Database size={28}/></div><div><p className="eyebrow">ArtiSys</p><h1>Sistema Financeiro</h1><p className="subtitle">Prévia web local. O aplicativo desktop concentra banco, regras financeiras e segurança.</p></div><span className="status status-ok">Base E01–E17</span></section></main>;
+  return <main className="app-shell"><section className="hero-card"><div className="brand-mark"><Database size={28}/></div><div><p className="eyebrow">ArtiSys</p><h1>Sistema Financeiro</h1><p className="subtitle">Prévia web local. O aplicativo desktop concentra banco, regras financeiras e segurança.</p></div><span className="status status-ok">Base E01–E24</span></section></main>;
 }
 
 export default function App() {
@@ -56,14 +57,14 @@ export default function App() {
       <div className="sidebar-brand"><div className="brand-mark mini"><WalletCards size={20}/></div><div><strong>ArtiSys</strong><small>Financeiro</small></div></div>
       <nav aria-label="Navegação principal">
         {group('Visão geral', <>{nav('dashboard','Dashboard',<Database size={18}/>)}{nav('alerts','Alertas',<BellRing size={18}/>)}</>)}
-        {group('Financeiro', <>{nav('cashflow','Fluxo de Caixa',<ArrowLeftRight size={18}/>)}{nav('finance','Pagar / Receber',<ReceiptText size={18}/>)}{nav('statements','Extratos',<FileInput size={18}/>)}{nav('dre','DRE',<BarChart3 size={18}/>)}{nav('reports','Relatórios',<FileText size={18}/>)}{nav('recurring','Recorrências',<Repeat2 size={18}/>)}</>)}
+        {group('Financeiro', <>{nav('cashflow','Fluxo de Caixa',<ArrowLeftRight size={18}/>)}{nav('finance','Pagar / Receber',<ReceiptText size={18}/>)}{nav('statements','Extratos',<FileInput size={18}/>)}{nav('dre','DRE',<BarChart3 size={18}/>)}{nav('planning','Planejamento',<BarChart3 size={18}/>)}{nav('reports','Relatórios',<FileText size={18}/>)}{nav('recurring','Recorrências',<Repeat2 size={18}/>)}</>)}
         {group('Dados', <>{nav('workspace','Workspace',<Folder size={18}/>)}{nav('registry','Cadastros',<Users size={18}/>)}</>)}
         {(showUsers || showSystem) && group('Administração', <>{showUsers && nav('users','Acessos',<Users size={18}/>)}{showSystem && nav('system','Sistema',<Settings size={18}/>)}</>)}
       </nav>
       <div className="sidebar-footer"><div><strong>{session.user.name}</strong><small>{session.user.role}</small></div><button type="button" title="Sair" aria-label="Sair" data-testid="logout" onClick={()=>void logout()}><LogOut size={17}/></button></div>
     </aside>
     <main className="content">
-      {page==='dashboard' && <DashboardPage token={token}/>} {page==='alerts' && <AlertsPage token={token} session={session}/>} {page==='cashflow' && <CashflowPage token={token} session={session}/>} {page==='finance' && <FinancePage token={token} session={session}/>} {page==='statements' && <StatementsPage token={token} session={session}/>} {page==='dre' && <DrePage token={token}/>} {page==='reports' && <ReportsPage token={token}/>} {page==='recurring' && <RecurringPage token={token} session={session}/>} {page==='workspace' && <WorkspacePage token={token} session={session}/>} {page==='registry' && <RegistryPage token={token} session={session}/>} {page==='users' && showUsers && <UsersPage token={token} session={session}/>} {page==='system' && showSystem && <SystemPage token={token}/>} 
+      {page==='dashboard' && <DashboardPage token={token}/>} {page==='alerts' && <AlertsPage token={token} session={session}/>} {page==='cashflow' && <CashflowPage token={token} session={session}/>} {page==='finance' && <FinancePage token={token} session={session}/>} {page==='statements' && <StatementsPage token={token} session={session}/>} {page==='dre' && <DrePage token={token}/>} {page==='planning' && <PlanningPage token={token} session={session}/>} {page==='reports' && <ReportsPage token={token}/>} {page==='recurring' && <RecurringPage token={token} session={session}/>} {page==='workspace' && <WorkspacePage token={token} session={session}/>} {page==='registry' && <RegistryPage token={token} session={session}/>} {page==='users' && showUsers && <UsersPage token={token} session={session}/>} {page==='system' && showSystem && <SystemPage token={token}/>} 
     </main>
   </div>;
 }
