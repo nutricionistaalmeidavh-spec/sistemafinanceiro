@@ -25,7 +25,6 @@
     "final:release": "npm run final:prepare && npm run qa:final && npm run dist:package"
   },
   "dependencies": {
-    "better-sqlite3": "13.0.2",
     "lucide-react": "1.28.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
@@ -60,7 +59,6 @@
     "npmRebuild": false,
     "directories": { "output": "release" },
     "files": ["dist/**/*", "electron/**/*", "database/**/*", "package.json"],
-    "asarUnpack": ["node_modules/better-sqlite3/**/*"],
     "win": { "target": ["nsis"], "artifactName": "ArtiSys-Financeiro-Setup-${version}.${ext}" },
     "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true, "createDesktopShortcut": true, "createStartMenuShortcut": true }
   }
