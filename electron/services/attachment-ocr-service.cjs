@@ -4,7 +4,6 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
-const { pathToFileURL } = require('node:url');
 const { writeAudit } = require('./audit.cjs');
 
 const execFileAsync = promisify(execFile);
@@ -20,14 +19,8 @@ function resolveWorkspaceFile(workspaceRoot, relativePath) {
   return full;
 }
 
-async function loadOcrContract() {
-  const modulePath = path.join(__dirname, '..', '..', 'vendor', 'utilidades', 'modules', 'artisys-ocr', 'src', 'index.mjs');
-  if (!fs.existsSync(modulePath)) throw new Error('artisys-ocr module is unavailable');
-  return import(pathToFileURL(modulePath).href);
-}
-
 async function defaultExecuteOcr(request) {
-  const contract = await loadOcrContract();
+  const contract = await import('@artisys/ocr');
   const providers = {
     tesseract: {
       recognize: async (normalizedRequest) => {
