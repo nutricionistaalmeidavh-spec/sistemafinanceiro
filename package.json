@@ -21,6 +21,7 @@
     "ci:qa-final": "node ./scripts/ci-capture-final-screens.mjs",
     "security": "node ./scripts/security.mjs",
     "release:check": "node ./scripts/release-check.mjs",
+    "artifacts:local": "npm test && npm run build && npm run qa:final && npm run dist:package",
     "final:prepare": "node ./scripts/final-gates.mjs",
     "final:release": "npm run final:prepare && npm run qa:final && npm run dist:package"
   },
