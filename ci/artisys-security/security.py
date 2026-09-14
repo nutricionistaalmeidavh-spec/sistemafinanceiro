@@ -101,12 +101,47 @@ def scan(target, mode='commit', engine='native', execute=subprocess.run):
                     raise GateError(f'{tool}: unexpected version')
             except (OSError, subprocess.TimeoutExpired, UnicodeError):
                 raise GateError(f'{tool}: version unavailable') from None
-    with tempfile.TemporaryDirectory(prefix='artisys-security-') as temp:
-        temp = Path(temp)
+    with tempfile.TemporaryDirectory(prefix='artisys-security-') as temp_dir:
+        temp = Path(temp_dir)
+        container_target = '/workspace'
+        container_root = '/artisys-security'
+        container_temp = '/output'
+
+        def containerize(value):
+            text = str(value)
+            mappings = [
+                (str(target), container_target),
+                (str(ROOT), container_root),
+                (str(temp), container_temp),
+            ]
+            for host, guest in mappings:
+                if text == host:
+                    return guest
+                if text.startswith(host + str(Path('/'))):
+                    suffix = text[len(host):].replace('\\', '/')
+                    return guest + suffix
+                if text.startswith(host + '\\'):
+                    suffix = text[len(host):].replace('\\', '/')
+                    return guest + suffix
+            return text
+
         def run(tool, arguments, output):
             command = [tool, *arguments]
             if engine == 'docker':
-                command = ['docker', 'run', '--rm', '-e', 'GIT_CONFIG_COUNT=1', '-e', 'GIT_CONFIG_KEY_0=safe.directory', '-e', f'GIT_CONFIG_VALUE_0={target}', '-v', f'{target}:{target}:ro', '-v', f'{ROOT}:{ROOT}:ro', '-v', f'{temp}:{temp}', '-w', str(target), '--entrypoint', tool, IMAGES[tool], *arguments]
+                docker_args = [containerize(arg) for arg in arguments]
+                command = [
+                    'docker', 'run', '--rm',
+                    '-e', 'GIT_CONFIG_COUNT=1',
+                    '-e', 'GIT_CONFIG_KEY_0=safe.directory',
+                    '-e', f'GIT_CONFIG_VALUE_0={container_target}',
+                    '-v', f'{target}:{container_target}:ro',
+                    '-v', f'{ROOT}:{container_root}:ro',
+                    '-v', f'{temp}:{container_temp}',
+                    '-w', container_target,
+                    '--entrypoint', tool,
+                    IMAGES[tool],
+                    *docker_args,
+                ]
             try:
                 result = execute(command, cwd=target, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=900, check=False)
                 if result.returncode != 0:
@@ -114,6 +149,7 @@ def scan(target, mode='commit', engine='native', execute=subprocess.run):
                 return evaluate(tool, json.loads(output.read_text()), mode)
             except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError, UnicodeError):
                 raise GateError(f'{tool}: unavailable, timed out, or report unreadable') from None
+
         summary = {}
         for scope in ('dir', 'git'):
             if scope == 'git' and not (target / '.git').exists():
