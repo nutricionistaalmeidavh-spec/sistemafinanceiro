@@ -34,6 +34,7 @@
     "@artisys/eventbus": "file:vendor/utilidades/modules/artisys-eventbus",
     "@artisys/dashboard": "file:vendor/utilidades/modules/artisys-dashboard",
     "@artisys/finance-domain": "file:vendor/utilidades/modules/artisys-finance-domain",
+    "@artisys/ocr": "file:vendor/utilidades/modules/artisys-ocr",
     "@artisys/pdf": "file:vendor/utilidades/modules/artisys-pdf",
     "@artisys/printing": "file:vendor/utilidades/modules/artisys-printing",
     "@artisys/storage": "file:vendor/utilidades/modules/artisys-storage"
