@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { randomBytes } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 
 const root = process.cwd();
@@ -12,6 +13,15 @@ const env = { ...process.env };
 // Electron must run as Electron, not as a Node subprocess. Some shells/tools leave
 // this variable set and Playwright then reports only "Process failed to launch!".
 delete env.ELECTRON_RUN_AS_NODE;
+
+// QA fixture and final-screens must share the exact same credential. Generate a
+// throwaway local password when the caller did not provide one explicitly.
+if (!env.ARTISYS_QA_PASSWORD || env.ARTISYS_QA_PASSWORD.length < 10) {
+  env.ARTISYS_QA_PASSWORD = `Qa-${randomBytes(18).toString('hex')}`;
+  console.log('[qa-local] Credencial QA temporaria gerada para esta execucao.');
+}
+env.ARTISYS_QA = '1';
+if (!env.ARTISYS_QA_RESET) env.ARTISYS_QA_RESET = '1';
 
 function ensureElectronBinary() {
   if (fs.existsSync(electronExe)) return;
