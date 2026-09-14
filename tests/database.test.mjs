@@ -24,3 +24,18 @@ test('DatabaseService creates the local database, applies migrations and reports
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('DatabaseService default runtime factory uses built-in node:sqlite', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sistemafinanceiro-default-sqlite-'));
+  const dataDir = path.join(root, 'data');
+  const migrationsDir = path.resolve('database/migrations');
+  const service = new DatabaseService({ dataDir, migrationsDir });
+  try {
+    const opened = service.open();
+    assert.equal(fs.existsSync(opened.path), true);
+    assert.equal(service.connection().prepare('PRAGMA user_version').get().user_version, 6);
+  } finally {
+    service.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
