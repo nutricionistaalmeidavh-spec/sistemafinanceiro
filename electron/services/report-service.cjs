@@ -7,7 +7,7 @@ function xmlEscape(value) { return String(value ?? '').replace(/&/g, '&amp;').re
 function htmlEscape(value) { return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
 function csvCell(value) { return `"${String(value ?? '').replace(/"/g, '""')}"`; }
 function money(cents) { return (Number(cents || 0) / 100).toFixed(2).replace('.', ','); }
-function columnName(index) { let n = index + 1; let name = ''; while (n > 0) { const rem = (n - 1) % 26; name = String.fromCharCode(65 + rem) + name; n = Math.floor(n / 26); } return name; }
+function columnName(index) { let n = index + 1; let name = ''; while (n > 0) { const rem = (n - 1) % 26; name = String.fromCharCode(65 + rem) + name; n = Math.floor((n - 1) / 26); } return name; }
 function proportionalCents(value, total, share) {
   const denominator = Number(total || 0);
   if (denominator <= 0) return 0;
