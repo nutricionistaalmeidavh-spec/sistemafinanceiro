@@ -5,7 +5,7 @@ export function brl(cents: number) {
 export function toCents(value: string) {
   const normalized = value.trim().replace(/\./g, '').replace(',', '.');
   const parsed = Number(normalized);
-  if (!Number.isFinite(parsed) || parsed === 0) throw new Error('Informe um valor válido.');
+  if (!Number.isFinite(parsed) || parsed <= 0) throw new Error('Informe um valor válido.');
   return Math.round(parsed * 100);
 }
 
