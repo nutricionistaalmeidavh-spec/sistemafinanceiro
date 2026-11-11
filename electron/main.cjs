@@ -83,7 +83,7 @@ app.whenReady().then(async () => {
     shell,
   });
   const attachmentOcr = createAttachmentOcrService({ db, workspaceRoot });
-  lanService = createLanService({ db, finance, cashflow, analytics, alerts });
+  lanService = createLanService({ db, finance, cashflow, analytics, alerts, authorize:() => license.requireActive() });
 
   try { backup.runAutomaticBackup(); } catch (error) { console.error('Automatic backup failed:', error); }
   if (license.status().active) {
