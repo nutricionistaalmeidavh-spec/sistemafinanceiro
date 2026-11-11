@@ -2,6 +2,10 @@ const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('financeiro', {
   system: { health: () => ipcRenderer.invoke('system:health') },
+  license: {
+    status: () => ipcRenderer.invoke('license:status'),
+    activate: (code) => ipcRenderer.invoke('license:activate', code),
+  },
   auth: {
     needsBootstrap: () => ipcRenderer.invoke('auth:needs-bootstrap'),
     bootstrap: (input) => ipcRenderer.invoke('auth:bootstrap', input),
