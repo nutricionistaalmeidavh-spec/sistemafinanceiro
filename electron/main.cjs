@@ -63,7 +63,7 @@ app.whenReady().then(async () => {
   database.open();
   const db = database.connection();
   const auth = createAuthService({ db });
-  const license = createLicenseService({ dataDir:app.getPath('userData'), publicKey:fs.readFileSync(path.join(__dirname, 'services', 'trial-public.pem'),'utf8') });
+  const license = createLicenseService({ dataDir:app.getPath('userData'), publicKey:fs.readFileSync(path.join(__dirname, 'services', 'trial-public.pem'),'utf8'), sealedTrial:JSON.parse(fs.readFileSync(path.join(__dirname, 'services', 'trial-activation.bundle.json'),'utf8')) });
   if (qaMode) seedQaFixture({ db, auth });
   const finance = createFinanceService({ db });
   const registry = createRegistryService({ db });
