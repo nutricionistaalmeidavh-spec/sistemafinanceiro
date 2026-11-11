@@ -1,7 +1,7 @@
 'use strict';
 const fs = require('node:fs');
 const path = require('node:path');
-const { randomUUID, verify } = require('node:crypto');
+const { randomUUID, verify, scryptSync, createDecipheriv } = require('node:crypto');
 const PRODUCT = 'artisys-financeiro';
 const DAY_MS = 86_400_000;
 const CLOCK_TOLERANCE_MS = 5 * 60_000;
@@ -41,7 +41,24 @@ function decodeLicense(code, publicKey) {
   if (!valid) throw new Error('Assinatura da licença inválida.');
   return { payload, issued, expires };
 }
-function createLicenseService({ dataDir, publicKey, now = Date.now }) {
+function unlockSealedTrial(shortCode, sealedTrial) {
+  const fail=()=>new Error('Código de ativação inválido.');
+  const normalized=String(shortCode || '').toUpperCase().trim().replace(/[-\s]/g,'');
+  if (!/^[A-HJ-NP-Z2-9]{12}$/.test(normalized)) throw fail();
+  if (!sealedTrial || sealedTrial.version !== 1 || sealedTrial.kdf !== 'scrypt' || sealedTrial.cipher !== 'aes-256-gcm' || sealedTrial.product !== PRODUCT) throw fail();
+  try {
+    const salt=Buffer.from(sealedTrial.salt, 'base64url');
+    const iv=Buffer.from(sealedTrial.iv, 'base64url');
+    const tag=Buffer.from(sealedTrial.tag, 'base64url');
+    const encrypted=Buffer.from(sealedTrial.ciphertext, 'base64url');
+    if(salt.length!==24 || iv.length!==12 || tag.length!==16 || encrypted.length<30 || encrypted.length>2048) throw fail();
+    const key=scryptSync(normalized,salt,32,{N:16384,r:8,p:1,maxmem:64*1024*1024});
+    const decipher=createDecipheriv('aes-256-gcm',key,iv);
+    decipher.setAuthTag(tag);
+    return Buffer.concat([decipher.update(encrypted),decipher.final()]).toString('utf8');
+  } catch { throw fail(); }
+}
+function createLicenseService({ dataDir, publicKey, now = Date.now, sealedTrial = null }) {
   if (!dataDir || !publicKey) throw new TypeError('dataDir e publicKey são obrigatórios');
   const filePath = path.join(dataDir, 'artisys-financeiro-license.json');
   const clockPath = path.join(dataDir, 'artisys-financeiro-license-clock.json');
@@ -72,11 +89,13 @@ function createLicenseService({ dataDir, publicKey, now = Date.now }) {
     return { active:true, reason:'active', mode:'trial', type:'TRIAL', licenseId:payload.licenseId, customer:payload.customer, expiresAt:payload.expiresAt, daysRemaining:Math.ceil((expires-nowMs)/DAY_MS) };
   }
   function activate(code) {
-    const license = decodeLicense(String(code || '').trim(), publicKey);
+    const input=String(code || '').trim();
+    const signedCode=input.length<=32 ? unlockSealedTrial(input,sealedTrial) : input;
+    const license = decodeLicense(signedCode, publicKey);
     const nowMs = Number(now());
     if (nowMs + CLOCK_TOLERANCE_MS < license.issued) throw new Error('Licença ainda não está válida. Verifique a data do computador.');
     if (nowMs >= license.expires) throw new Error('Licença de avaliação expirada.');
-    atomicWrite(filePath,code.trim());
+    atomicWrite(filePath,signedCode);
     const result=status();
     if (!result.active) throw new Error(result.message);
     return result;
@@ -88,4 +107,4 @@ function createLicenseService({ dataDir, publicKey, now = Date.now }) {
   }
   return { status,activate,requireActive };
 }
-module.exports = { createLicenseService,decodeLicense,PRODUCT };
+module.exports = { createLicenseService,decodeLicense,unlockSealedTrial,PRODUCT };
