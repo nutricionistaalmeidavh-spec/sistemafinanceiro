@@ -6,7 +6,9 @@
   "author": "ArtiSys",
   "main": "electron/main.cjs",
   "type": "module",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "electron:dev": "concurrently -k \"vite --host 127.0.0.1\" \"wait-on http://127.0.0.1:5173 && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5173 electron .\"",
@@ -55,12 +57,29 @@
     "playwright": "1.62.1"
   },
   "build": {
-    "appId": "br.com.artisys.sistemafinanceiro",
-    "productName": "ArtiSys Financeiro",
+    "appId": "br.com.artisys.sistemafinanceiro.trial",
+    "productName": "ArtiSys Financeiro - Avaliacao",
     "npmRebuild": false,
-    "directories": { "output": "release" },
-    "files": ["dist/**/*", "electron/**/*", "database/**/*", "package.json"],
-    "win": { "target": ["nsis"], "artifactName": "ArtiSys-Financeiro-Setup-${version}.${ext}" },
-    "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true, "createDesktopShortcut": true, "createStartMenuShortcut": true }
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "database/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "artifactName": "ArtiSys-Financeiro-Avaliacao-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
   }
 }
