@@ -4,6 +4,7 @@ const path = require('node:path');
 const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const { DatabaseService } = require('./services/database.cjs');
 const { createAuthService } = require('./services/auth-service.cjs');
+const { createLicenseService } = require('./services/license-service.cjs');
 const { createFinanceService } = require('./services/finance-service.cjs');
 const { createRegistryService } = require('./services/registry-service.cjs');
 const { createCashflowService } = require('./services/cashflow-service.cjs');
@@ -62,6 +63,7 @@ app.whenReady().then(async () => {
   database.open();
   const db = database.connection();
   const auth = createAuthService({ db });
+  const license = createLicenseService({ dataDir:app.getPath('userData'), publicKey:fs.readFileSync(path.join(__dirname, 'services', 'trial-public.pem'),'utf8') });
   if (qaMode) seedQaFixture({ db, auth });
   const finance = createFinanceService({ db });
   const registry = createRegistryService({ db });
@@ -84,10 +86,21 @@ app.whenReady().then(async () => {
   lanService = createLanService({ db, finance, cashflow, analytics, alerts });
 
   try { backup.runAutomaticBackup(); } catch (error) { console.error('Automatic backup failed:', error); }
-  try { await lanService.startConfigured(); } catch (error) { console.error('LAN server failed to start:', error); }
+  if (license.status().active) {
+    try { await lanService.startConfigured(); } catch (error) { console.error('LAN server failed to start:', error); }
+  }
 
-  registerIpcHandlers({ ipcMain, app, dialog, database, auth, finance, registry, cashflow, analytics, recurrence, alerts, reports, backup, lan: lanService, documents, statements, workspace: workspaceService });
-  registerPlanningIpcHandlers({ ipcMain, auth, planning, attachmentOcr });
+  ipcMain.handle('license:status', () => license.status());
+  ipcMain.handle('license:activate', async (_event,code) => {
+    const state=license.activate(code);
+    try { await lanService.startConfigured(); } catch (error) { console.error('LAN server failed to start:',error); }
+    return state;
+  });
+  const licensedIpc = { handle(channel, handler) {
+    ipcMain.handle(channel, (...args) => { license.requireActive(); return handler(...args); });
+  } };
+  registerIpcHandlers({ ipcMain:licensedIpc, app, dialog, database, auth, finance, registry, cashflow, analytics, recurrence, alerts, reports, backup, lan: lanService, documents, statements, workspace: workspaceService });
+  registerPlanningIpcHandlers({ ipcMain:licensedIpc, auth, planning, attachmentOcr });
 
   createWindow();
   app.on('activate', () => {
