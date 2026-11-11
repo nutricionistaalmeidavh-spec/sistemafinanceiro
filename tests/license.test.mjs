@@ -115,7 +115,7 @@ test('código curto errado ou criptograma alterado são rejeitados', () => {
     const service=createLicenseService({dataDir:f.dir,publicKey:f.publicKey,now:f.current,sealedTrial:bundle});
     assert.throws(()=>service.activate('K7WF-R9MJ-6TGA'),/código de ativação inválido/i);
     assert.equal(service.status().active,false);
-    const tampered={...bundle,ciphertext:bundle.ciphertext.slice(0,-1)+(bundle.ciphertext.endsWith('A')?'B':'A')};
+    const tampered={...bundle,ciphertext:(bundle.ciphertext.startsWith('A')?'B':'A')+bundle.ciphertext.slice(1)};
     const bad=createLicenseService({dataDir:f.dir,publicKey:f.publicKey,now:f.current,sealedTrial:tampered});
     assert.throws(()=>bad.activate(code),/código de ativação inválido/i);
     assert.equal(bad.status().active,false);
