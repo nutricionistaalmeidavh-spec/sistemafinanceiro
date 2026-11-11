@@ -12,6 +12,10 @@ on:
       - 'package.json'
   workflow_dispatch:
 
+concurrency:
+  group: financeiro-trial-windows
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
@@ -44,17 +48,17 @@ jobs:
         shell: pwsh
         run: |
           $v=(Get-Content package.json | ConvertFrom-Json).version
-          $file="release/ArtiSys-Financeiro-Setup-$v.exe"
+          $file="release/ArtiSys-Financeiro-Avaliacao-Setup-$v.exe"
           if(-not (Test-Path $file)){throw "Instalador ausente: $file"}
           $size=(Get-Item $file).Length
           if($size -lt 50000000){throw "Arquivo pequeno demais: $size"}
-          (Get-FileHash -Path $file -Algorithm SHA256).Hash.ToLowerInvariant() | Set-Content -Path "release/ArtiSys-Financeiro-Setup-$v.sha256"
+          (Get-FileHash -Path $file -Algorithm SHA256).Hash.ToLowerInvariant() | Set-Content -Path "release/ArtiSys-Financeiro-Avaliacao-Setup-$v.sha256"
       - name: Preservar instalador de teste e checksum
         uses: actions/upload-artifact@v4
         with:
           name: artisys-financeiro-trial-${{ github.sha }}
           path: |
-            release/ArtiSys-Financeiro-Setup-*.exe
-            release/ArtiSys-Financeiro-Setup-*.sha256
+            release/ArtiSys-Financeiro-Avaliacao-Setup-*.exe
+            release/ArtiSys-Financeiro-Avaliacao-Setup-*.sha256
           if-no-files-found: error
           retention-days: 60
