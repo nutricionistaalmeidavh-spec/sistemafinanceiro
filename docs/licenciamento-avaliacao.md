@@ -1,30 +1,55 @@
-# ArtiSys Financeiro — Avaliação Windows
+# ArtiSys Financeiro — licença de avaliação com código curto
 
-A versão de avaliação é um aplicativo Electron separado do instalador comercial:
-- appId: `br.com.artisys.sistemafinanceiro.trial`
-- Nome de produto: `ArtiSys Financeiro - Avaliacao`
-- Instalador: `ArtiSys-Financeiro-Avaliacao-Setup-0.1.0.exe`
+## Fluxo para o cliente
 
-## Licenças (core 100% local e sem custo)
+1. Baixe o instalador `ArtiSys-Financeiro-Avaliacao-Setup-0.1.0.exe` da pré-release.
+2. Instale e abra o aplicativo.
+3. Digite o código de **12 caracteres** no formato `XXXX-XXXX-XXXX`.
+4. Cadastre o administrador local.
 
-A validação usa **Ed25519** via `node:crypto`, sem servidor, assinatura ou serviços pagos.
+Ativação, uso e validação de prazo funcionam **sem internet**. Não há dependência obrigatória de serviço pago ou hospedagem.
 
-O pacote contém somente a chave pública `electron/services/trial-public.pem`. A chave privada de emissão **jamais deve entrar no GitHub, Actions, Drive público ou instalador**.
+## Arquitetura e segurança
 
-Para emitir nova licença no equipamento que guarda a chave privada:
+- Emissão local: Node.js `node:crypto` (Ed25519, scrypt, AES-256-GCM).
+- A chave privada do emissor fica exclusivamente com a ArtiSys, fora do repositório.
+- O emissor assina o entitlement com Ed25519.
+- Um código aleatório de 12 caracteres é gerado por CSPRNG.
+- O entitlement assinado é criptografado com AES-256-GCM e uma chave derivada do código via scrypt.
+- **Somente o pacote criptografado** `electron/services/trial-activation.bundle.json` é embutido no instalador. Não armazene o código curto nem a chave privada no GitHub.
+- Ao ativar, o aplicativo decifra o pacote e verifica a assinatura Ed25519; persiste a licença assinada no diretório privado `userData`.
+- O prazo de até 14 dias conta **a partir da emissão**. A UI, os IPCs e as rotas LAN bloqueiam operações após expiração, preservando dados SQLite.
+
+## Emitir uma nova licença e build personalizada
+
+Na máquina segura que guarda `issuer-private.pem`:
 
 ```bash
-node scripts/issue-trial-license.mjs --private-key /caminho/issuer-private.pem --customer "Nome do cliente" --days 14 --out /caminho/licenca-cliente.txt
+node scripts/issue-trial-license.mjs \
+  --private-key /seguro/issuer-private.pem \
+  --customer "Nome do cliente" \
+  --days 14 \
+  --out-code /seguro/codigo-do-cliente.txt \
+  --out-bundle electron/services/trial-activation.bundle.json
 ```
 
-Envie somente o **conteúdo de `licenca-cliente.txt`** ao cliente. O cliente instala a versão de avaliação, cola o código na tela de ativação e cria seu usuário administrador local.
+O arquivo `/seguro/codigo-do-cliente.txt` contém somente o código curto. **Nunca envie o PEM nem o entitlement completo ao cliente.** O comando atualiza o pacote criptografado específico do cliente; execute o workflow Windows para gerar novo instalador.
 
-A licença vale por até 14 dias a contar **da emissão**, não do primeiro uso. O aplicativo bloqueia a UI, IPC e rotas LAN após a expiração. Os dados SQLite permanecem preservados no `userData` da versão de avaliação.
+O instalador de cada cliente precisa conter seu próprio pacote. Não reutilize o mesmo instalador para emitir códigos diferentes; para emissão centralizada de licenças reutilizando uma build, seria necessário um servidor de ativações, que não faz parte do core offline.
 
-**Limitações de modelo offline:** A mesma licença pode ser ativada em mais de um computador se for compartilhada. O estado de relógio local é uma proteção básica contra retrocesso, não uma proteção absoluta. Quem controla o executável pode modificá-lo. Vinculação forte a uma máquina, revogação e contagem de instalações exigem mecanismos adicionais (por exemplo, um serviço de licenças self-hosted opcional).
+## Distribuição
 
-## Build
+- appId: `br.com.artisys.sistemafinanceiro.trial`
+- productName: `ArtiSys Financeiro - Avaliacao`
+- Artefato: `ArtiSys-Financeiro-Avaliacao-Setup-0.1.0.exe`
+- GitHub Actions executa `npm test`, `npm run build`, empacotamento Windows NSIS, SHA-256 e publica a pré-release.
+- **Não substituir** o instalador comercial que já está no Google Drive.
 
-Na branch `feat/financeiro-trial-license` o workflow `ArtiSys Financeiro - Trial Windows` executa testes, TypeScript, empacotamento NSIS e SHA-256. O executável é disponibilizado nos **artifacts do GitHub Actions**, não como uma release comercial.
+## Limites conhecidos
 
-Não substituir o instalador comercial do Drive por este executável de teste. Não fazer merge da branch sem planejar a transição para licenciamento de produção.
+- O código pode ser compartilhado com quem tiver **esse instalador**. O acesso não é vinculado a um único dispositivo; não há revogação remota.
+- A lógica de proteção em aplicativos desktop é vulnerável a engenharia reversa por usuários com controle do executável.
+- A prevenção de retrocesso do relógio é local e não é infalível.
+- A data de validade não se estende se o cliente instalar mais tarde. Para outra data, emita e compile novo pacote.
+
+Tudo é open source e funciona localmente, com custo de software `R$ 0`.
