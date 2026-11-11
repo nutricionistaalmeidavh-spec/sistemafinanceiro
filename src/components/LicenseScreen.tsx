@@ -1,6 +1,11 @@
 import { useState, type FormEvent } from 'react';
 import { KeyRound } from 'lucide-react';
 
+function formatCode(input:string) {
+  const raw=input.toUpperCase().replace(/[^A-Z2-9]/g,'').slice(0,12);
+  return raw.match(/.{1,4}/g)?.join('-') || '';
+}
+
 type Props = { status: FinanceiroLicenseStatus; onActivated: (status:FinanceiroLicenseStatus)=>void };
 
 export default function LicenseScreen({status,onActivated}:Props) {
@@ -25,9 +30,9 @@ export default function LicenseScreen({status,onActivated}:Props) {
     <p className="muted">Sistema Financeiro · Licença de teste por até 14 dias, validada no próprio computador.</p>
     {status.message && <div className="error-box" role="alert">{status.message}</div>}
     <label htmlFor="trial-license-code">Código de licença</label>
-    <textarea id="trial-license-code" rows={5} className="license-input" autoComplete="off" spellCheck={false} value={code} onChange={event=>setCode(event.target.value)} required placeholder="Cole aqui o código recebido da ArtiSys"/>
+    <input id="trial-license-code" type="text" inputMode="text" className="license-input" autoComplete="off" spellCheck={false} value={code} onChange={event=>setCode(formatCode(event.target.value))} maxLength={14} required placeholder="XXXX-XXXX-XXXX"/>
     {error && <div className="error-box" role="alert">{error}</div>}
-    <button className="primary-button" disabled={busy || !code.trim()}>{busy ? 'Validando…':'Ativar licença'}</button>
-    <p className="muted">A ativação funciona sem internet. O prazo e a assinatura são verificados localmente.</p>
+    <button className="primary-button" disabled={busy || code.replace(/-/g,'').length!==12}>{busy ? 'Validando…':'Ativar licença'}</button>
+    <p className="muted">Digite os 12 caracteres enviados pela ArtiSys. Não é necessário estar conectado à internet.</p>
   </form></main>;
 }
