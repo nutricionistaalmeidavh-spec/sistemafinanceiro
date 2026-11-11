@@ -40,7 +40,9 @@ test('licença assinada ativa o produto offline e persiste entre sessões', () =
 
 test('licença falsificada ou produto diferente não ativa', () => {
   const {dir,service,payload,encode}=fixture();
-  assert.throws(()=>service.activate(encode({...payload, customer:'outro'}).replace(/.$/,'_')),/licença|assinatura|código/i);
+  const forged=JSON.parse(Buffer.from(encode(payload),'base64url').toString('utf8'));
+  forged.payload.customer='Cliente alterado';
+  assert.throws(()=>service.activate(Buffer.from(JSON.stringify(forged)).toString('base64url')),/assinatura/i);
   assert.throws(()=>service.activate(encode({...payload,product:'outro-produto'})),/produto/i);
   assert.equal(service.status().active,false);
   fs.rmSync(dir,{recursive:true,force:true});
