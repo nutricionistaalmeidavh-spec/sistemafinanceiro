@@ -43,6 +43,15 @@ jobs:
         run: npm test
       - name: Build do renderer
         run: npm run build
+      - name: Preparar binário Electron para QA
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "node_modules/electron/dist/electron.exe")) {
+            node node_modules/electron/install.js
+          }
+          if (-not (Test-Path "node_modules/electron/dist/electron.exe")) {
+            throw "Electron não instalado no runner"
+          }
       - name: QA visual Electron real
         run: npm run ci:qa-final
       - name: Gerar instalador Windows NSIS
