@@ -17,6 +17,7 @@ function registerIpcHandlers({ ipcMain, app, dialog, database, auth, finance, re
   ipcMain.handle('finance:accounts:create', (_event, token, input) => { const actor = auth.require(token, 'finance.manage'); return finance.createAccount(input, actor); });
   ipcMain.handle('finance:entries:list', (_event, token, filters) => { auth.require(token, 'finance.view'); return finance.listEntries(filters || {}); });
   ipcMain.handle('finance:entries:create', (_event, token, input) => { const actor = auth.require(token, 'finance.manage'); return finance.createEntry(input, actor); });
+  ipcMain.handle('finance:entries:update', (_event, token, entryId, input) => { const actor = auth.require(token, 'finance.manage'); return finance.updateEntry(entryId, input, actor); });
   ipcMain.handle('finance:entries:settle', (_event, token, entryId, input) => { const actor = auth.require(token, 'finance.manage'); return finance.settleEntry(entryId, input, actor); });
   ipcMain.handle('finance:settlements:reverse', (_event, token, settlementId, reason) => { const actor = auth.require(token, 'finance.manage'); return finance.reverseSettlement(settlementId, { reason, actor }); });
   ipcMain.handle('finance:entries:cancel', (_event, token, entryId, reason) => { const actor = auth.require(token, 'finance.manage'); return finance.cancelEntry(entryId, { reason, actor }); });
@@ -71,6 +72,7 @@ function registerIpcHandlers({ ipcMain, app, dialog, database, auth, finance, re
 
   ipcMain.handle('recurrence:list', (_event, token, filters) => { auth.require(token, 'finance.view'); return recurrence.listRules(filters || {}); });
   ipcMain.handle('recurrence:create', (_event, token, input) => { const actor = auth.require(token, 'finance.manage'); return recurrence.createRule(input, actor); });
+  ipcMain.handle('recurrence:update', (_event, token, id, input) => { const actor = auth.require(token, 'finance.manage'); return recurrence.updateRule(id, input, actor); });
   ipcMain.handle('recurrence:set-active', (_event, token, id, active) => { const actor = auth.require(token, 'finance.manage'); return recurrence.setRuleActive(id, active, actor); });
   ipcMain.handle('recurrence:generate', (_event, token, asOf) => { const actor = auth.require(token, 'finance.manage'); return recurrence.generateDue({ asOf, actor }); });
 
