@@ -24,6 +24,7 @@ export default function AlertsPage({ token, session }: Props) {
     } catch (err) { setError(err instanceof Error ? err.message : String(err)); }
   }, [api,token]);
   useEffect(()=>{void reload();},[reload]);
+  useEffect(()=>api.finance.onDataChanged(()=>{void reload();}),[api,reload]);
 
   async function ack(item:FinanceAlert,state:'READ'|'DISMISSED'){ try{await api.alerts.acknowledge(token,item.key,state);await reload();}catch(err){setError(err instanceof Error?err.message:String(err));} }
   async function saveThreshold(event:FormEvent){event.preventDefault();try{await api.alerts.setThreshold(token,thresholdForm.accountId,toCents(thresholdForm.amount),true);setThresholdForm({...thresholdForm,amount:''});await reload();}catch(err){setError(err instanceof Error?err.message:String(err));}}
