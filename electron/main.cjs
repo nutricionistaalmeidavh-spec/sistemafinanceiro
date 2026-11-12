@@ -19,6 +19,7 @@ const { createWorkspaceService } = require('./services/workspace-service.cjs');
 const { createPlanningService } = require('./services/planning-service.cjs');
 const { createAttachmentOcrService } = require('./services/attachment-ocr-service.cjs');
 const { seedQaFixture } = require('./services/qa-fixture-service.cjs');
+const { localDay } = require('./services/date-utils.cjs');
 const { registerIpcHandlers } = require('./ipc-handlers.cjs');
 const { registerPlanningIpcHandlers } = require('./planning-ipc.cjs');
 
@@ -32,6 +33,7 @@ if (qaMode) {
 let database;
 let lanService;
 let workspaceService;
+let recurrenceTimer = null;
 
 function createWindow() {
   const window = new BrowserWindow({
@@ -89,6 +91,14 @@ app.whenReady().then(async () => {
   registerIpcHandlers({ ipcMain, app, dialog, database, auth, finance, registry, cashflow, analytics, recurrence, alerts, reports, backup, lan: lanService, documents, statements, workspace: workspaceService });
   registerPlanningIpcHandlers({ ipcMain, auth, planning, attachmentOcr });
 
+  const refreshRecurring = () => {
+    try {
+      const generated = recurrence.generateDue({ asOf: localDay() });
+      if (generated.length) BrowserWindow.getAllWindows().forEach((win) => win.webContents.send('finance:data-changed', { generated: generated.length }));
+    } catch (error) { console.error('Recurring account generation failed:', error); }
+  };
+  refreshRecurring();
+  recurrenceTimer = setInterval(refreshRecurring, 5 * 60 * 1000);
   createWindow();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -100,6 +110,7 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
+  if (recurrenceTimer) clearInterval(recurrenceTimer);
   lanService?.stop().catch(() => {});
   workspaceService?.close().catch(() => {});
   database?.close();
