@@ -16,6 +16,7 @@ export default function ReportsPage({token}:Props){
   const payload=useCallback(()=>{const result:Record<string,unknown>={from:filters.from,to:filters.to};if(filters.kind)result.kind=filters.kind;if(filters.status)result.status=filters.status;if(filters.costCenterId)result.costCenterId=filters.costCenterId;if(filters.tagId)result.tagId=filters.tagId;return result;},[filters]);
   const load=useCallback(async()=>{try{setReport(await api.reports.financial(token,payload()));setError('');}catch(err){setError(err instanceof Error?err.message:String(err));}},[api,token,payload]);
   useEffect(()=>{void load();},[load]);
+  useEffect(()=>api.finance.onDataChanged(()=>{void load();}),[api,load]);
   async function csv(){try{const file=await api.reports.csv(token,payload());saveBlob(file.filename,new Blob([file.data],{type:file.mime}));}catch(err){setError(err instanceof Error?err.message:String(err));}}
   async function xlsx(){try{const file=await api.reports.xlsx(token,payload());saveBlob(file.filename,new Blob([fromBase64(file.dataBase64)],{type:file.mime}));}catch(err){setError(err instanceof Error?err.message:String(err));}}
   async function pdf(){try{await api.reports.savePdf(token,payload());}catch(err){setError(err instanceof Error?err.message:String(err));}}
