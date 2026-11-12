@@ -1,6 +1,8 @@
 name: ArtiSys Financeiro - Trial Windows
 
 on:
+  pull_request:
+    branches: [feat/financeiro-trial-license]
   push:
     branches: [feat/financeiro-trial-license]
     paths:
@@ -64,6 +66,7 @@ jobs:
           retention-days: 60
 
       - name: Publicar prerelease de avaliacao para download direto
+        if: github.event_name == 'push' && github.ref == 'refs/heads/feat/financeiro-trial-license'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
