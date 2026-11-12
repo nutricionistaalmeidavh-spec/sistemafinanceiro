@@ -25,6 +25,7 @@ export default function CashflowPage({ token, session }: Props) {
     } catch (err) { setError(err instanceof Error ? err.message : String(err)); }
   }, [api, token]);
   useEffect(()=>{void reload();},[reload]);
+  useEffect(()=>api.finance.onDataChanged(()=>{void reload();}),[api,reload]);
 
   async function createMovement(event: FormEvent) { event.preventDefault(); try { await api.cashflow.createMovement(token,{...form,amountCents:toCents(form.amount),direction:form.type==='ADJUSTMENT'?form.direction:undefined}); setForm({...form,amount:'',note:''}); await reload(); } catch(err){setError(err instanceof Error?err.message:String(err));} }
   async function doTransfer(event: FormEvent) { event.preventDefault(); try { await api.cashflow.transfer(token,{...transfer,amountCents:toCents(transfer.amount)}); setTransfer({...transfer,amount:'',note:''}); await reload(); } catch(err){setError(err instanceof Error?err.message:String(err));} }
