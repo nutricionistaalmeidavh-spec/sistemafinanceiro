@@ -20,6 +20,7 @@ const { createWorkspaceService } = require('./services/workspace-service.cjs');
 const { createPlanningService } = require('./services/planning-service.cjs');
 const { createAttachmentOcrService } = require('./services/attachment-ocr-service.cjs');
 const { seedQaFixture } = require('./services/qa-fixture-service.cjs');
+const { localDay } = require('./services/date-utils.cjs');
 const { registerIpcHandlers } = require('./ipc-handlers.cjs');
 const { registerPlanningIpcHandlers } = require('./planning-ipc.cjs');
 
@@ -33,6 +34,7 @@ if (qaMode) {
 let database;
 let lanService;
 let workspaceService;
+let recurrenceTimer = null;
 
 function createWindow() {
   const window = new BrowserWindow({
@@ -63,7 +65,12 @@ app.whenReady().then(async () => {
   database.open();
   const db = database.connection();
   const auth = createAuthService({ db });
-  const license = createLicenseService({ dataDir:app.getPath('userData'), publicKey:fs.readFileSync(path.join(__dirname, 'services', 'trial-public.pem'),'utf8'), sealedTrial:JSON.parse(fs.readFileSync(path.join(__dirname, 'services', 'trial-activation.bundle.json'),'utf8')) });
+  // Bypass somente no Electron descompactado e com fixture de QA isolada;
+  // builds instaladas continuam exigindo licença assinada.
+  const devQaLicense = qaMode && !app.isPackaged;
+  const license = devQaLicense
+    ? { status:() => ({active:true,mode:'trial',reason:'qa-fixture'}), requireActive:() => true, activate:() => { throw new Error('QA only'); } }
+    : createLicenseService({ dataDir:app.getPath('userData'), publicKey:fs.readFileSync(path.join(__dirname, 'services', 'trial-public.pem'),'utf8'), sealedTrial:JSON.parse(fs.readFileSync(path.join(__dirname, 'services', 'trial-activation.bundle.json'),'utf8')) });
   if (qaMode) seedQaFixture({ db, auth });
   const finance = createFinanceService({ db });
   const registry = createRegistryService({ db });
@@ -93,6 +100,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('license:status', () => license.status());
   ipcMain.handle('license:activate', async (_event,code) => {
     const state=license.activate(code);
+    try { recurrence.generateDue({asOf:localDay()}); } catch(error) { console.error('Recurring generation on activation failed:',error); }
     try { await lanService.startConfigured(); } catch (error) { console.error('LAN server failed to start:',error); }
     return state;
   });
@@ -102,6 +110,15 @@ app.whenReady().then(async () => {
   registerIpcHandlers({ ipcMain:licensedIpc, app, dialog, database, auth, finance, registry, cashflow, analytics, recurrence, alerts, reports, backup, lan: lanService, documents, statements, workspace: workspaceService });
   registerPlanningIpcHandlers({ ipcMain:licensedIpc, auth, planning, attachmentOcr });
 
+  const refreshRecurring = () => {
+    try {
+      if (!license.status().active) return;
+      const generated=recurrence.generateDue({asOf:localDay()});
+      if (generated.length) BrowserWindow.getAllWindows().forEach(win=>win.webContents.send('finance:data-changed',{generated:generated.length}));
+    } catch(error) { console.error('Recurring account generation failed:',error); }
+  };
+  refreshRecurring();
+  recurrenceTimer=setInterval(refreshRecurring,5*60*1000);
   createWindow();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -113,6 +130,7 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
+  if (recurrenceTimer) clearInterval(recurrenceTimer);
   lanService?.stop().catch(() => {});
   workspaceService?.close().catch(() => {});
   database?.close();
