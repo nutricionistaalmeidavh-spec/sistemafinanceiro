@@ -2,15 +2,14 @@
 
 const { randomUUID } = require('node:crypto');
 const { writeAudit } = require('./audit.cjs');
+const { assertDateOnly, localDay } = require('./date-utils.cjs');
 
 function assertPositiveCents(value, name = 'amountCents') {
   if (!Number.isSafeInteger(value) || value <= 0) throw new Error(`${name} must be a positive integer in cents`);
   return value;
 }
 function assertDate(value, name = 'date') {
-  const text = String(value || '').trim();
-  if (!text || !Number.isFinite(Date.parse(text))) throw new Error(`invalid ${name}`);
-  return text;
+  return assertDateOnly(value, name);
 }
 function previousDay(date) {
   const parsed = new Date(`${String(date).slice(0, 10)}T00:00:00Z`);
@@ -46,7 +45,7 @@ function createCashflowService({ db, now = () => new Date().toISOString(), idFac
     const direction = type === 'WITHDRAWAL' ? 'OUT' : type === 'ADJUSTMENT' ? String(input.direction || '').toUpperCase() : 'IN';
     if (!['IN', 'OUT'].includes(direction)) throw new Error('adjustment direction must be IN or OUT');
     const amountCents = assertPositiveCents(input.amountCents);
-    const occurredAt = assertDate(input.occurredAt || nowIso().slice(0, 10), 'movement date');
+    const occurredAt = assertDate(input.occurredAt || localDay(nowIso()), 'movement date');
     const id = String(input.id || idFactory('cash'));
     const timestamp = nowIso();
     db.prepare('INSERT INTO cash_movements(id,account_id,direction,type,amount_cents,occurred_at,note,transfer_id,created_at) VALUES (?,?,?,?,?,?,?,?,?)')
@@ -59,7 +58,7 @@ function createCashflowService({ db, now = () => new Date().toISOString(), idFac
     const to = requireAccount(input.toAccountId);
     if (from.id === to.id) throw new Error('transfer accounts must be different');
     const amountCents = assertPositiveCents(input.amountCents);
-    const occurredAt = assertDate(input.occurredAt || nowIso().slice(0, 10), 'transfer date');
+    const occurredAt = assertDate(input.occurredAt || localDay(nowIso()), 'transfer date');
     return withTransaction(db, () => {
       const transferId = String(input.transferId || idFactory('transfer'));
       const timestamp = nowIso();
@@ -89,14 +88,14 @@ function createCashflowService({ db, now = () => new Date().toISOString(), idFac
       return true;
     }).sort((a, b) => a.occurredAt.localeCompare(b.occurredAt) || a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
   }
-  function getAccountBalances({ asOf = nowIso().slice(0, 10), includeInactive = false } = {}) {
+  function getAccountBalances({ asOf = localDay(nowIso()), includeInactive = false } = {}) {
     const accounts = db.prepare(`SELECT * FROM financial_accounts${includeInactive ? '' : ' WHERE active=1'} ORDER BY name COLLATE NOCASE,id`).all();
     const movements = listMovements({ to: String(asOf) });
     const totals = new Map();
     for (const item of movements) totals.set(item.accountId, (totals.get(item.accountId) || 0) + (item.direction === 'IN' ? item.amountCents : -item.amountCents));
     return accounts.map((account) => ({ id: account.id, name: account.name, type: account.type, active: Boolean(account.active), balanceCents: totals.get(account.id) || 0 }));
   }
-  function getCashflowSummary({ from = null, to = nowIso().slice(0, 10), accountId = null } = {}) {
+  function getCashflowSummary({ from = null, to = localDay(nowIso()), accountId = null } = {}) {
     const period = listMovements({ from, to, accountId });
     let inCents = 0; let outCents = 0;
     for (const item of period) item.direction === 'IN' ? inCents += item.amountCents : outCents += item.amountCents;
