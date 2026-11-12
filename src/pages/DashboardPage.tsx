@@ -15,6 +15,7 @@ export default function DashboardPage({ token }: Props) {
     catch (err) { setError(err instanceof Error ? err.message : String(err)); }
   }, [api, token, year]);
   useEffect(() => { void reload(); }, [reload]);
+  useEffect(() => api.finance.onDataChanged(() => { void reload(); }), [api, reload]);
   const maxFlow = useMemo(() => Math.max(1, ...(data?.monthly.flatMap((m) => [m.inCents, m.outCents]) || [1])), [data]);
   const overduePayable = data?.cards.overduePayableCents || 0;
   const overdueReceivable = data?.cards.overdueReceivableCents || 0;
