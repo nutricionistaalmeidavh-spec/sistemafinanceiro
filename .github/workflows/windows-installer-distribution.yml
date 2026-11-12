@@ -6,6 +6,12 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/windows-installer-distribution.yml'
+      - 'electron/**'
+      - 'src/**'
+      - 'tests/**'
+      - 'scripts/**'
+      - 'database/**'
+      - 'package.json'
   push:
     branches: [main]
     paths:
@@ -37,6 +43,8 @@ jobs:
         run: npm test
       - name: Build do renderer
         run: npm run build
+      - name: QA visual Electron real
+        run: npm run ci:qa-final
       - name: Gerar instalador Windows NSIS
         run: npm run dist:package
       - name: Conferir versão e checksum
@@ -52,6 +60,14 @@ jobs:
           "Size: $size"
           "SHA256: $hash"
           "SHA256_VERSION=$version" >> $env:GITHUB_ENV
+      - name: Preservar capturas QA
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: artisys-financeiro-qa-${{ github.sha }}
+          path: qa-artifacts/final/screenshots/*.png
+          if-no-files-found: ignore
+          retention-days: 14
       - name: Preservar instalador como artefato privado do Actions
         uses: actions/upload-artifact@v4
         with:
