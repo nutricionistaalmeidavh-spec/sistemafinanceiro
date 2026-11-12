@@ -2,6 +2,7 @@
 
 const { randomUUID } = require('node:crypto');
 const { writeAudit } = require('./audit.cjs');
+const { assertDateOnly, localDay } = require('./date-utils.cjs');
 
 function assertCents(value, name) {
   if (!Number.isSafeInteger(value) || value < 0) throw new Error(`${name} must be a non-negative integer in cents`);
@@ -42,12 +43,12 @@ function createFinanceService({ db, now = () => new Date().toISOString(), idFact
   function mapSettlement(row) {
     return row && { id: row.id, entryId: row.entry_id, accountId: row.account_id || null, amountCents: row.amount_cents, method: row.method, note: row.note, occurredAt: row.occurred_at, createdAt: row.created_at, reversedAt: row.reversed_at };
   }
-  function mapEntry(row, asOf = nowIso()) {
+  function mapEntry(row, asOf = localDay(nowIso())) {
     if (!row) return null;
     const settlements = activeSettlements(row.id).map(mapSettlement);
     const settledCents = settlements.reduce((sum, item) => sum + Number(item.amountCents || 0), 0);
     const openCents = Math.max(Number(row.amount_cents) - settledCents, 0);
-    const isOverdue = ['OPEN', 'PARTIAL'].includes(row.status) && Date.parse(row.due_at) < Date.parse(String(asOf));
+    const isOverdue = ['OPEN', 'PARTIAL'].includes(row.status) && row.due_at < assertDateOnly(String(asOf).slice(0, 10), 'asOf');
     return {
       id: row.id, kind: row.kind, description: row.description, categoryId: row.category_id, accountId: row.account_id,
       customerId: row.customer_id, creditorId: row.creditor_id, amountCents: row.amount_cents, issueAt: row.issue_at,
@@ -57,7 +58,7 @@ function createFinanceService({ db, now = () => new Date().toISOString(), idFact
       settledCents, openCents, isOverdue, settlements,
     };
   }
-  function getEntry(id, { asOf } = {}) { return mapEntry(db.prepare('SELECT * FROM financial_entries WHERE id=?').get(String(id)), asOf || nowIso()); }
+  function getEntry(id, { asOf } = {}) { return mapEntry(db.prepare('SELECT * FROM financial_entries WHERE id=?').get(String(id)), asOf || localDay(nowIso())); }
   function requireEntry(id) { const row = db.prepare('SELECT * FROM financial_entries WHERE id=?').get(String(id)); if (!row) throw new Error('financial entry not found'); return row; }
   function assertRelation(table, id, label) {
     if (!id) return;
@@ -78,8 +79,7 @@ function createFinanceService({ db, now = () => new Date().toISOString(), idFact
     if (!description) throw new Error('financial entry description is required');
     const amountCents = assertCents(input.amountCents, 'amountCents');
     if (amountCents <= 0) throw new Error('amountCents must be greater than zero');
-    const dueAt = String(input.dueAt || '').trim();
-    if (!dueAt || !Number.isFinite(Date.parse(dueAt))) throw new Error('invalid due date');
+    const dueAt = assertDateOnly(input.dueAt, 'due date');
     if (kind === 'PAYABLE' && input.customerId) throw new Error('payable cannot reference customer');
     if (kind === 'RECEIVABLE' && input.creditorId) throw new Error('receivable cannot reference creditor');
     if (input.accountId) assertRelation('financial_accounts', input.accountId, 'financial account');
@@ -88,7 +88,7 @@ function createFinanceService({ db, now = () => new Date().toISOString(), idFact
     validateCategory(kind, input.categoryId);
     const id = String(input.id || idFactory('fin'));
     const timestamp = nowIso();
-    const issueAt = input.issueAt ? String(input.issueAt) : timestamp.slice(0, 10);
+    const issueAt = assertDateOnly(input.issueAt || localDay(timestamp), 'issue date');
     db.prepare(`INSERT INTO financial_entries
       (id,kind,description,category_id,account_id,customer_id,creditor_id,amount_cents,issue_at,due_at,status,source_type,source_id,notes,recurrence_rule_id,recurrence_key,created_at,updated_at)
       VALUES (?,?,?,?,?,?,?,?,?,?,'OPEN',?,?,?,?,?,?,?)`).run(
@@ -98,6 +98,37 @@ function createFinanceService({ db, now = () => new Date().toISOString(), idFact
       );
     writeAudit(db, { action: 'finance.entry.create', entity: 'financial-entry', entityId: id, actor, context: { kind, amountCents, dueAt, recurrenceRuleId: input.recurrenceRuleId || null } }, nowIso);
     return getEntry(id);
+  }
+  function updateEntry(entryId, input = {}, actor = null) {
+    return withTransaction(db, () => {
+      const row = requireEntry(entryId);
+      if (row.status === 'CANCELLED') throw new Error('cancelled entry cannot be edited');
+      if (input.kind != null && input.kind !== row.kind) throw new Error('entry kind cannot change');
+      const description = input.description == null ? row.description : String(input.description).trim();
+      if (!description) throw new Error('financial entry description is required');
+      const amountCents = input.amountCents == null ? row.amount_cents : assertCents(input.amountCents,'amountCents');
+      if (amountCents <= 0) throw new Error('amountCents must be greater than zero');
+      if (amountCents < getEntry(entryId).settledCents) throw new Error('amount cannot be lower than settled total');
+      const dueAt = assertDateOnly(input.dueAt ?? row.due_at, 'due date');
+      const accountId = input.accountId === undefined ? row.account_id : input.accountId || null;
+      const categoryId = input.categoryId === undefined ? row.category_id : input.categoryId || null;
+      const customerId = input.customerId === undefined ? row.customer_id : input.customerId || null;
+      const creditorId = input.creditorId === undefined ? row.creditor_id : input.creditorId || null;
+      if (row.kind === 'PAYABLE' && customerId) throw new Error('payable cannot reference customer');
+      if (row.kind === 'RECEIVABLE' && creditorId) throw new Error('receivable cannot reference creditor');
+      assertRelation('financial_accounts', accountId, 'financial account');
+      assertRelation('customers', customerId, 'customer');
+      assertRelation('creditors', creditorId, 'creditor');
+      validateCategory(row.kind, categoryId);
+      const notes = input.notes === undefined ? row.notes : input.notes || null;
+      db.prepare(`UPDATE financial_entries SET description=?,amount_cents=?,due_at=?,account_id=?,category_id=?,customer_id=?,creditor_id=?,notes=?,updated_at=? WHERE id=?`)
+        .run(description,amountCents,dueAt,accountId,categoryId,customerId,creditorId,notes,nowIso(),String(entryId));
+      recalculateStatus(entryId);
+      writeAudit(db,{action:'finance.entry.update',entity:'financial-entry',entityId:String(entryId),actor,
+        context:{before:{description:row.description,amountCents:row.amount_cents,dueAt:row.due_at},
+                 after:{description,amountCents,dueAt}}},nowIso);
+      return getEntry(entryId);
+    });
   }
   function recalculateStatus(entryId) {
     const row = requireEntry(entryId);
@@ -116,17 +147,18 @@ function createFinanceService({ db, now = () => new Date().toISOString(), idFact
       const amountCents = assertCents(input.amountCents, 'amountCents');
       if (amountCents <= 0) throw new Error('settlement must be greater than zero');
       if (amountCents > current.openCents) throw new Error('settlement exceeds open balance');
-      const occurredAt = String(input.occurredAt || nowIso().slice(0, 10));
-      if (!Number.isFinite(Date.parse(occurredAt))) throw new Error('invalid settlement date');
+      const occurredAt = assertDateOnly(input.occurredAt || localDay(nowIso()), 'settlement date');
+      const method = String(input.method || 'OTHER').toUpperCase();
+      if (!['PIX','CASH','TRANSFER','BOLETO','DEBIT_CARD','CREDIT_CARD','OTHER'].includes(method)) throw new Error('invalid payment method');
       const accountId = String(input.accountId || row.account_id || '').trim();
       if (!accountId) throw new Error('financial account is required for settlement');
       assertRelation('financial_accounts', accountId, 'financial account');
       const id = String(input.id || idFactory('settlement'));
       const timestamp = nowIso();
       db.prepare('INSERT INTO financial_settlements(id,entry_id,account_id,amount_cents,method,note,occurred_at,created_at) VALUES (?,?,?,?,?,?,?,?)')
-        .run(id, String(entryId), accountId, amountCents, input.method || null, input.note || null, occurredAt, timestamp);
+        .run(id, String(entryId), accountId, amountCents, method, input.note || null, occurredAt, timestamp);
       recalculateStatus(entryId);
-      writeAudit(db, { action: 'finance.settle', entity: 'financial-entry', entityId: entryId, actor, context: { settlementId: id, accountId, amountCents, method: input.method || null } }, nowIso);
+      writeAudit(db, { action: 'finance.settle', entity: 'financial-entry', entityId: entryId, actor, context: { settlementId: id, accountId, amountCents, method } }, nowIso);
       return { settlement: mapSettlement(db.prepare('SELECT * FROM financial_settlements WHERE id=?').get(id)), entry: getEntry(entryId) };
     });
   }
@@ -174,10 +206,10 @@ function createFinanceService({ db, now = () => new Date().toISOString(), idFact
     if (filters.recurrenceRuleId) { clauses.push('recurrence_rule_id=?'); params.push(String(filters.recurrenceRuleId)); }
     if (filters.query) { clauses.push('LOWER(description) LIKE ?'); params.push(`%${String(filters.query).trim().toLowerCase()}%`); }
     return db.prepare(`SELECT * FROM financial_entries${clauses.length ? ` WHERE ${clauses.join(' AND ')}` : ''} ORDER BY due_at,id`).all(...params)
-      .map((row) => mapEntry(row, filters.asOf || nowIso()))
+      .map((row) => mapEntry(row, filters.asOf || localDay(nowIso())))
       .filter((entry) => filters.overdue === true ? entry.isOverdue : true);
   }
-  function getSummary({ from = null, to = null, asOf = nowIso() } = {}) {
+  function getSummary({ from = null, to = null, asOf = localDay(nowIso()) } = {}) {
     const entries = listEntries({ from, to, asOf });
     const summary = { payableTotalCents: 0, payableSettledCents: 0, payableOpenCents: 0, receivableTotalCents: 0, receivableSettledCents: 0, receivableOpenCents: 0, overduePayableCents: 0, overdueReceivableCents: 0 };
     for (const entry of entries) {
@@ -191,7 +223,7 @@ function createFinanceService({ db, now = () => new Date().toISOString(), idFact
     return summary;
   }
 
-  return { createAccount, getAccount, listAccounts, createEntry, getEntry, listEntries, settleEntry, reverseSettlement, cancelEntry, getSummary };
+  return { createAccount, getAccount, listAccounts, createEntry, updateEntry, getEntry, listEntries, settleEntry, reverseSettlement, cancelEntry, getSummary };
 }
 
 module.exports = { createFinanceService };
