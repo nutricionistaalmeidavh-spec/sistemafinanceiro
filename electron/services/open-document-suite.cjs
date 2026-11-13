@@ -1,6 +1,9 @@
 'use strict';
 
 const crypto = require('node:crypto');
+const fs=require('node:fs');
+const path=require('node:path');
+const fontkit=require('@pdf-lib/fontkit');
 const ExcelJS = require('exceljs');
 const Docx = require('docx');
 const { PDFDocument, PDFTextField, PDFCheckBox, PDFDropdown, PDFRadioGroup, PDFOptionList } = require('pdf-lib');
@@ -156,6 +159,19 @@ async function inspectPdfFormBuffer(source) {
   const pdf=await PDFDocument.load(bytes,{ignoreEncryption:false});
   return pdfFields(pdf.getForm());
 }
+function findUnicodeFont() {
+  const candidates = process.platform==='win32' ? [
+    path.join(process.env.WINDIR||'C:\\Windows','Fonts','arial.ttf'),
+    path.join(process.env.WINDIR||'C:\\Windows','Fonts','segoeui.ttf'),
+  ] : [
+    '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
+    '/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf',
+    '/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf',
+    '/System/Library/Fonts/Supplemental/Arial.ttf',
+    '/Library/Fonts/Arial.ttf'
+  ];
+  return candidates.find(file=>fs.existsSync(file))||null;
+}
 async function fillPdfFormBuffer(source,values) {
   const bytes=Buffer.from(source||[]);
   if(!bytes.length||bytes.length>20*1024*1024)throw new RangeError('PDF vazio ou maior que 20 MB');
@@ -176,6 +192,15 @@ async function fillPdfFormBuffer(source,values) {
       else if(entry.type==='select'){if(!entry.options.includes(value))throw new TypeError('opção PDF inválida');form.getDropdown(name).select(value);}
       else if(entry.type==='radio'){if(!entry.options.includes(value))throw new TypeError('opção PDF inválida');form.getRadioGroup(name).select(value);}
     }
+  }
+  // Core offline: use a font already shipped with the local operating system.
+  const fontPath=findUnicodeFont();
+  if(fontPath){
+    pdf.registerFontkit(fontkit);
+    const embedded=await pdf.embedFont(fs.readFileSync(fontPath),{subset:true});
+    form.updateFieldAppearances(embedded);
+  }else if(Object.values(values).some(v=>typeof v==='string'&&/[^\x00-\x7f]/.test(v))){
+    throw new Error('Fonte Unicode local não encontrada para preencher caracteres acentuados no PDF');
   }
   pdf.setAuthor('ArtiSys Financeiro');
   pdf.setProducer('ArtiSys Financeiro / pdf-lib');
