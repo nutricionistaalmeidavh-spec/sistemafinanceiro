@@ -3,11 +3,11 @@ import { FileDown, Landmark, Pencil, Plus, Printer, RotateCcw, Search, XCircle }
 import { FinanceButton, FinanceDrawer, FinanceStatusBadge, FinanceToolbar } from '../components/finance-ui';
 import { brl, can, toCents, today } from '../lib/format';
 
-type Props = { token: string; session: FinanceiroSession; intent?:FinanceiroKind|null; browseKind?:FinanceiroKind|null; onBrowseHandled?:()=>void; onIntentHandled?:()=>void; onOpenPlanning?:(entryId:string)=>void };
+type Props = { token: string; session: FinanceiroSession; intent?:FinanceiroKind|null; browseKind?:FinanceiroKind|null; onBrowseHandled?:()=>void; onIntentHandled?:()=>void; onOpenPlanning?:(entryId:string)=>void; focusEntry?:FinanceEntry|null };
 type StatusFilter = 'ALL' | FinanceEntry['status'] | 'OVERDUE';
 const emptySummary: FinancialSummary = { payableTotalCents:0,payableSettledCents:0,payableOpenCents:0,receivableTotalCents:0,receivableSettledCents:0,receivableOpenCents:0,overduePayableCents:0,overdueReceivableCents:0 };
 
-export default function FinancePage({ token, session, intent, browseKind, onBrowseHandled, onIntentHandled, onOpenPlanning }: Props) {
+export default function FinancePage({ token, session, intent, browseKind, onBrowseHandled, onIntentHandled, onOpenPlanning, focusEntry }: Props) {
   const api = window.financeiro!;
   const [kind, setKind] = useState<FinanceiroKind>('PAYABLE');
   const [entries, setEntries] = useState<FinanceEntry[]>([]);
@@ -29,6 +29,7 @@ export default function FinancePage({ token, session, intent, browseKind, onBrow
   const [entryDrawerOpen, setEntryDrawerOpen] = useState(false);
   const [editingEntry, setEditingEntry] = useState<FinanceEntry | null>(null);
   const [recurring, setRecurring] = useState(false);
+  const [recurrenceOptions,setRecurrenceOptions]=useState({intervalMonths:'1',intervalDays:'',endDate:'',maxOccurrences:'',annualAdjustmentPct:'0'});
   const [payingEntry, setPayingEntry] = useState<FinanceEntry | null>(null);
   const [paymentForm, setPaymentForm] = useState({amount:'',occurredAt:today(),accountId:'',method:'PIX',note:''});
   const [form, setForm] = useState({ description:'', amount:'', dueAt:today(), accountId:'', categoryId:'', counterpartyId:'' });
@@ -67,6 +68,7 @@ export default function FinancePage({ token, session, intent, browseKind, onBrow
   useEffect(()=>api.finance.onDataChanged(()=>{void reloadEntries();}),[api,reloadEntries]);
   useEffect(() => { if(!editingEntry)setForm((old) => ({ ...old, categoryId:'', counterpartyId:'' })); }, [kind,editingEntry]);
   useEffect(()=>{if(!browseKind)return;setKind(browseKind);onBrowseHandled?.();},[browseKind,onBrowseHandled]);
+  useEffect(()=>{if(focusEntry){setKind(focusEntry.kind);setSearch(focusEntry.description);setStatusFilter('ALL');setVisibleLimit(100);}},[focusEntry]);
   useEffect(()=>{if(!intent)return;setKind(intent);setEditingEntry(null);setRecurring(false);setForm({description:'',amount:'',dueAt:today(),accountId:'',categoryId:'',counterpartyId:''});setEntryDrawerOpen(true);onIntentHandled?.();},[intent,onIntentHandled]);
   const counterparties = kind === 'PAYABLE' ? creditors : customers;
 
@@ -74,6 +76,7 @@ export default function FinancePage({ token, session, intent, browseKind, onBrow
     setDrawerError('');
     setEditingEntry(null);
     setRecurring(false);
+    setRecurrenceOptions({intervalMonths:'1',intervalDays:'',endDate:'',maxOccurrences:'',annualAdjustmentPct:'0'});
     setForm({description:'',amount:'',dueAt:today(),accountId:'',categoryId:'',counterpartyId:''});
     setEntryDrawerOpen(true);
   }
@@ -99,7 +102,10 @@ export default function FinancePage({ token, session, intent, browseKind, onBrow
       };
       if (editingEntry) await api.finance.updateEntry(token, editingEntry.id, input);
       else if (recurring) {
-        await api.recurrence.create(token, {...input, startDate:form.dueAt,dueDay:Number(form.dueAt.slice(-2))});
+        await api.recurrence.create(token, {...input, startDate:form.dueAt,dueDay:Number(form.dueAt.slice(-2)),
+          intervalMonths:Number(recurrenceOptions.intervalMonths),intervalDays:recurrenceOptions.intervalDays?Number(recurrenceOptions.intervalDays):null,
+          endDate:recurrenceOptions.endDate||null,maxOccurrences:recurrenceOptions.maxOccurrences?Number(recurrenceOptions.maxOccurrences):null,
+          annualAdjustmentBps:Math.round(Number(recurrenceOptions.annualAdjustmentPct.replace(',','.'))*100)});
         await api.recurrence.generate(token,today());
       } else await api.finance.createEntry(token,input);
       setForm({ description:'', amount:'', dueAt:today(), accountId:'', categoryId:'', counterpartyId:'' });
@@ -213,6 +219,11 @@ export default function FinancePage({ token, session, intent, browseKind, onBrow
     </div>
     {error && <div className="error-box" role="alert">{error}</div>}
     {notice&&<div className="success-box" role="status">{notice}</div>}
+    {focusEntry&&<div className="panel" data-testid="finance-recurring-focus">
+      <strong>Parcela selecionada: {focusEntry.description}</strong>
+      <p className="muted">Vencimento {focusEntry.dueAt.split('-').reverse().join('/')} · {brl(focusEntry.amountCents)} · saldo em aberto {brl(focusEntry.openCents)}</p>
+      <p className="muted">Localize a parcela filtrada abaixo para registrar a baixa, editar ou consultar o comprovante.</p>
+    </div>}
     <div className="segmented"><button type="button" className={kind==='PAYABLE'?'active':''} onClick={() => setKind('PAYABLE')}>Contas a pagar</button><button type="button" className={kind==='RECEIVABLE'?'active':''} onClick={() => setKind('RECEIVABLE')}>Contas a receber</button></div>
     <FinanceToolbar
       filters={<><label className="finance-search-control"><Search size={16}/><input data-testid="finance-search" aria-label="Buscar lançamentos" value={search} onChange={(e)=>{setSearch(e.target.value);setVisibleLimit(100);}} placeholder="Buscar descrição, pessoa ou categoria"/></label><label className="filter-control"><span>Status</span><select aria-label="Filtrar status" value={statusFilter} onChange={(e)=>{setStatusFilter(e.target.value as StatusFilter);setVisibleLimit(100);}}><option value="ALL">Todos os status</option><option value="OPEN">Em aberto</option><option value="PARTIAL">Parcial</option><option value="SETTLED">Quitado</option><option value="OVERDUE">Vencido</option><option value="CANCELLED">Cancelado</option></select></label></>}
@@ -237,7 +248,21 @@ export default function FinancePage({ token, session, intent, browseKind, onBrow
           <label>{kind==='PAYABLE'?'Credor':'Cliente'}<select value={form.counterpartyId} onChange={(e)=>setForm({...form,counterpartyId:e.target.value})}><option value="">Não informado</option>{counterparties.map((x)=><option key={x.id} value={x.id}>{x.name}</option>)}</select><button type="button" className="secondary-button small" onClick={()=>setShowPartyForm(v=>!v)}>Cadastrar {kind==='PAYABLE'?'credor':'cliente'}</button></label>
           {showPartyForm&&<div className="wide inline-fields"><label className="wide">Nome da contraparte<input value={partyName} onChange={e=>setPartyName(e.target.value)}/></label><button type="button" className="secondary-button" disabled={busy||!partyName.trim()} onClick={()=>void createParty({preventDefault:()=>{}} as FormEvent)}>Salvar cadastro</button></div>}
           <label className="wide">Conta<select value={form.accountId} onChange={(e)=>setForm({...form,accountId:e.target.value})}><option value="">Definir na baixa</option>{accounts.map((x)=><option key={x.id} value={x.id}>{x.name}</option>)}</select></label>
-          {!editingEntry && <label className="wide"><input type="checkbox" checked={recurring} onChange={(e)=>setRecurring(e.target.checked)}/> Repetir mensalmente a partir do vencimento (geração automática)</label>}
+          {!editingEntry && <label className="wide"><input type="checkbox" checked={recurring} onChange={(e)=>setRecurring(e.target.checked)}/> Repetir automaticamente a partir do vencimento</label>}
+          {!editingEntry&&recurring&&<>
+            <label>Frequência<select value={recurrenceOptions.intervalDays?'D'+recurrenceOptions.intervalDays:'M'+recurrenceOptions.intervalMonths}
+              onChange={e=>{const option=e.target.value;setRecurrenceOptions(x=>({...x,
+                intervalDays:option.startsWith('D')?option.slice(1):'',intervalMonths:option.startsWith('M')?option.slice(1):'1'}));}}>
+              <option value="D7">Semanal</option><option value="D14">Quinzenal (14 dias)</option>
+              <option value="M1">Mensal</option><option value="M2">Bimestral</option>
+              <option value="M3">Trimestral</option><option value="M6">Semestral</option><option value="M12">Anual</option>
+            </select></label>
+            <label>Encerrar em (opcional)<input type="date" min={form.dueAt} value={recurrenceOptions.endDate} onChange={e=>setRecurrenceOptions({...recurrenceOptions,endDate:e.target.value})}/></label>
+            <label>Máximo de parcelas<input type="number" min="1" placeholder="Sem limite" value={recurrenceOptions.maxOccurrences} onChange={e=>setRecurrenceOptions({...recurrenceOptions,maxOccurrences:e.target.value})}/></label>
+            <label>Reajuste anual (%)<input type="number" min="0" max="100" step="0.01" value={recurrenceOptions.annualAdjustmentPct}
+              onChange={e=>setRecurrenceOptions({...recurrenceOptions,annualAdjustmentPct:e.target.value})}/></label>
+            <p className="wide muted">Geração de obrigações, nunca de pagamentos. Consulte parcelas futuras em Recorrências.</p>
+          </>}
           {drawerError&&<div className="error-box wide" role="alert">{drawerError}</div>}
           <FinanceButton type="submit" disabled={busy}>{busy?'Salvando…':editingEntry?'Salvar alterações':recurring?'Criar conta recorrente':'Salvar lançamento'}</FinanceButton>
         </form>
