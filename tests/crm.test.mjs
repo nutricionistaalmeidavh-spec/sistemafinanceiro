@@ -105,3 +105,39 @@ test('P0 CSV preview flags duplicates and commits only valid unique leads',()=>{
  assert.equal(crm.commitLeadImport(rows,actor).created,0);
  db.close();
 });
+
+test('P0 stage history records transitions and remains queryable',()=>{
+ const {db,crm}=setup();
+ const lead=crm.saveLead({name:'Histórico Alpha'},actor);
+ const deal=crm.saveOpportunity({leadId:lead.id,title:'Consulta',amountCents:1200},actor);
+ crm.moveOpportunity(deal.id,'QUALIFIED',actor);
+ crm.moveOpportunity(deal.id,'PROPOSAL',actor);
+ assert.deepEqual(crm.listStageHistory(deal.id).map(x=>x.toStage),['QUALIFIED','PROPOSAL']);
+ db.close();
+});
+test('P1 conversion recognizes formatted existing documents and rejects conflicting identity',()=>{
+ const {db,crm,registry}=setup();
+ const existing=registry.saveCustomer({name:'Cliente já cadastrado',document:'12.345.678/0001-00'},actor);
+ const lead=crm.saveLead({name:'Lead da mesma empresa',document:'12345678000100'},actor);
+ const linked=crm.convertLead(lead.id,{},actor);
+ assert.equal(linked.id,existing.id);
+ assert.equal(db.prepare('SELECT COUNT(*) n FROM customers').get().n,1);
+ const another=registry.saveCustomer({name:'Outro documento',document:'12.345.678/0001-99'},actor);
+ const lead2=crm.saveLead({name:'Lead 2',document:'12345678000177'},actor);
+ assert.throws(()=>crm.convertLead(lead2.id,{customerId:another.id},actor),/conflitante/i);
+ db.close();
+});
+test('P1 mid-batch failure rolls back already-created receivables',()=>{
+ const {db,crm,finance,registry}=setup();
+ const lead=crm.saveLead({name:'Rollback Comercial'},actor);
+ const deal=crm.saveOpportunity({leadId:lead.id,title:'Projeto de rollback',amountCents:20000},actor);
+ const quote=crm.createQuote({opportunityId:deal.id,items:[{description:'Entrega',quantity:1,unitPriceCents:20000}]},actor);
+ crm.moveOpportunity(deal.id,'WON',actor);crm.convertLead(lead.id,{},actor);
+ let writes=0;
+ const wrappedFinance={...finance,createEntry(...args){writes++;if(writes===2)throw Error('falha simulada na segunda parcela');return finance.createEntry(...args);}};
+ const broken=createCrmService({db,finance:wrappedFinance,registry,now:()=> '2026-11-13T16:00:00.000Z'});
+ assert.throws(()=>broken.confirmReceivables({quoteId:quote.id,installments:2,firstDueAt:'2026-12-12',expectedTotalCents:20000},actor),/simulada/i);
+ assert.equal(db.prepare('SELECT COUNT(*) n FROM financial_entries').get().n,0);
+ assert.equal(db.prepare('SELECT COUNT(*) n FROM crm_billing_links').get().n,0);
+ db.close();
+});
