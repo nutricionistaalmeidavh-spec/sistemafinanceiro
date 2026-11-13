@@ -3,6 +3,7 @@
 const { randomUUID } = require('node:crypto');
 const { writeAudit } = require('./audit.cjs');
 const { assertDateOnly, localDay } = require('./date-utils.cjs');
+const {splitCents}=require('./allocation-service.cjs');
 
 function assertCents(value, name) {
   if (!Number.isSafeInteger(value) || value < 0) throw new Error(`${name} must be a non-negative integer in cents`);
@@ -157,6 +158,19 @@ function createFinanceService({ db, now = () => new Date().toISOString(), idFact
       }
       db.prepare(`UPDATE financial_entries SET description=?,amount_cents=?,due_at=?,account_id=?,category_id=?,customer_id=?,creditor_id=?,notes=?,updated_at=? WHERE id=?`)
         .run(description,amountCents,dueAt,accountId,categoryId,customerId,creditorId,notes,nowIso(),String(entryId));
+      if(amountCents!==Number(row.amount_cents)){
+        const original=db.prepare(`SELECT cost_center_id,amount_cents,percentage_basis_points FROM entry_allocations WHERE entry_id=? ORDER BY cost_center_id`).all(String(entryId));
+        if(original.length){
+          const usePercentages=original.every(part=>Number(part.percentage_basis_points)>0);
+          const weights=original.map(part=>({costCenterId:part.cost_center_id,amountCents:usePercentages?Number(part.percentage_basis_points):Number(part.amount_cents)}));
+          const updated=splitCents(amountCents,weights);
+          if([...updated.values()].some(value=>value<=0))throw new Error('amount too small to preserve all cost center allocations');
+          const statement=db.prepare(`UPDATE entry_allocations SET amount_cents=?,updated_at=? WHERE entry_id=? AND cost_center_id=?`);
+          for(const [centerId,share] of updated)statement.run(share,nowIso(),String(entryId),centerId);
+          writeAudit(db,{action:'planning.allocation.rebalance',entity:'financial-entry',entityId:String(entryId),actor,
+            context:{beforeCents:Number(row.amount_cents),afterCents:amountCents,centers:updated.size}},nowIso);
+        }
+      }
       recalculateStatus(entryId);
       writeAudit(db,{action:'finance.entry.update',entity:'financial-entry',entityId:String(entryId),actor,
         context:{before:{description:row.description,amountCents:row.amount_cents,dueAt:row.due_at},
