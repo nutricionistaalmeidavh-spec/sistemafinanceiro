@@ -145,8 +145,9 @@ function createFinanceService({ db, now = () => new Date().toISOString(), idFact
     db.prepare('UPDATE financial_entries SET status=?,updated_at=? WHERE id=?').run(status, nowIso(), String(entryId));
     return status;
   }
-  function settleEntry(entryId, input = {}, actor = null) {
-    return withTransaction(db, () => {
+  function settleEntry(entryId, input = {}, actor = null, { withinTransaction = false } = {}) {
+    // Used internally by atomic bank reconciliation; regular callers still own a transaction.
+    const execute = () => {
       const row = requireEntry(entryId);
       if (row.status === 'CANCELLED') throw new Error('cancelled entry cannot be settled');
       const current = getEntry(entryId);
@@ -167,7 +168,8 @@ function createFinanceService({ db, now = () => new Date().toISOString(), idFact
       recalculateStatus(entryId);
       writeAudit(db, { action: 'finance.settle', entity: 'financial-entry', entityId: entryId, actor, context: { settlementId: id, accountId, amountCents, method } }, nowIso);
       return { settlement: mapSettlement(db.prepare('SELECT * FROM financial_settlements WHERE id=?').get(id)), entry: getEntry(entryId) };
-    });
+    };
+    return withinTransaction ? execute() : withTransaction(db, execute);
   }
   function reverseSettlement(settlementId, { reason = '', actor = null } = {}) {
     return withTransaction(db, () => {
