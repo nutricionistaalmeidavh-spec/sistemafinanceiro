@@ -10,13 +10,23 @@ function normalizeSourceType(value) {
   return type;
 }
 function parseDate(value) {
-  const raw = String(value || '').trim();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
-  let m = raw.match(/^(\d{2})[\/-](\d{2})[\/-](\d{4})$/);
-  if (m) return `${m[3]}-${m[2]}-${m[1]}`;
-  m = raw.match(/^(\d{4})(\d{2})(\d{2})/);
-  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
-  throw new TypeError(`invalid date: ${raw}`);
+  const raw=String(value||'').trim();
+  let parts=raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  let year,month,day;
+  if(parts){year=Number(parts[1]);month=Number(parts[2]);day=Number(parts[3]);}
+  else {
+    parts=raw.match(/^(\d{2})[\/-](\d{2})[\/-](\d{4})$/);
+    if(parts){day=Number(parts[1]);month=Number(parts[2]);year=Number(parts[3]);}
+    else {
+      parts=raw.match(/^(\d{4})(\d{2})(\d{2})(?:\d{6})?$/);
+      if(!parts)throw new TypeError('invalid date: '+raw);
+      year=Number(parts[1]);month=Number(parts[2]);day=Number(parts[3]);
+    }
+  }
+  const iso=`${String(year).padStart(4,'0')}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+  const date=new Date(Date.UTC(year,month-1,day));
+  if(year<1900||year>2200||date.getUTCFullYear()!==year||date.getUTCMonth()!==month-1||date.getUTCDate()!==day)throw new TypeError('invalid date: '+raw);
+  return iso;
 }
 function parseAmount(value) {
   if(typeof value==='number'){
@@ -133,7 +143,7 @@ function createStatementImportService({ db=null, finance=null, now=()=>new Date(
     if(sourceType==='CSV')return parseCsv(input.content);
     if(sourceType==='XLSX')return parseStatementXlsx(input.dataBase64,input.columnMapping || {});
     if(sourceType==='ODS')return parseStatementOds(input.dataBase64,input.columnMapping || {});
-    if(sourceType==='QIF')return parseQif(input.content);
+    if(sourceType==='QIF')return parseQif(input.content,{dateOrder:input.qifDateOrder||'AUTO'});
     if(sourceType==='OFX')return parseOfx(input.content);
     if(sourceType==='PDF'){
       const text=input.text || (input.dataBase64 ? await pdfTextLoader(input.dataBase64) : input.content);
