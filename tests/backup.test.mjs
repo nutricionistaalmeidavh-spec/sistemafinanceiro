@@ -32,7 +32,7 @@ test('backup service creates verified backup and restores only valid compatible 
     const future = path.join(backupsDir, 'future.sqlite');
     fs.copyFileSync(backup.path, future);
     const futureDb = new DatabaseSync(future);
-    futureDb.exec('PRAGMA user_version=8;');
+    futureDb.exec('PRAGMA user_version=9;');
     futureDb.close();
     assert.throws(() => service.restoreBackup(future, { id: 'local-admin', role: 'ADMIN' }), /incompatible backup schema/i);
 
