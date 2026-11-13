@@ -90,3 +90,43 @@ test('calendario de vencimentos e valores projetados usa ajustes sem floats acum
   assert.deepEqual(dates.map(x=>x.amountCents),[10001,10501,11026,11577]);
   assert.equal(amountAtDue(rule,'2025-02-28'),10501);
 });
+
+
+test('filtro historico de status usa status naquela data, nao o estado atual',()=>{
+  const h=createHarness({now:()=> '2026-09-01T12:00:00.000Z'});
+  try{
+    const account=h.finance.createAccount({name:'Banco',type:'BANK'});
+    const bill=h.finance.createEntry({kind:'PAYABLE',description:'Fatura',amountCents:10000,dueAt:'2026-09-15'});
+    h.finance.settleEntry(bill.id,{amountCents:10000,occurredAt:'2026-09-10',accountId:account.id});
+    assert.equal(h.finance.getEntry(bill.id,{asOf:'2026-09-05'}).status,'OPEN');
+    assert.equal(h.finance.listEntries({status:'OPEN',asOf:'2026-09-05'}).some(x=>x.id===bill.id),true);
+    assert.equal(h.finance.listEntries({status:'SETTLED',asOf:'2026-09-05'}).some(x=>x.id===bill.id),false);
+  }finally{h.cleanup();}
+});
+
+test('DRE competência não inventa valor realizado antes do vencimento e respeita corte',()=>{
+  const h=createHarness({now:()=> '2026-09-12T12:00:00.000Z'});
+  try{
+    h.finance.createEntry({kind:'RECEIVABLE',description:'Venda futura',amountCents:25000,dueAt:'2026-09-30'});
+    const report=h.analytics.getDre({from:'2026-09-01',to:'2026-09-30',basis:'accrual'});
+    assert.equal(report.totals.revenueCents,0);
+    assert.equal(h.finance.getSummary({asOf:'2026-09-12'}).receivableOpenCents,25000);
+  }finally{h.cleanup();}
+});
+
+test('saldo caixa, DRE realizada e indicadores convergem nas mesmas baixas',()=>{
+  const h=createHarness({now:()=> '2026-09-12T12:00:00.000Z'});
+  try{
+    const bank=h.finance.createAccount({name:'Banco',type:'BANK'});
+    const expense=h.finance.createEntry({kind:'PAYABLE',description:'Serviço',amountCents:10000,dueAt:'2026-09-12'});
+    const income=h.finance.createEntry({kind:'RECEIVABLE',description:'Honorários',amountCents:20000,dueAt:'2026-09-12'});
+    h.finance.settleEntry(expense.id,{accountId:bank.id,amountCents:5000,occurredAt:'2026-09-12'});
+    h.finance.settleEntry(income.id,{accountId:bank.id,amountCents:12000,occurredAt:'2026-09-12'});
+    const dre=h.analytics.getDre({from:'2026-09-01',to:'2026-09-30',basis:'realized'});
+    const ind=h.analytics.getIndicators({from:'2026-09-01',to:'2026-09-30'});
+    const balance=h.cashflow.getAccountBalances({asOf:'2026-09-12'})[0];
+    assert.deepEqual([dre.totals.revenueCents,dre.totals.expenseCents],[ind.receivedCents,ind.paidCents]);
+    assert.equal(balance.balanceCents,ind.receivedCents-ind.paidCents);
+    assert.equal(h.finance.getSummary({asOf:'2026-09-12'}).payableOpenCents,5000);
+  }finally{h.cleanup();}
+});
