@@ -4,6 +4,7 @@ const crypto = require('node:crypto');
 const ExcelJS = require('exceljs');
 const Docx = require('docx');
 const { PDFDocument } = require('pdf-lib');
+const { unzipSync } = require('fflate');
 
 const HEADERS = Object.freeze(['Vencimento','Tipo','Descrição','Status','Valor','Baixado','Em aberto','Conta','Categoria','Contraparte','Centros de custo','Tags']);
 const MONEY_FORMAT = '"R$" #,##0.00;[Red]("R$" #,##0.00)';
@@ -100,6 +101,24 @@ async function toPackageBuffer(report, { toCsv, zipStore } = {}) {
   entries.push({ name: 'manifest.json', data: Buffer.from(JSON.stringify(manifest, null, 2) + '\n') });
   return zipStore(entries);
 }
+function verifyReportPackageBuffer(buffer) {
+  const raw = Buffer.from(buffer || []);
+  if (raw.length < 32 || raw.length > 80 * 1024 * 1024) throw new RangeError('pacote ZIP inválido ou maior que 80 MB');
+  const files = unzipSync(new Uint8Array(raw));
+  const names = Object.keys(files);
+  if (!names.includes('manifest.json') || names.length < 2 || names.length > 10) throw new TypeError('pacote sem manifesto ou com arquivos inesperados');
+  const manifest = JSON.parse(Buffer.from(files['manifest.json']).toString('utf8'));
+  if (manifest.schema !== 'br.com.artisys.financeiro.export-package' || manifest.version !== 1 || !Array.isArray(manifest.files)) throw new TypeError('manifesto de pacote não suportado');
+  const declared = manifest.files.map(item => item.name);
+  if (new Set(declared).size !== declared.length || declared.length !== names.length - 1) throw new TypeError('manifesto inconsistente');
+  for (const item of manifest.files) {
+    if (typeof item.name !== 'string' || item.name.includes('/') || item.name.includes('\\') || item.name === 'manifest.json') throw new TypeError('nome de arquivo não permitido');
+    if (!Object.prototype.hasOwnProperty.call(files,item.name)) throw new TypeError('arquivo ausente do pacote');
+    const actual = Buffer.from(files[item.name]);
+    if (actual.length > 60 * 1024 * 1024 || actual.length !== item.bytes || sha256(actual) !== item.sha256) throw new Error('integridade SHA-256 do pacote inválida: ' + item.name);
+  }
+  return { valid:true, fileCount:manifest.files.length, generatedAt:manifest.generatedAt };
+}
 async function annotatePdfBuffer(source, title = 'ArtiSys Financeiro') {
   const pdf = await PDFDocument.load(source, { updateMetadata: false });
   pdf.setTitle(title);
@@ -169,5 +188,5 @@ async function parseStatementXlsx(dataBase64) {
 
 module.exports = {
   HEADERS, toStyledXlsxBuffer, toDocxBuffer, toJsonBuffer, toPackageBuffer,
-  annotatePdfBuffer, mergePdfBuffers, parseStatementXlsx
+  annotatePdfBuffer, mergePdfBuffers, parseStatementXlsx, verifyReportPackageBuffer
 };
