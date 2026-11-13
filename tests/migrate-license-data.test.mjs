@@ -55,11 +55,13 @@ test('nao sobrescreve banco canonico preexistente nem mistura perfil de licenca 
   }finally{fs.rmSync(root,{recursive:true,force:true});}
 });
 
-test('chave publica do app continua correspondente a avaliacao 0.1.0 ja ativada',()=>{
+test('chave publica da avaliacao 0.1.0 permanece no conjunto legado apos rotacao',()=>{
   const publicKey=fs.readFileSync('electron/services/license-public.pem','utf8').replace(/\r\n/g,'\n');
-  assert.equal(publicKey.trim(),[
+  const legacy=fs.readFileSync('electron/services/license-legacy-public.pem','utf8').replace(/\r\n/g,'\n');
+  assert.equal(legacy.trim(),[
     '-----BEGIN PUBLIC KEY-----',
     'MCowBQYDK2VwAyEABzQASNFMzVcOKDon0JtxQq/wID7Ii+NlXBHruSqkNcg=',
     '-----END PUBLIC KEY-----'
   ].join('\n'));
+  assert.notEqual(publicKey.trim(),legacy.trim());
 });
