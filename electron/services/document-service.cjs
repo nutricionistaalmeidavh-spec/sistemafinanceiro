@@ -1,7 +1,8 @@
 'use strict';
 
 const fs = require('node:fs');
-const { annotatePdfBuffer, mergePdfBuffers } = require('./open-document-suite.cjs');
+const crypto = require('node:crypto');
+const { annotatePdfBuffer, mergePdfBuffers,inspectPdfFormBuffer,fillPdfFormBuffer } = require('./open-document-suite.cjs');
 
 function createDocumentService({ BrowserWindow, dialog } = {}) {
   if (!BrowserWindow || !dialog) throw new TypeError('BrowserWindow and dialog are required');
@@ -61,7 +62,39 @@ function createDocumentService({ BrowserWindow, dialog } = {}) {
     return { canceled: false, path: destination.filePath, bytes: merged.length };
   }
 
-  return { savePdf, printHtml, mergeSelectedPdfs };
+  let selectedForm = null;
+  async function selectPdfForm() {
+    const picked = await dialog.showOpenDialog({
+      title:'Selecionar formulário PDF',properties:['openFile'],
+      filters:[{name:'PDF',extensions:['pdf']}]
+    });
+    if(picked.canceled || !picked.filePaths?.[0])return {canceled:true};
+    const filename=picked.filePaths[0];
+    const stats=fs.statSync(filename);
+    if(!stats.isFile()||stats.size>20*1024*1024)throw new RangeError('PDF inválido ou maior que 20 MB');
+    const raw=fs.readFileSync(filename);
+    const fields=await inspectPdfFormBuffer(raw);
+    if(!fields.length)throw new Error('PDF não contém campos de formulário editáveis');
+    selectedForm={id:crypto.randomUUID(),path:filename,checksum:crypto.createHash('sha256').update(raw).digest('hex'),expires:Date.now()+15*60*1000};
+    return {canceled:false,formId:selectedForm.id,fields,filename:require('node:path').basename(filename)};
+  }
+  async function saveFilledPdf(formId,values) {
+    if(!selectedForm||formId!==selectedForm.id||selectedForm.expires<Date.now())throw new Error('Seleção de PDF expirada; selecione o formulário novamente');
+    const raw=fs.readFileSync(selectedForm.path);
+    const digest=crypto.createHash('sha256').update(raw).digest('hex');
+    if(digest!==selectedForm.checksum)throw new Error('PDF original mudou desde a seleção; tente novamente');
+    const populated=await fillPdfFormBuffer(raw,values);
+    const chosen=await dialog.showSaveDialog({
+      title:'Salvar formulário preenchido',defaultPath:'formulario-preenchido.pdf',
+      filters:[{name:'PDF',extensions:['pdf']}]
+    });
+    if(chosen.canceled||!chosen.filePath)return {canceled:true};
+    fs.writeFileSync(chosen.filePath,populated,{flag:'w'});
+    selectedForm=null;
+    return {canceled:false,path:chosen.filePath,bytes:populated.length};
+  }
+
+  return { savePdf, printHtml, mergeSelectedPdfs, selectPdfForm, saveFilledPdf };
 }
 
 module.exports = { createDocumentService };
