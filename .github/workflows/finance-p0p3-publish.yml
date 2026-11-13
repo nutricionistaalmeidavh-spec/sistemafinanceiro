@@ -63,6 +63,12 @@ jobs:
           if((Get-Item $exe).Length -lt 50000000){throw "Arquivo comercial inesperadamente pequeno"}
           (Get-FileHash -Algorithm SHA256 -Path $exe).Hash.ToLowerInvariant() |
             Set-Content 'release/ArtiSys-Financeiro-Setup-0.1.2.sha256'
+      - name: Preservar pacote comercial fora do diretorio de build trial
+        shell: pwsh
+        run: |
+          New-Item -Force -ItemType Directory -Path verified/commercial | Out-Null
+          Copy-Item release/ArtiSys-Financeiro-Setup-0.1.2.exe verified/commercial/
+          Copy-Item release/ArtiSys-Financeiro-Setup-0.1.2.sha256 verified/commercial/
       - name: Preparar edicao de avaliacao isolada
         run: node scripts/prepare-trial-package.mjs
       - name: Validar isolamento da edicao de avaliacao
@@ -88,8 +94,8 @@ jobs:
         with:
           name: financeiro-012-validado-${{ github.sha }}
           path: |
-            release/ArtiSys-Financeiro-Setup-0.1.2.exe
-            release/ArtiSys-Financeiro-Setup-0.1.2.sha256
+            verified/commercial/ArtiSys-Financeiro-Setup-0.1.2.exe
+            verified/commercial/ArtiSys-Financeiro-Setup-0.1.2.sha256
             release/ArtiSys-Financeiro-Avaliacao-Setup-0.1.2.exe
             release/ArtiSys-Financeiro-Avaliacao-Setup-0.1.2.sha256
             qa-artifacts/final/screenshots/*.png
@@ -109,7 +115,7 @@ jobs:
           gh release view $trialTag --repo "${{ github.repository }}" *> $null
           if($LASTEXITCODE -eq 0){throw "Prerelease de avaliacao ja existe; nunca sobrescrever"}
           $notes="ArtiSys Financeiro 0.1.2: canonicidade de pagamentos, conciliacao bancaria com baixa explicita, indices/consultas otimizadas, correcoes do dashboard e UX. Banco local SQLite; nenhuma API externa obrigatoria."
-          gh release create $commercialTag "release/ArtiSys-Financeiro-Setup-0.1.2.exe" "release/ArtiSys-Financeiro-Setup-0.1.2.sha256" --repo "${{ github.repository }}" --target "${{ github.sha }}" --title "ArtiSys Financeiro v0.1.2" --notes $notes --latest
+          gh release create $commercialTag "verified/commercial/ArtiSys-Financeiro-Setup-0.1.2.exe" "verified/commercial/ArtiSys-Financeiro-Setup-0.1.2.sha256" --repo "${{ github.repository }}" --target "${{ github.sha }}" --title "ArtiSys Financeiro v0.1.2" --notes $notes --latest
           if($LASTEXITCODE -ne 0){throw 'Falha ao publicar instalador comercial'}
           $trialNotes="ArtiSys Financeiro Avaliacao v0.1.2. Licenca de teste assinada necessaria. Ambiente separado do comercial. Nenhum codigo de ativacao foi alterado."
           gh release create $trialTag "release/ArtiSys-Financeiro-Avaliacao-Setup-0.1.2.exe" "release/ArtiSys-Financeiro-Avaliacao-Setup-0.1.2.sha256" --repo "${{ github.repository }}" --target "${{ github.sha }}" --title "ArtiSys Financeiro Avaliacao v0.1.2" --notes $trialNotes --prerelease --latest=false
