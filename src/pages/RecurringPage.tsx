@@ -2,50 +2,19 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { Pause, Pencil, Play, Plus, RefreshCcw, Search } from 'lucide-react';
 import { brl, can, toCents, today } from '../lib/format';
 
-type Props = { token:string; session:FinanceiroSession };
-function forecast(rule:RecurringRule,count=3){
-  if(rule.lifecycleStatus==='COMPLETED')return [];
-  const dates:string[]=[];let cursor=rule.nextDueAt;
-  for(let index=0;index<count;index++){
-    if(rule.maxOccurrences!=null&&rule.generatedCount+index>=rule.maxOccurrences)break;
-    if(rule.endDate&&cursor>rule.endDate)break;
-    dates.push(cursor);
-    const d=new Date(cursor+'T00:00:00Z');
-    const absolute=d.getUTCFullYear()*12+d.getUTCMonth()+rule.intervalMonths;
-    const year=Math.floor(absolute/12);const month=absolute%12;
-    const last=new Date(Date.UTC(year,month+1,0)).getUTCDate();
-    cursor=`${year}-${String(month+1).padStart(2,'0')}-${String(Math.min(rule.dueDay,last)).padStart(2,'0')}`;
-  }
-  return dates;
-}
-function draftPreview(startDate:string,dueDay:number,interval:number,max:number|null,endDate:string|null,already=0){
-  if(!/^\d{4}-\d{2}-\d{2}$/.test(startDate)||!Number.isInteger(dueDay)||dueDay<1||dueDay>31
-    ||!Number.isInteger(interval)||interval<1||interval>12)return [] as string[];
-  const first=new Date(startDate+'T00:00:00Z');
-  if(Number.isNaN(first.getTime()))return [] as string[];
-  let y=first.getUTCFullYear(),m=first.getUTCMonth();
-  const out:string[]=[];
-  for(let n=0;n<48&&out.length<3;n++){
-    const last=new Date(Date.UTC(y,m+1,0)).getUTCDate();
-    const day=`${y}-${String(m+1).padStart(2,'0')}-${String(Math.min(last,dueDay)).padStart(2,'0')}`;
-    if(endDate && day>endDate)break;
-    if(day>=startDate){
-      if(max!==null && already+out.length>=max)break;
-      out.push(day);
-    }
-    const k=y*12+m+interval;y=Math.floor(k/12);m=k%12;
-  }
-  return out;
-}
+type Props = { token:string; session:FinanceiroSession; onOpenEntry?:(entry:FinanceEntry)=>void };
 const initialForm = () => ({
-  description:'',amount:'',startDate:today(),endDate:'',dueDay:String(new Date().getDate()),intervalMonths:'1',
+  description:'',amount:'',startDate:today(),endDate:'',dueDay:String(new Date().getDate()),intervalMonths:'1',intervalDays:'',annualAdjustmentPct:'0',
   maxOccurrences:'',accountId:'',categoryId:'',counterpartyId:'',notes:'',
 });
-export default function RecurringPage({token,session}:Props){
+export default function RecurringPage({token,session,onOpenEntry}:Props){
   const api=window.financeiro!;
   const editable=can(session,'finance.manage');
   const [kind,setKind]=useState<FinanceiroKind>('PAYABLE');
   const [rules,setRules]=useState<RecurringRule[]>([]);
+  const [upcoming,setUpcoming]=useState<RecurringForecast[]>([]);
+  const [draftDates,setDraftDates]=useState<RecurringOccurrencePreview[]>([]);
+
   const [accounts,setAccounts]=useState<FinanceAccount[]>([]);
   const [categories,setCategories]=useState<FinancialCategory[]>([]);
   const [parties,setParties]=useState<PartyRecord[]>([]);
@@ -55,21 +24,31 @@ export default function RecurringPage({token,session}:Props){
   const [search,setSearch]=useState('');
   const [editingRule,setEditingRule]=useState<RecurringRule|null>(null);
   const [form,setForm]=useState(initialForm);
-  const draftDates=useMemo(()=>draftPreview(
-    editingRule?editingRule.nextDueAt.slice(0,7)+'-01':form.startDate,
-    Number(form.dueDay),Number(form.intervalMonths),form.maxOccurrences?Number(form.maxOccurrences):null,
-    form.endDate||null,editingRule?.generatedCount||0
-  ),[editingRule,form.startDate,form.dueDay,form.intervalMonths,form.maxOccurrences,form.endDate]);
+  // A prévia é calculada pelo processo financeiro, sem algoritmo de datas no React.
+  useEffect(()=>{
+    let amountCents=0;
+    try{amountCents=toCents(form.amount);}catch{setDraftDates([]);return;}
+    if(amountCents<=0||!/^\\d{4}-\\d{2}-\\d{2}$/.test(form.startDate)){setDraftDates([]);return;}
+    let cancelled=false;
+    void api.recurrence.preview(token,{startDate:form.startDate,dueDay:Number(form.dueDay),
+      intervalMonths:Number(form.intervalMonths),intervalDays:form.intervalDays?Number(form.intervalDays):null,
+      annualAdjustmentBps:Math.round(Number(form.annualAdjustmentPct.replace(',','.'))*100),
+      amountCents,endDate:form.endDate||null,maxOccurrences:form.maxOccurrences?Number(form.maxOccurrences):null})
+      .then(rows=>{if(!cancelled)setDraftDates(rows);}).catch(()=>{if(!cancelled)setDraftDates([]);});
+    return()=>{cancelled=true;};
+  },[api,token,form.amount,form.startDate,form.dueDay,form.intervalMonths,form.intervalDays,form.annualAdjustmentPct,form.endDate,form.maxOccurrences]);
   const [historyRule,setHistoryRule]=useState<RecurringRule|null>(null);
   const [history,setHistory]=useState<FinanceEntry[]>([]);
   const reload=useCallback(async()=>{
     try {
-      const [nextRules,nextAccounts,nextCategories,nextParties]=await Promise.all([
+      const [nextRules,nextAccounts,nextCategories,nextParties,nextUpcoming]=await Promise.all([
         api.recurrence.list(token),api.finance.listAccounts(token),
         api.registry.listCategories(token,{nature:kind==='PAYABLE'?'EXPENSE':'REVENUE'}),
-        kind==='PAYABLE'?api.registry.listCreditors(token):api.registry.listCustomers(token)
+        kind==='PAYABLE'?api.registry.listCreditors(token):api.registry.listCustomers(token),
+        api.recurrence.upcoming(token,{from:today(),
+          to:new Date(Date.UTC(new Date().getUTCFullYear()+1,new Date().getUTCMonth()+1,0)).toISOString().slice(0,10),limit:5000})
       ]);
-      setRules(nextRules);setAccounts(nextAccounts);setCategories(nextCategories);setParties(nextParties);setError('');
+      setRules(nextRules);setAccounts(nextAccounts);setCategories(nextCategories);setParties(nextParties);setUpcoming(nextUpcoming);setError('');
     } catch(err){setError(err instanceof Error?err.message:String(err));}
   },[api,token,kind]);
   useEffect(()=>{void reload();},[reload]);
@@ -80,7 +59,7 @@ export default function RecurringPage({token,session}:Props){
     setEditingRule(rule);
     setForm({description:rule.description,amount:(rule.amountCents/100).toFixed(2).replace('.',','),
       startDate:rule.startDate,endDate:rule.endDate||'',dueDay:String(rule.dueDay),
-      intervalMonths:String(rule.intervalMonths),maxOccurrences:rule.maxOccurrences==null?'':String(rule.maxOccurrences),
+      intervalMonths:String(rule.intervalMonths),intervalDays:rule.intervalDays?String(rule.intervalDays):'',annualAdjustmentPct:String(rule.annualAdjustmentBps/100),maxOccurrences:rule.maxOccurrences==null?'':String(rule.maxOccurrences),
       accountId:rule.accountId||'',categoryId:rule.categoryId||'',
       counterpartyId:(rule.kind==='PAYABLE'?rule.creditorId:rule.customerId)||'',notes:rule.notes||''});
   }
@@ -91,7 +70,7 @@ export default function RecurringPage({token,session}:Props){
     try{
       const input={kind,description:form.description,amountCents:toCents(form.amount),
         startDate:form.startDate,endDate:form.endDate||null,dueDay:Number(form.dueDay),
-        intervalMonths:Number(form.intervalMonths),maxOccurrences:form.maxOccurrences?Number(form.maxOccurrences):null,
+        intervalMonths:Number(form.intervalMonths),intervalDays:form.intervalDays?Number(form.intervalDays):null,annualAdjustmentBps:Math.round(Number(form.annualAdjustmentPct.replace(',','.'))*100),maxOccurrences:form.maxOccurrences?Number(form.maxOccurrences):null,
         accountId:form.accountId||null,categoryId:form.categoryId||null,notes:form.notes||null,
         ...(kind==='PAYABLE'?{creditorId:form.counterpartyId||null}:{customerId:form.counterpartyId||null})
       };
@@ -144,10 +123,17 @@ export default function RecurringPage({token,session}:Props){
       <label className="wide">Descrição<input required value={form.description} onChange={e=>setForm({...form,description:e.target.value})}/></label>
       <label>Valor<input required value={form.amount} onChange={e=>setForm({...form,amount:e.target.value})} placeholder="0,00"/></label>
       <label>Início<input type="date" required disabled={Boolean(editingRule?.generatedCount)} value={form.startDate} onChange={e=>setForm({...form,startDate:e.target.value})}/></label>
-      <label>Dia do vencimento<input type="number" min="1" max="31" required value={form.dueDay} onChange={e=>setForm({...form,dueDay:e.target.value})}/></label>
-      <label>Frequência<select value={form.intervalMonths} onChange={e=>setForm({...form,intervalMonths:e.target.value})}>
-        <option value="1">Mensal</option><option value="2">Bimestral</option><option value="3">Trimestral</option><option value="6">Semestral</option><option value="12">Anual</option>
+      {!form.intervalDays?<label>Dia do vencimento<input type="number" min="1" max="31" required value={form.dueDay} onChange={e=>setForm({...form,dueDay:e.target.value})}/></label>:<p className="muted">Nas frequências semanais, o primeiro vencimento é a data de início.</p>}
+      <label>Frequência<select value={form.intervalDays?'D'+form.intervalDays:'M'+form.intervalMonths} onChange={e=>{
+        const value=e.target.value;setForm({...form,intervalDays:value.startsWith('D')?value.slice(1):'',
+          intervalMonths:value.startsWith('M')?value.slice(1):'1'});}}>
+        <option value="D7">Semanal</option><option value="D14">Quinzenal (14 dias)</option>
+        <option value="M1">Mensal</option><option value="M2">Bimestral</option>
+        <option value="M3">Trimestral</option><option value="M6">Semestral</option>
+        <option value="M12">Anual</option>
       </select></label>
+      <label>Reajuste anual (%)<input type="number" min="0" max="100" step="0.01" value={form.annualAdjustmentPct}
+        onChange={e=>setForm({...form,annualAdjustmentPct:e.target.value})}/></label>
       <label>Término (opcional)<input type="date" value={form.endDate} onChange={e=>setForm({...form,endDate:e.target.value})}/></label>
       <label>Nº máximo de parcelas<input type="number" min={editingRule?.generatedCount||1} value={form.maxOccurrences} onChange={e=>setForm({...form,maxOccurrences:e.target.value})} placeholder="Sem limite"/></label>
       <label>Conta<select value={form.accountId} onChange={e=>setForm({...form,accountId:e.target.value})}>
@@ -161,8 +147,8 @@ export default function RecurringPage({token,session}:Props){
       </select></label>
       <label className="wide">Observações<input value={form.notes} onChange={e=>setForm({...form,notes:e.target.value})}/></label>
       <section className="wide recurrence-preview" aria-label="Próximas parcelas"><strong>Próximas parcelas previstas</strong>
-        <p className="muted">Apenas uma prévia. As parcelas serão lançadas quando o vencimento chegar.</p>
-        <div className="chip-row">{draftDates.length?draftDates.map(date=><span className="badge" key={date}>{date.split('-').reverse().join('/')} · {form.amount||'Valor pendente'}</span>):<span className="muted">Nenhuma parcela prevista com estes limites.</span>}</div>
+        <p className="muted">Previsão, não lançamento: não altera saldos. O reajuste anual é calculado sobre o valor base e aplicado às parcelas futuras.</p>
+        <div className="chip-row">{draftDates.length?draftDates.map(occurrence=><span className="badge" key={occurrence.dueAt}>{occurrence.dueAt.split('-').reverse().join('/')} · {brl(occurrence.amountCents)}</span>):<span className="muted">Nenhuma parcela prevista com estes limites.</span>}</div>
       </section>
       <button className="primary-button" type="submit" disabled={busy}>{busy?'Salvando…':editingRule?'Salvar alterações':'Salvar recorrência'}</button>
       {editingRule&&<button className="secondary-button" type="button" onClick={()=>{setEditingRule(null);setForm(initialForm());}}>Cancelar edição</button>}
@@ -173,7 +159,7 @@ export default function RecurringPage({token,session}:Props){
         <td>{brl(rule.amountCents)}</td><td>{rule.nextDueAt}</td>
         <td>{rule.generatedCount}{rule.maxOccurrences?` / ${rule.maxOccurrences}`:''}</td>
         <td><span className={`badge ${rule.lifecycleStatus==='ACTIVE'?'badge-settled':'badge-cancelled'}`}>{rule.lifecycleStatus==='ACTIVE'?'Ativa':rule.lifecycleStatus==='PAUSED'?'Pausada':'Concluída'}</span></td>
-        <td>{forecast(rule).join(' · ')||'Sem próximas parcelas'}</td>
+        <td>{upcoming.filter(item=>item.ruleId===rule.id).slice(0,3).map(item=>item.dueAt.split('-').reverse().join('/')+' · '+brl(item.amountCents)).join(' / ')||'Sem próximas parcelas'}</td>
         <td>{editable&&<div className="row-actions">
           <button type="button" className="secondary-button small" onClick={()=>edit(rule)}><Pencil size={14}/> Editar</button>
           {rule.lifecycleStatus!=='COMPLETED'&&<button type="button" className="secondary-button small" onClick={()=>void toggle(rule)}>{rule.active?<Pause size={14}/>:<Play size={14}/>} {rule.active?'Pausar':'Ativar'}</button>}
@@ -181,6 +167,15 @@ export default function RecurringPage({token,session}:Props){
       </tr>)}</tbody></table>
       {filtered.length===0&&<div className="empty-state">Nenhuma recorrência encontrada.</div>}
     </div>
+    <section className="panel table-panel table-scroll" data-testid="recurring-future">
+      <div className="panel-title"><div><h3>Agenda futura — apenas previsões</h3>
+        <p className="muted">Não são cobranças emitidas nem pagamentos realizados. As parcelas passam a ser compromissos quando geradas.</p></div></div>
+      <table><thead><tr><th>Vencimento previsto</th><th>Descrição</th><th>Tipo</th><th>Valor previsto</th><th>Situação</th></tr></thead>
+        <tbody>{upcoming.slice(0,100).map(item=><tr key={item.ruleId+':'+item.dueAt}><td>{item.dueAt.split('-').reverse().join('/')}</td>
+          <td>{item.description}</td><td>{item.kind==='PAYABLE'?'A pagar':'A receber'}</td><td>{brl(item.amountCents)}</td><td>Previsto, não lançado</td></tr>)}</tbody></table>
+      {!upcoming.length&&<p className="muted">Nenhum vencimento futuro previsto.</p>}
+      {upcoming.length>100&&<p className="muted">Exibindo os 100 próximos vencimentos de {upcoming.length}.</p>}
+    </section>
     {historyRule&&<section className="panel" data-testid="recurring-history">
       <div className="panel-title"><div><h3>Histórico da recorrência: {historyRule.description}</h3>
         <p className="muted">Lançamentos existentes vinculados a esta regra. Editar a regra não altera parcelas já registradas.</p></div>
@@ -188,6 +183,7 @@ export default function RecurringPage({token,session}:Props){
       <div className="compact-list">{history.map(entry=><div key={entry.id}>
         <strong>{entry.dueAt.split('-').reverse().join('/')} · {brl(entry.amountCents)}</strong>
         <small>{entry.status==='SETTLED'?'Quitada':entry.status==='PARTIAL'?'Parcial':entry.status==='CANCELLED'?'Cancelada':'Em aberto'} · Saldo: {brl(entry.openCents)}</small>
+        {onOpenEntry&&<button type="button" className="secondary-button small" onClick={()=>onOpenEntry(entry)}>Abrir lançamento</button>}
       </div>)}{!history.length&&<p className="muted">Nenhuma parcela lançada até o momento.</p>}</div>
     </section>}
   </section>;
