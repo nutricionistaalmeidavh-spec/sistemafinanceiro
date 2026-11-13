@@ -56,14 +56,22 @@ function createFinanceService({ db, now = () => new Date().toISOString(), idFact
   }
   function mapEntry(row, asOf = localDay(nowIso())) {
     if (!row) return null;
-    const settlements = activeSettlements(row.id).map(mapSettlement);
+    const day = assertDateOnly(String(asOf).slice(0, 10), 'asOf');
+    // Visao efetiva em data passada: um estorno posterior nao apaga o pagamento anterior.
+    const settlements = db.prepare(`SELECT * FROM financial_settlements
+      WHERE entry_id=? AND occurred_at<=? AND (reversed_at IS NULL OR substr(reversed_at,1,10)>?)
+      ORDER BY occurred_at,created_at,id`).all(String(row.id), day, day)
+      .map((item) => mapSettlement({ ...item, reversed_at: item.reversed_at && item.reversed_at.slice(0,10)>day ? null : item.reversed_at }));
     const settledCents = settlements.reduce((sum, item) => sum + Number(item.amountCents || 0), 0);
     const openCents = Math.max(Number(row.amount_cents) - settledCents, 0);
-    const isOverdue = ['OPEN', 'PARTIAL'].includes(row.status) && row.due_at < assertDateOnly(String(asOf).slice(0, 10), 'asOf');
+    const cancelledAt = row.cancelled_at ? localDay(row.cancelled_at) : null;
+    const isCancelled = row.status==='CANCELLED' && (!cancelledAt || cancelledAt<=day);
+    const status = isCancelled ? 'CANCELLED' : openCents===0 ? 'SETTLED' : settledCents>0 ? 'PARTIAL' : 'OPEN';
+    const isOverdue = ['OPEN','PARTIAL'].includes(status) && row.due_at < day;
     return {
       id: row.id, kind: row.kind, description: row.description, categoryId: row.category_id, accountId: row.account_id,
       customerId: row.customer_id, creditorId: row.creditor_id, amountCents: row.amount_cents, issueAt: row.issue_at,
-      dueAt: row.due_at, status: row.status, sourceType: row.source_type, sourceId: row.source_id, notes: row.notes,
+      dueAt: row.due_at, status, sourceType: row.source_type, sourceId: row.source_id, notes: row.notes,
       recurrenceRuleId: row.recurrence_rule_id || null, recurrenceKey: row.recurrence_key || null,
       createdAt: row.created_at, updatedAt: row.updated_at, cancelledAt: row.cancelled_at,
       settledCents, openCents, isOverdue, settlements, approval: paymentApproval(row),
@@ -132,6 +140,18 @@ function createFinanceService({ db, now = () => new Date().toISOString(), idFact
       assertRelation('creditors', creditorId, 'creditor');
       validateCategory(row.kind, categoryId);
       const notes = input.notes === undefined ? row.notes : input.notes || null;
+      const approvalSensitiveChange = row.kind==='PAYABLE' && (
+        description!==row.description || amountCents!==row.amount_cents || dueAt!==row.due_at ||
+        accountId!==row.account_id || categoryId!==row.category_id || creditorId!==row.creditor_id
+      );
+      if (approvalSensitiveChange && approvalSchemaAvailable) {
+        const invalidated = db.prepare("UPDATE approval_requests SET status='CANCELLED',updated_at=? WHERE entry_id=? AND status IN ('PENDING','APPROVED')")
+          .run(nowIso(),String(entryId)).changes;
+        if (invalidated) writeAudit(db,{
+          action:'planning.approval.invalidate',entity:'financial-entry',entityId:String(entryId),actor,
+          context:{reason:'financial_entry_changed',invalidated}
+        },nowIso);
+      }
       db.prepare(`UPDATE financial_entries SET description=?,amount_cents=?,due_at=?,account_id=?,category_id=?,customer_id=?,creditor_id=?,notes=?,updated_at=? WHERE id=?`)
         .run(description,amountCents,dueAt,accountId,categoryId,customerId,creditorId,notes,nowIso(),String(entryId));
       recalculateStatus(entryId);
@@ -154,15 +174,18 @@ function createFinanceService({ db, now = () => new Date().toISOString(), idFact
       const row = requireEntry(entryId);
       if (row.status === 'CANCELLED') throw new Error('cancelled entry cannot be settled');
       const current = getEntry(entryId);
-      if (current.openCents <= 0) throw new Error('entry has no open balance');
+      const bookedCents=activeSettlements(entryId).reduce((sum,item)=>sum+Number(item.amount_cents),0);
+      const bookOpenCents=Math.max(0,Number(row.amount_cents)-bookedCents);
+      if (bookOpenCents <= 0) throw new Error('entry has no open balance');
       const amountCents = assertCents(input.amountCents, 'amountCents');
       if (amountCents <= 0) throw new Error('settlement must be greater than zero');
-      if (amountCents > current.openCents) throw new Error('settlement exceeds open balance');
+      if (amountCents > bookOpenCents) throw new Error('settlement exceeds open balance');
       const approval = paymentApproval(row);
       if (approval.status !== 'NOT_REQUIRED' && approval.status !== 'APPROVED') {
         throw new Error('Pagamento exige aprovação. Solicite ou conclua a aprovação em Planejamento > Aprovações antes de registrar a baixa.');
       }
       const occurredAt = assertDateOnly(input.occurredAt || localDay(nowIso()), 'settlement date');
+      if (occurredAt>localDay(nowIso())) throw new Error('future payment date is not a completed settlement');
       const method = String(input.method || 'OTHER').toUpperCase();
       if (!['PIX','CASH','TRANSFER','BOLETO','DEBIT_CARD','CREDIT_CARD','OTHER'].includes(method)) throw new Error('invalid payment method');
       const accountId = String(input.accountId || row.account_id || '').trim();
@@ -211,7 +234,7 @@ function createFinanceService({ db, now = () => new Date().toISOString(), idFact
     const clauses = [];
     const params = [];
     if (filters.kind) { clauses.push('kind=?'); params.push(String(filters.kind).toUpperCase()); }
-    if (filters.status) { clauses.push('status=?'); params.push(String(filters.status).toUpperCase()); }
+    if (filters.status && !filters.asOf) { clauses.push('status=?'); params.push(String(filters.status).toUpperCase()); }
     if (filters.from) { clauses.push('due_at>=?'); params.push(String(filters.from)); }
     if (filters.to) { clauses.push('due_at<=?'); params.push(String(filters.to)); }
     if (filters.accountId) { clauses.push('account_id=?'); params.push(String(filters.accountId)); }
@@ -222,6 +245,7 @@ function createFinanceService({ db, now = () => new Date().toISOString(), idFact
     if (filters.query) { clauses.push('LOWER(description) LIKE ?'); params.push(`%${String(filters.query).trim().toLowerCase()}%`); }
     return db.prepare(`SELECT * FROM financial_entries${clauses.length ? ` WHERE ${clauses.join(' AND ')}` : ''} ORDER BY due_at,id`).all(...params)
       .map((row) => mapEntry(row, filters.asOf || localDay(nowIso())))
+      .filter((entry) => filters.status && filters.asOf ? entry.status===String(filters.status).toUpperCase() : true)
       .filter((entry) => filters.overdue === true ? entry.isOverdue : true);
   }
   function getSummary({ from = null, to = null, asOf = localDay(nowIso()) } = {}) {
