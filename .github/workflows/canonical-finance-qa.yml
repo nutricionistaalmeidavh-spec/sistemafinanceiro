@@ -1,0 +1,107 @@
+name: Canonical finance invariants
+
+on:
+  push:
+    branches:
+      - fix/canonical-recurring-ledger-20261113
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  canonical-qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Bootstrap local open-source modules
+        run: npm run ci:bootstrap
+      - name: Install pinned dependencies
+        run: npm install --no-audit --no-fund
+      - name: All regression and canonical-ledger tests
+        run: npm test
+      - name: Typecheck and production build
+        run: npm run build
+
+  windows-ui-qa:
+    name: Windows Electron user-flow and screenshots
+    runs-on: windows-latest
+    timeout-minutes: 40
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Prepare open-source modules
+        run: npm run ci:bootstrap
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Build desktop renderer
+        run: npm run build
+      - name: Provision Electron
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "node_modules/electron/dist/electron.exe")) {
+            node node_modules/electron/install.js
+          }
+          if (-not (Test-Path "node_modules/electron/dist/electron.exe")) { throw "Electron unavailable" }
+      - name: First use, recurrence and finance UI QA
+        run: npm run ci:qa-final
+      - name: Attach QA evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: canonical-finance-windows-qa-${{ github.sha }}
+          path: |
+            qa-artifacts/final/screenshots/*.png
+            qa-artifacts/final/metrics/*.json
+          if-no-files-found: ignore
+          retention-days: 14
+
+  windows-electron-qa:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Bootstrap local open-source modules
+        run: npm run ci:bootstrap
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Validate production build
+        run: npm run build
+      - name: Ensure Electron executable
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "node_modules/electron/dist/electron.exe")) {
+            node node_modules/electron/install.js
+          }
+          if (-not (Test-Path "node_modules/electron/dist/electron.exe")) {
+            throw "Electron nao instalado"
+          }
+      - name: Full real Electron financial QA
+        run: npm run ci:qa-final
+      - name: Preserve screenshots and audit evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: canonical-finance-windows-qa
+          path: |
+            qa-artifacts/final/screenshots/*.png
+            qa-artifacts/final/metrics/*.json
+            qa-artifacts/final/*.json
+          if-no-files-found: ignore
+          retention-days: 14

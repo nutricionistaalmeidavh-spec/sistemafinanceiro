@@ -3,6 +3,7 @@
 const { randomUUID } = require('node:crypto');
 const { writeAudit } = require('./audit.cjs');
 const { assertDateOnly, localDay } = require('./date-utils.cjs');
+const {scopedSplitCents}=require('./allocation-service.cjs');
 
 function assertCents(value, name) {
   if (!Number.isSafeInteger(value) || value < 0) throw new Error(`${name} must be a non-negative integer in cents`);
@@ -62,9 +63,10 @@ function createFinanceService({ db, now = () => new Date().toISOString(), idFact
       AND (reversed_at IS NULL OR substr(reversed_at,1,10)>?) ORDER BY occurred_at,created_at,id`)
       .all(String(row.id),day,day).map(mapSettlement);
     const settledCents = settlements.reduce((sum, item) => sum + Number(item.amountCents || 0), 0);
-    const openCents = Math.max(Number(row.amount_cents) - settledCents, 0);
+    const outstandingCents = Math.max(Number(row.amount_cents) - settledCents, 0);
     const cancelledAt=row.cancelled_at?localDay(row.cancelled_at):null;
     const isCancelled=row.status==='CANCELLED'&&(!cancelledAt||cancelledAt<=day);
+    const openCents=isCancelled?0:outstandingCents;
     const status=isCancelled?'CANCELLED':openCents===0?'SETTLED':settledCents>0?'PARTIAL':'OPEN';
     const isOverdue = ['OPEN', 'PARTIAL'].includes(status) && row.due_at < day;
     return {
@@ -157,6 +159,21 @@ function createFinanceService({ db, now = () => new Date().toISOString(), idFact
       }
       db.prepare(`UPDATE financial_entries SET description=?,amount_cents=?,due_at=?,account_id=?,category_id=?,customer_id=?,creditor_id=?,notes=?,updated_at=? WHERE id=?`)
         .run(description,amountCents,dueAt,accountId,categoryId,customerId,creditorId,notes,nowIso(),String(entryId));
+      if(amountCents!==Number(row.amount_cents)){
+        const original=db.prepare(`SELECT cost_center_id,amount_cents,percentage_basis_points FROM entry_allocations WHERE entry_id=? ORDER BY cost_center_id`).all(String(entryId));
+        if(original.length){
+          const usePercentages=original.every(part=>Number(part.percentage_basis_points)>0);
+          const weights=original.map(part=>({costCenterId:part.cost_center_id,amountCents:usePercentages?Number(part.percentage_basis_points):Number(part.amount_cents)}));
+          const originalSum=original.reduce((sum,part)=>sum+Number(part.amount_cents),0);
+          const allocationBasis=usePercentages && originalSum===Number(row.amount_cents)?10000:Number(row.amount_cents);
+          const updated=scopedSplitCents(amountCents,allocationBasis,weights);
+          if([...updated.values()].some(value=>value<=0))throw new Error('amount too small to preserve all cost center allocations');
+          const statement=db.prepare(`UPDATE entry_allocations SET amount_cents=?,updated_at=? WHERE entry_id=? AND cost_center_id=?`);
+          for(const [centerId,share] of updated)statement.run(share,nowIso(),String(entryId),centerId);
+          writeAudit(db,{action:'planning.allocation.rebalance',entity:'financial-entry',entityId:String(entryId),actor,
+            context:{beforeCents:Number(row.amount_cents),afterCents:amountCents,centers:updated.size}},nowIso);
+        }
+      }
       recalculateStatus(entryId);
       writeAudit(db,{action:'finance.entry.update',entity:'financial-entry',entityId:String(entryId),actor,
         context:{before:{description:row.description,amountCents:row.amount_cents,dueAt:row.due_at},
@@ -238,7 +255,6 @@ function createFinanceService({ db, now = () => new Date().toISOString(), idFact
     const clauses = [];
     const params = [];
     if (filters.kind) { clauses.push('kind=?'); params.push(String(filters.kind).toUpperCase()); }
-    if (filters.status) { clauses.push('status=?'); params.push(String(filters.status).toUpperCase()); }
     if (filters.from) { clauses.push('due_at>=?'); params.push(String(filters.from)); }
     if (filters.to) { clauses.push('due_at<=?'); params.push(String(filters.to)); }
     if (filters.accountId) { clauses.push('account_id=?'); params.push(String(filters.accountId)); }
@@ -265,7 +281,7 @@ function createFinanceService({ db, now = () => new Date().toISOString(), idFact
       }
     }
     return rows.map(row=>mapEntry(row,day,byEntry.get(row.id)||[]))
-      .filter(entry=>filters.overdue===true?entry.isOverdue:true);
+      .filter(entry=>(!filters.status||entry.status===String(filters.status).toUpperCase())&&(filters.overdue!==true||entry.isOverdue));
   }
   function getSummary({ from = null, to = null, asOf = localDay(nowIso()) } = {}) {
     const day=assertDateOnly(String(asOf).slice(0,10),'asOf');

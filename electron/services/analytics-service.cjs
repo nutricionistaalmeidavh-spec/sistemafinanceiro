@@ -1,5 +1,6 @@
 'use strict';
 const { localDay } = require('./date-utils.cjs');
+const {scopedSplitCents}=require('./allocation-service.cjs');
 
 function monthKey(value) { return String(value).slice(0, 7); }
 function yearRange(year) { const y = Number(year); if (!Number.isInteger(y) || y < 2000 || y > 2200) throw new Error('invalid year'); return { from: `${y}-01-01`, to: `${y}-12-31` }; }
@@ -25,12 +26,12 @@ function createAnalyticsService({ db, finance, cashflow, now = () => new Date().
     if (basis === 'accrual') {
       const params = [];
       if (center) params.push(center);
-      params.push(cutoff,start,end);
+      params.push(cutoff,cutoff,start,cutoff);
       if (tag) params.push(tag);
       rows = db.prepare(`SELECT fe.id,COALESCE(fc.dre_group,'UNCLASSIFIED') dre_group,fe.kind,fe.amount_cents entry_amount_cents,${center ? 'ea.amount_cents' : 'fe.amount_cents'} scoped_amount_cents
         FROM financial_entries fe LEFT JOIN financial_categories fc ON fc.id=fe.category_id${centerJoin}
         WHERE (fe.status<>'CANCELLED' OR (fe.cancelled_at IS NOT NULL AND substr(fe.cancelled_at,1,10)>?))
-          AND fe.due_at>=? AND fe.due_at<=?${tagClause}`).all(...params)
+          AND substr(fe.created_at,1,10)<=? AND fe.due_at>=? AND fe.due_at<=?${tagClause}`).all(...params)
         .map((row) => ({ ...row, total: Number(row.scoped_amount_cents || 0) }));
     } else if (basis === 'realized') {
       const params = [];
@@ -44,8 +45,44 @@ function createAnalyticsService({ db, finance, cashflow, now = () => new Date().
           AND (fe.status<>'CANCELLED' OR (fe.cancelled_at IS NOT NULL AND substr(fe.cancelled_at,1,10)>?))
           AND fs.occurred_at>=? AND fs.occurred_at<=?${tagClause}
         GROUP BY fe.id,COALESCE(fc.dre_group,'UNCLASSIFIED'),fe.kind,fe.amount_cents${center ? ',ea.amount_cents' : ''}`).all(...params)
-        .map((row) => ({ ...row, total: center ? proportionalCents(row.settled_cents, row.entry_amount_cents, row.allocation_amount_cents) : Number(row.settled_cents || 0) }));
+        .map((row) => ({ ...row, total: center ? 0 : Number(row.settled_cents || 0) }));
     } else throw new Error('basis must be realized or accrual');
+    if(center&&rows.length) {
+      // One allocation of every individual payment is the canonical answer.
+      // Summing fractional SQL shares rounds differently and invents/loses cents.
+      const byEntry=new Map(),paymentsByEntry=new Map();
+      const ids=[...new Set(rows.map(row=>String(row.id)))];
+      for(let offset=0;offset<ids.length;offset+=400){
+        const batch=ids.slice(offset,offset+400),params=batch.map(()=>'?').join(',');
+        const allocations=db.prepare(`SELECT entry_id,cost_center_id,amount_cents FROM entry_allocations WHERE entry_id IN (${params})`).all(...batch);
+        for(const allocation of allocations){
+          const list=byEntry.get(allocation.entry_id)||[];list.push(allocation);byEntry.set(allocation.entry_id,list);
+        }
+        if(basis==='realized'){
+          const settlements=db.prepare(`SELECT id,entry_id,amount_cents,occurred_at FROM financial_settlements
+            WHERE entry_id IN (${params}) AND occurred_at<=?
+              AND (reversed_at IS NULL OR substr(reversed_at,1,10)>?)
+            ORDER BY occurred_at,created_at,id`).all(...batch,cutoff,cutoff);
+          for(const settlement of settlements){
+            const list=paymentsByEntry.get(settlement.entry_id)||[];list.push(settlement);paymentsByEntry.set(settlement.entry_id,list);
+          }
+        }
+      }
+      rows=rows.map(row=>{
+        const allocations=byEntry.get(row.id)||[];
+        let total=0;
+        if(basis==='realized'){
+          let cumulative=0;
+          for(const payment of paymentsByEntry.get(row.id)||[]){
+            const previous=scopedSplitCents(cumulative,Number(row.entry_amount_cents),allocations).get(center)||0;
+            cumulative+=Number(payment.amount_cents);
+            const current=scopedSplitCents(cumulative,Number(row.entry_amount_cents),allocations).get(center)||0;
+            if(payment.occurred_at>=start)total+=current-previous;
+          }
+        }else total=scopedSplitCents(Number(row.entry_amount_cents),Number(row.entry_amount_cents),allocations).get(center)||0;
+        return {...row,total};
+      });
+    }
     const groups = new Map();
     for (const row of rows) {
       const group = groups.get(row.dre_group) || { group: row.dre_group, revenueCents: 0, expenseCents: 0, resultCents: 0 };
