@@ -164,6 +164,12 @@ function registerIpcHandlers({ ipcMain, app, dialog, database, auth, finance, re
     const dir=path.join(app.getPath('userData'),'financial-report-archives');
     fs.mkdirSync(dir,{recursive:true});
     const output=path.join(dir,data.sha256+'.zip');
+    if(fs.existsSync(output)){
+      const existingDigest=crypto.createHash('sha256').update(fs.readFileSync(output)).digest('hex');
+      if(existingDigest!==data.sha256)throw new Error('Arquivo de referência existente não confere com o hash');
+      archiveSelections.delete(archiveId);
+      return {imported:false,alreadyArchived:true,sha256:data.sha256,rows:preview.summary.rows,mode:'reference-only'};
+    }
     fs.writeFileSync(output,raw,{flag:'wx'});
     writeAudit(database.connection(),{action:'financial.report.archive.import',entity:'report-archive',entityId:data.sha256,actor,
       context:{sha256:data.sha256,rows:preview.summary.rows,totals:preview.summary,filename:path.basename(data.filename)}});
