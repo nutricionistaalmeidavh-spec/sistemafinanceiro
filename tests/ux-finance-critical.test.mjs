@@ -16,7 +16,7 @@ test('dashboard do ano atual nao antecipa movimentos futuros e mostra saldo de t
   assert.equal(data.cards.totalBalanceCents,30000);
   assert.equal(data.cards.bankBalanceCents,10000);
   assert.equal(data.accountBalances.reduce((sum,x)=>sum+x.balanceCents,0),30000);
-  assert.equal(data.monthly[8].inCents,0);
+  assert.equal(data.monthly[8].inCents,30000); // apenas saldos de abertura, sem deposito futuro
  }finally{h.cleanup();}
 });
 
