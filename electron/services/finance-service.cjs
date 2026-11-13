@@ -43,9 +43,9 @@ function createFinanceService({ db, now = () => new Date().toISOString(), idFact
   function mapSettlement(row) {
     return row && { id: row.id, entryId: row.entry_id, accountId: row.account_id || null, amountCents: row.amount_cents, method: row.method, note: row.note, occurredAt: row.occurred_at, createdAt: row.created_at, reversedAt: row.reversed_at };
   }
-  function mapEntry(row, asOf = localDay(nowIso())) {
+  function mapEntry(row, asOf = localDay(nowIso()), prefetchedSettlements = null) {
     if (!row) return null;
-    const settlements = activeSettlements(row.id).map(mapSettlement);
+    const settlements = prefetchedSettlements ?? activeSettlements(row.id).map(mapSettlement);
     const settledCents = settlements.reduce((sum, item) => sum + Number(item.amountCents || 0), 0);
     const openCents = Math.max(Number(row.amount_cents) - settledCents, 0);
     const isOverdue = ['OPEN', 'PARTIAL'].includes(row.status) && row.due_at < assertDateOnly(String(asOf).slice(0, 10), 'asOf');
@@ -212,20 +212,43 @@ function createFinanceService({ db, now = () => new Date().toISOString(), idFact
     if (filters.categoryId) { clauses.push('category_id=?'); params.push(String(filters.categoryId)); }
     if (filters.recurrenceRuleId) { clauses.push('recurrence_rule_id=?'); params.push(String(filters.recurrenceRuleId)); }
     if (filters.query) { clauses.push('LOWER(description) LIKE ?'); params.push(`%${String(filters.query).trim().toLowerCase()}%`); }
-    return db.prepare(`SELECT * FROM financial_entries${clauses.length ? ` WHERE ${clauses.join(' AND ')}` : ''} ORDER BY due_at,id`).all(...params)
-      .map((row) => mapEntry(row, filters.asOf || localDay(nowIso())))
+    const rows = db.prepare(`SELECT * FROM financial_entries${clauses.length ? ` WHERE ${clauses.join(' AND ')}` : ''} ORDER BY due_at,id`).all(...params);
+    // Batch settlement retrieval prevents a query per row (N+1) on larger ledgers.
+    const byEntry = new Map();
+    for (let offset = 0; offset < rows.length; offset += 400) {
+      const ids = rows.slice(offset, offset + 400).map((row) => row.id);
+      const placeholders = ids.map(() => '?').join(',');
+      const payments = db.prepare(`SELECT * FROM financial_settlements WHERE reversed_at IS NULL AND entry_id IN (${placeholders}) ORDER BY occurred_at,created_at,id`).all(...ids);
+      for (const payment of payments) {
+        if (!byEntry.has(payment.entry_id)) byEntry.set(payment.entry_id, []);
+        byEntry.get(payment.entry_id).push(mapSettlement(payment));
+      }
+    }
+    const asOf = filters.asOf || localDay(nowIso());
+    return rows.map((row) => mapEntry(row, asOf, byEntry.get(row.id) || []))
       .filter((entry) => filters.overdue === true ? entry.isOverdue : true);
   }
   function getSummary({ from = null, to = null, asOf = localDay(nowIso()) } = {}) {
-    const entries = listEntries({ from, to, asOf });
+    const day = assertDateOnly(String(asOf).slice(0, 10), 'asOf');
+    const where = ["fe.status<>'CANCELLED'"];
+    const params = [];
+    if (from) { where.push('fe.due_at>=?'); params.push(String(from)); }
+    if (to) { where.push('fe.due_at<=?'); params.push(String(to)); }
+    const rows = db.prepare(`SELECT fe.kind,
+      SUM(fe.amount_cents) total_cents,
+      SUM(COALESCE(p.paid_cents,0)) settled_cents,
+      SUM(MAX(0,fe.amount_cents-COALESCE(p.paid_cents,0))) open_cents,
+      SUM(CASE WHEN fe.status IN ('OPEN','PARTIAL') AND fe.due_at<? THEN MAX(0,fe.amount_cents-COALESCE(p.paid_cents,0)) ELSE 0 END) overdue_cents
+      FROM financial_entries fe
+      LEFT JOIN (SELECT entry_id,SUM(amount_cents) paid_cents FROM financial_settlements WHERE reversed_at IS NULL GROUP BY entry_id) p ON p.entry_id=fe.id
+      WHERE ${where.join(' AND ')} GROUP BY fe.kind`).all(day,...params);
     const summary = { payableTotalCents: 0, payableSettledCents: 0, payableOpenCents: 0, receivableTotalCents: 0, receivableSettledCents: 0, receivableOpenCents: 0, overduePayableCents: 0, overdueReceivableCents: 0 };
-    for (const entry of entries) {
-      if (entry.status === 'CANCELLED') continue;
-      const prefix = entry.kind === 'PAYABLE' ? 'payable' : 'receivable';
-      summary[`${prefix}TotalCents`] += entry.amountCents;
-      summary[`${prefix}SettledCents`] += entry.settledCents;
-      summary[`${prefix}OpenCents`] += entry.openCents;
-      if (entry.isOverdue) summary[entry.kind === 'PAYABLE' ? 'overduePayableCents' : 'overdueReceivableCents'] += entry.openCents;
+    for (const row of rows) {
+      const prefix = row.kind === 'PAYABLE' ? 'payable' : 'receivable';
+      summary[`${prefix}TotalCents`] = Number(row.total_cents || 0);
+      summary[`${prefix}SettledCents`] = Number(row.settled_cents || 0);
+      summary[`${prefix}OpenCents`] = Number(row.open_cents || 0);
+      summary[row.kind === 'PAYABLE' ? 'overduePayableCents' : 'overdueReceivableCents'] = Number(row.overdue_cents || 0);
     }
     return summary;
   }
