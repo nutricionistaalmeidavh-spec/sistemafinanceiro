@@ -3,11 +3,11 @@ import { FileDown, Landmark, Pencil, Plus, Printer, RotateCcw, Search, XCircle }
 import { FinanceButton, FinanceDrawer, FinanceStatusBadge, FinanceToolbar } from '../components/finance-ui';
 import { brl, can, toCents, today } from '../lib/format';
 
-type Props = { token: string; session: FinanceiroSession; intent?:FinanceiroKind|null; onIntentHandled?:()=>void; onOpenPlanning?:(entryId:string)=>void };
+type Props = { token: string; session: FinanceiroSession; intent?:FinanceiroKind|null; browseKind?:FinanceiroKind|null; onBrowseHandled?:()=>void; onIntentHandled?:()=>void; onOpenPlanning?:(entryId:string)=>void };
 type StatusFilter = 'ALL' | FinanceEntry['status'] | 'OVERDUE';
 const emptySummary: FinancialSummary = { payableTotalCents:0,payableSettledCents:0,payableOpenCents:0,receivableTotalCents:0,receivableSettledCents:0,receivableOpenCents:0,overduePayableCents:0,overdueReceivableCents:0 };
 
-export default function FinancePage({ token, session, intent, onIntentHandled, onOpenPlanning }: Props) {
+export default function FinancePage({ token, session, intent, browseKind, onBrowseHandled, onIntentHandled, onOpenPlanning }: Props) {
   const api = window.financeiro!;
   const [kind, setKind] = useState<FinanceiroKind>('PAYABLE');
   const [entries, setEntries] = useState<FinanceEntry[]>([]);
@@ -20,6 +20,8 @@ export default function FinancePage({ token, session, intent, onIntentHandled, o
   const [notice,setNotice]=useState('');
   const [drawerError,setDrawerError]=useState('');
   const [busy,setBusy]=useState(false);
+  const [decision,setDecision]=useState<{entry:FinanceEntry;action:'CANCEL'|'REVERSE'}|null>(null);
+  const [reason,setReason]=useState('');
   const [showPartyForm,setShowPartyForm]=useState(false);
   const [partyName,setPartyName]=useState('');
   const [search, setSearch] = useState('');
@@ -45,7 +47,8 @@ export default function FinancePage({ token, session, intent, onIntentHandled, o
 
   useEffect(() => { void reload(); }, [reload]);
   useEffect(() => api.finance.onDataChanged(() => { void reload(); }), [api, reload]);
-  useEffect(() => { setForm((old) => ({ ...old, categoryId:'', counterpartyId:'' })); }, [kind]);
+  useEffect(() => { if(!editingEntry)setForm((old) => ({ ...old, categoryId:'', counterpartyId:'' })); }, [kind,editingEntry]);
+  useEffect(()=>{if(!browseKind)return;setKind(browseKind);onBrowseHandled?.();},[browseKind,onBrowseHandled]);
   useEffect(()=>{if(!intent)return;setKind(intent);setEditingEntry(null);setRecurring(false);setForm({description:'',amount:'',dueAt:today(),accountId:'',categoryId:'',counterpartyId:''});setEntryDrawerOpen(true);onIntentHandled?.();},[intent,onIntentHandled]);
   const counterparties = kind === 'PAYABLE' ? creditors : customers;
 
@@ -106,8 +109,10 @@ export default function FinancePage({ token, session, intent, onIntentHandled, o
 
   async function createAccount(event: FormEvent) {
     event.preventDefault();
-    try { await api.finance.createAccount(token, accountForm); setAccountForm({ name:'', type:'BANK' }); await reload(); }
+    if(busy)return;setBusy(true);
+    try { await api.finance.createAccount(token, accountForm); setAccountForm({ name:'', type:'BANK' }); await reload();setNotice('Conta financeira cadastrada.'); }
     catch (err) { setError(err instanceof Error ? err.message : String(err)); }
+    finally{setBusy(false);}
   }
 
   function openPayment(entry:FinanceEntry) {
@@ -128,23 +133,32 @@ export default function FinancePage({ token, session, intent, onIntentHandled, o
         accountId:paymentForm.accountId,method:paymentForm.method,note:paymentForm.note
       });
       setPayingEntry(null);
-      setNotice(`Pagamento de ${brl(result.settlement.amountCents)} registrado em ${payingEntry.description}. Restante: ${brl(result.entry.openCents)}.`);
+      setNotice(`${payingEntry.kind==='PAYABLE'?'Pagamento':'Recebimento'} de ${brl(result.settlement.amountCents)} registrado em ${payingEntry.description}. Restante: ${brl(result.entry.openCents)}.`);
       await reload();
     } catch(err) {setDrawerError(err instanceof Error?err.message:String(err));}
     finally{setBusy(false);}
   }
 
-  async function cancel(entry: FinanceEntry) {
-    const reason = window.prompt('Motivo do cancelamento'); if (!reason) return;
-    try { await api.finance.cancelEntry(token, entry.id, reason); await reload(); }
-    catch (err) { setError(err instanceof Error ? err.message : String(err)); }
+  function openDecision(entry:FinanceEntry,action:'CANCEL'|'REVERSE'){
+    setDecision({entry,action});setReason('');setDrawerError('');
   }
-
-  async function reverse(entry: FinanceEntry) {
-    const settlement = entry.settlements.at(-1); if (!settlement) return;
-    const reason = window.prompt('Motivo do estorno da última baixa'); if (!reason) return;
-    try { await api.finance.reverseSettlement(token, settlement.id, reason); await reload(); }
-    catch (err) { setError(err instanceof Error ? err.message : String(err)); }
+  async function confirmDecision(event:FormEvent){
+    event.preventDefault();
+    if(!decision||busy||reason.trim().length<3)return;
+    setBusy(true);setDrawerError('');
+    try{
+      if(decision.action==='CANCEL')await api.finance.cancelEntry(token,decision.entry.id,reason.trim());
+      else{
+        const settlement=[...decision.entry.settlements].reverse().find(s=>!s.reversedAt);
+        if(!settlement)throw new Error('Não há baixa ativa para estornar.');
+        await api.finance.reverseSettlement(token,settlement.id,reason.trim());
+      }
+      const action=decision.action;
+      setDecision(null);setReason('');
+      await reload();
+      setNotice(action==='CANCEL'?'Lançamento cancelado; histórico preservado.':'Baixa estornada; saldos recalculados.');
+    }catch(cause){setDrawerError(cause instanceof Error?cause.message:String(cause));}
+    finally{setBusy(false);}
   }
 
   async function receiptPdf(entry: FinanceEntry) {
@@ -184,7 +198,7 @@ export default function FinancePage({ token, session, intent, onIntentHandled, o
       actions={editable ? <FinanceButton type="button" data-testid="finance-new-entry" onClick={openNewEntry}><Plus size={16}/>Novo lançamento</FinanceButton> : undefined}
     />
 
-    <div className="panel table-panel table-scroll"><table><thead><tr><th>Descrição</th><th>Vencimento</th><th>Status</th><th>Valor</th><th>Em aberto</th><th></th></tr></thead><tbody>{filteredEntries.map((entry)=>{const hasReceipt=entry.settlements.some((item)=>!item.reversedAt);return <tr key={entry.id}><td><strong>{entry.description}</strong>{entry.isOverdue && <small className="danger-text">Vencido</small>}</td><td>{entry.dueAt}</td><td><FinanceStatusBadge status={entry.isOverdue && entry.status!=='SETTLED' ? 'OVERDUE' : entry.status}/></td><td>{brl(entry.amountCents)}</td><td>{brl(entry.openCents)}</td><td>{(editable||hasReceipt)&&<div className="row-actions">{editable&&entry.status!=='CANCELLED'&&entry.openCents>0&&<button type="button" onClick={()=>entry.approval.status==='NOT_REQUIRED'||entry.approval.status==='APPROVED'?openPayment(entry):onOpenPlanning?.(entry.id)}>{entry.approval.status==='REQUIRED'?'Solicitar aprovação':entry.approval.status==='PENDING'?'Aguardando aprovação':'Registrar pagamento'}</button>}{editable&&entry.status!=='CANCELLED'&&<button type="button" title="Editar lançamento" aria-label={`Editar ${entry.description}`} onClick={()=>openEditEntry(entry)}><Pencil size={15}/></button>}{editable&&entry.status!=='CANCELLED'&&entry.settlements.length>0&&<button type="button" title="Estornar última baixa" onClick={()=>void reverse(entry)}><RotateCcw size={15}/></button>}{editable&&entry.status!=='CANCELLED'&&entry.settlements.length===0&&<button type="button" title="Cancelar" onClick={()=>void cancel(entry)}><XCircle size={15}/></button>}{hasReceipt&&<button type="button" title="Salvar recibo em PDF" onClick={()=>void receiptPdf(entry)}><FileDown size={15}/></button>}{hasReceipt&&<button type="button" title="Imprimir recibo" onClick={()=>void receiptPrint(entry)}><Printer size={15}/></button>}</div>}</td></tr>})}</tbody></table>{filteredEntries.length===0 && <div className="empty-state">Nenhum lançamento encontrado com os filtros atuais.</div>}</div>
+    <div className="panel table-panel table-scroll"><table><thead><tr><th>Descrição</th><th>Vencimento</th><th>Status</th><th>Valor</th><th>Em aberto</th><th></th></tr></thead><tbody>{filteredEntries.map((entry)=>{const hasReceipt=entry.settlements.some((item)=>!item.reversedAt);return <tr key={entry.id}><td><strong>{entry.description}</strong>{entry.isOverdue && <small className="danger-text">Vencido</small>}</td><td>{entry.dueAt}</td><td><FinanceStatusBadge status={entry.isOverdue && entry.status!=='SETTLED' ? 'OVERDUE' : entry.status}/></td><td>{brl(entry.amountCents)}</td><td>{brl(entry.openCents)}</td><td>{(editable||hasReceipt)&&<div className="row-actions">{editable&&entry.status!=='CANCELLED'&&entry.openCents>0&&<button type="button" onClick={()=>entry.approval.status==='NOT_REQUIRED'||entry.approval.status==='APPROVED'?openPayment(entry):onOpenPlanning?.(entry.id)}>{entry.approval.status==='REQUIRED'?'Solicitar aprovação':entry.approval.status==='PENDING'?'Aguardando aprovação':'Registrar pagamento'}</button>}{editable&&entry.status!=='CANCELLED'&&<button type="button" title="Editar lançamento" aria-label={`Editar ${entry.description}`} onClick={()=>openEditEntry(entry)}><Pencil size={15}/></button>}{editable&&entry.status!=='CANCELLED'&&entry.settlements.length>0&&<button type="button" title="Estornar última baixa" onClick={()=>openDecision(entry,'REVERSE')}><RotateCcw size={15}/></button>}{editable&&entry.status!=='CANCELLED'&&entry.settlements.length===0&&<button type="button" title="Cancelar" onClick={()=>openDecision(entry,'CANCEL')}><XCircle size={15}/></button>}{hasReceipt&&<button type="button" title="Salvar recibo em PDF" onClick={()=>void receiptPdf(entry)}><FileDown size={15}/></button>}{hasReceipt&&<button type="button" title="Imprimir recibo" onClick={()=>void receiptPrint(entry)}><Printer size={15}/></button>}</div>}</td></tr>})}</tbody></table>{filteredEntries.length===0 && <div className="empty-state">Nenhum lançamento encontrado com os filtros atuais.</div>}</div>
 
     {editable && <section className="panel finance-secondary-panel">
       <div><div className="panel-title"><div><h3><Landmark size={18}/>Contas financeiras</h3><p className="muted">Cadastre contas sem misturar essa tarefa com um novo lançamento.</p></div></div><div className="finance-account-summary">{accounts.map((account)=><span className="finance-account-chip" key={account.id}>{account.name}<small>{account.type}</small></span>)}{accounts.length===0&&<span className="muted">Nenhuma conta cadastrada.</span>}</div></div>
@@ -211,7 +225,7 @@ export default function FinancePage({ token, session, intent, onIntentHandled, o
       <form className="form-grid drawer-form" data-testid="finance-payment-form" onSubmit={savePayment}>
         <p className="wide">{payingEntry?.description} — aberto: {brl(payingEntry?.openCents||0)}</p>
         <label>Valor pago/recebido<input required value={paymentForm.amount} onChange={(e)=>setPaymentForm({...paymentForm,amount:e.target.value})} /></label>
-        <label>Data<input required type="date" value={paymentForm.occurredAt} onChange={(e)=>setPaymentForm({...paymentForm,occurredAt:e.target.value})}/></label>
+        <label>Data<input required type="date" max={today()} value={paymentForm.occurredAt} onChange={(e)=>setPaymentForm({...paymentForm,occurredAt:e.target.value})}/></label>
         <label>Conta financeira<select required value={paymentForm.accountId} onChange={(e)=>setPaymentForm({...paymentForm,accountId:e.target.value})}>{accounts.map((x)=><option key={x.id} value={x.id}>{x.name}</option>)}</select></label>
         <label>Forma de pagamento<select value={paymentForm.method} onChange={(e)=>setPaymentForm({...paymentForm,method:e.target.value})}>
           <option value="PIX">PIX</option><option value="CASH">Dinheiro</option><option value="TRANSFER">Transferência</option><option value="BOLETO">Boleto</option><option value="DEBIT_CARD">Cartão de débito</option><option value="CREDIT_CARD">Cartão de crédito</option><option value="OTHER">Outro</option>
@@ -220,6 +234,14 @@ export default function FinancePage({ token, session, intent, onIntentHandled, o
         <p className="wide muted">Informe um valor menor que o saldo aberto para registrar um pagamento parcial.</p>
         {drawerError&&<div className="error-box wide" role="alert">{drawerError}</div>}
         <FinanceButton type="submit" disabled={busy}>{busy?'Registrando…':'Confirmar registro'}</FinanceButton>
+      </form>
+    </FinanceDrawer>
+    <FinanceDrawer open={Boolean(decision)} title={decision?.action==='CANCEL'?'Cancelar lançamento':'Estornar baixa'} description="Informe o motivo; a ação será auditada e o histórico mantido." onClose={()=>{if(!busy)setDecision(null);}}>
+      <form className="form-grid drawer-form" data-testid="finance-decision-form" onSubmit={confirmDecision}>
+        <p className="wide">{decision?.entry.description} — {brl(decision?.entry.amountCents||0)}</p>
+        {drawerError&&<div className="error-box wide" role="alert">{drawerError}</div>}
+        <label className="wide">Motivo obrigatório<textarea required minLength={3} value={reason} onChange={event=>setReason(event.target.value)} placeholder="Descreva por que a operação deve ser corrigida"/></label>
+        <FinanceButton type="submit" disabled={busy||reason.trim().length<3}>{busy?'Processando…':decision?.action==='CANCEL'?'Confirmar cancelamento':'Confirmar estorno'}</FinanceButton>
       </form>
     </FinanceDrawer>
   </section>;
