@@ -177,4 +177,4 @@ function createReportService({ db, finance, analytics = null, now = () => new Da
   return { settlementReceipt, financialReport, toCsv, toXlsxBuffer, toStyledXlsxBuffer, toDocxBuffer, toJsonBuffer, toPackageBuffer, toPrintableHtml };
 }
 
-module.exports = { createReportService, zipStore, crc32, proportionalCents, csvCell };
+module.exports = { createReportService, zipStore, crc32, csvCell };
