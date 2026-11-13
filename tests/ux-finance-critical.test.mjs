@@ -49,3 +49,18 @@ test('alterar valor de despesa aprovada impede reutilizar autorizacao anterior',
   assert.throws(()=>h.finance.settleEntry(entry.id,{amountCents:15000,accountId:account.id}),/aprova|approval/i);
  }finally{h.cleanup();}
 });
+
+test('visao historica nao considera baixa futura nem estorno posterior ao fechamento',()=>{
+ const h=createHarness();
+ try{
+  const account=h.finance.createAccount({name:'Banco',type:'BANK'});
+  const entry=h.finance.createEntry({kind:'PAYABLE',description:'Conta a pagar',amountCents:12000,dueAt:'2026-09-10'});
+  h.finance.settleEntry(entry.id,{amountCents:12000,accountId:account.id,occurredAt:'2026-09-20'});
+  const before=h.finance.getEntry(entry.id,{asOf:'2026-09-12'});
+  assert.equal(before.openCents,12000);
+  assert.equal(before.status,'OPEN');
+  assert.equal(before.isOverdue,true);
+  assert.equal(h.finance.getSummary({asOf:'2026-09-12'}).payableOpenCents,12000);
+  assert.equal(h.finance.getEntry(entry.id,{asOf:'2026-09-21'}).openCents,0);
+ }finally{h.cleanup();}
+});
