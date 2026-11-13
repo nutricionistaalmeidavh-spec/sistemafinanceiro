@@ -2,10 +2,11 @@
 const crypto = require('node:crypto');
 const Papa = require('papaparse');
 const { parseStatementXlsx, inspectStatementXlsx } = require('./open-document-suite.cjs');
+const { parseStatementOds, inspectStatementOds,parseQif,inspectCnab }=require('./open-format-service.cjs');
 
 function normalizeSourceType(value) {
   const type = String(value || '').trim().toUpperCase();
-  if (!['CSV','OFX','PDF','MANUAL','XLSX'].includes(type)) throw new TypeError('unsupported sourceType');
+  if (!['CSV','OFX','PDF','MANUAL','XLSX','ODS','QIF'].includes(type)) throw new TypeError('unsupported sourceType');
   return type;
 }
 function parseDate(value) {
@@ -109,6 +110,8 @@ function createStatementImportService({ db=null, finance=null, now=()=>new Date(
   async function parseInput(input, sourceType) {
     if(sourceType==='CSV')return parseCsv(input.content);
     if(sourceType==='XLSX')return parseStatementXlsx(input.dataBase64,input.columnMapping || {});
+    if(sourceType==='ODS')return parseStatementOds(input.dataBase64,input.columnMapping || {});
+    if(sourceType==='QIF')return parseQif(input.content);
     if(sourceType==='OFX')return parseOfx(input.content);
     if(sourceType==='PDF'){
       const text=input.text || (input.dataBase64 ? await pdfTextLoader(input.dataBase64) : input.content);
@@ -149,7 +152,7 @@ function createStatementImportService({ db=null, finance=null, now=()=>new Date(
     if(!db)throw new Error('database is required to commit imports');
     const result=await preview(input); const createdAt=now(); const batchId=idFactory('bank-batch');
     return withTransaction(db,()=>{
-      db.prepare('INSERT INTO bank_import_batches(id,source_type,document_id,filename,account_id,parsed_count,accepted_count,duplicate_count,created_by,created_at,original_source_type) VALUES (?,?,?,?,?,?,?,?,?,?,?)').run(batchId,result.sourceType==='XLSX'?'MANUAL':result.sourceType,result.documentId,input.filename||null,input.accountId,result.summary.parsed,result.summary.accepted,result.summary.duplicates,actor?.id||null,createdAt,result.sourceType);
+      db.prepare('INSERT INTO bank_import_batches(id,source_type,document_id,filename,account_id,parsed_count,accepted_count,duplicate_count,created_by,created_at,original_source_type) VALUES (?,?,?,?,?,?,?,?,?,?,?)').run(batchId,['XLSX','ODS','QIF'].includes(result.sourceType)?'MANUAL':result.sourceType,result.documentId,input.filename||null,input.accountId,result.summary.parsed,result.summary.accepted,result.summary.duplicates,actor?.id||null,createdAt,result.sourceType);
       const insert=db.prepare('INSERT OR IGNORE INTO bank_transactions(id,batch_id,account_id,occurred_at,description,normalized_description,counterparty,amount_cents,direction,category_label,source_fingerprint,business_fingerprint,rule_id,rule_reason,rule_confidence,review_status,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
       let inserted=0;
       for(const tx of result.transactions){const info=insert.run(idFactory('bank-tx'),batchId,tx.accountId,tx.date,tx.description,tx.normalized,tx.counterparty||null,tx.amountCents,tx.direction,tx.category||null,tx.sourceFingerprint,tx.businessFingerprint,tx.classification?.ruleId||null,tx.classification?.reason||null,Number(tx.classification?.confidence||0),tx.classification?.matched?'AUTO_CLASSIFIED':'PENDING',createdAt); inserted+=Number(info.changes||0);}
@@ -267,6 +270,6 @@ function createStatementImportService({ db=null, finance=null, now=()=>new Date(
       return {transactionId,entryId,decision,registerSettlement,settlementId,alreadyRegistered,stats:next};
     });
   }
-  return {preview,commit,listTransactions,suggestTransfers,suggestEntries,recordDecision,inspectXlsx:inspectStatementXlsx};
+  return {preview,commit,listTransactions,suggestTransfers,suggestEntries,recordDecision,inspectXlsx:inspectStatementXlsx, inspectOds:inspectStatementOds, inspectCnab};
 }
 module.exports={createStatementImportService,parseCsv,parseOfx,parsePdfText,parseDate,parseAmount,defaultPdfTextLoader,documentIdentity};
