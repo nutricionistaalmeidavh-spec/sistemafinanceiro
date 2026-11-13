@@ -206,12 +206,15 @@ function createPlanningService({ db, cashflow = null, finance = null, recurrence
         const selected=budget.cost_center_id?String(budget.cost_center_id):null;
         if(selected&&!weights.some(row=>row.cost_center_id===selected))continue;
         const portion=(cents)=>selected?(scopedSplitCents(cents,entry.amountCents,weights).get(selected)||0):cents;
-        for(const settlement of entry.settlements)
-          if(monthKey(settlement.occurredAt)===period)actualCents+=portion(settlement.amountCents);
+        let cumulativePaid=0;
+        for(const settlement of entry.settlements){
+          const previous=portion(cumulativePaid);
+          cumulativePaid+=settlement.amountCents;
+          const current=portion(cumulativePaid);
+          if(monthKey(settlement.occurredAt)===period)actualCents+=current-previous;
+        }
         if(monthKey(entry.dueAt)===period&&entry.openCents>0){
-          const full=portion(entry.amountCents);
-          const settled=entry.settlements.reduce((sum,s)=>sum+portion(s.amountCents),0);
-          committedCents+=Math.max(0,full-settled);
+          committedCents+=Math.max(0,portion(entry.amountCents)-portion(cumulativePaid));
         }
       }
       const plannedCents=Number(budget.amount_cents);
