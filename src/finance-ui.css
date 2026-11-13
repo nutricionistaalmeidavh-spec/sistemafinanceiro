@@ -56,3 +56,15 @@ body{background:var(--finance-bg);color:var(--finance-text)}
 }
 
 @media(max-width:480px){.metric-grid{grid-template-columns:1fr}.dashboard-attention{align-items:stretch;flex-direction:column}.attention-chip{width:100%;border-radius:9px}.finance-toolbar-filters{display:grid;grid-template-columns:1fr}.finance-toolbar .filter-control select{width:100%}}
+
+/* Primeiros passos orientados por tarefa. Usa os mesmos tokens da interface existente. */
+.dashboard-quick-actions{display:flex;flex-wrap:wrap;gap:8px}
+.first-use-guide{display:grid;gap:14px}
+.first-use-guide .setup-steps{display:grid;gap:10px;padding-left:22px;margin:0}
+.first-use-guide .setup-steps li{padding:4px 0;display:flex;align-items:center;justify-content:space-between;gap:12px}
+.first-use-guide .setup-steps li span{font-size:13px;color:var(--finance-text,#35405a)}
+@media(max-width:720px){
+  .dashboard-quick-actions>*{flex:1 1 170px}
+  .first-use-guide .setup-steps li{align-items:flex-start;flex-direction:column}
+  .first-use-guide .setup-steps li button{width:100%}
+}
