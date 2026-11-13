@@ -63,9 +63,10 @@ function createFinanceService({ db, now = () => new Date().toISOString(), idFact
       AND (reversed_at IS NULL OR substr(reversed_at,1,10)>?) ORDER BY occurred_at,created_at,id`)
       .all(String(row.id),day,day).map(mapSettlement);
     const settledCents = settlements.reduce((sum, item) => sum + Number(item.amountCents || 0), 0);
-    const openCents = Math.max(Number(row.amount_cents) - settledCents, 0);
+    const outstandingCents = Math.max(Number(row.amount_cents) - settledCents, 0);
     const cancelledAt=row.cancelled_at?localDay(row.cancelled_at):null;
     const isCancelled=row.status==='CANCELLED'&&(!cancelledAt||cancelledAt<=day);
+    const openCents=isCancelled?0:outstandingCents;
     const status=isCancelled?'CANCELLED':openCents===0?'SETTLED':settledCents>0?'PARTIAL':'OPEN';
     const isOverdue = ['OPEN', 'PARTIAL'].includes(status) && row.due_at < day;
     return {
