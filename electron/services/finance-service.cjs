@@ -121,6 +121,14 @@ function createFinanceService({ db, now = () => new Date().toISOString(), idFact
       assertRelation('creditors', creditorId, 'creditor');
       validateCategory(row.kind, categoryId);
       const notes = input.notes === undefined ? row.notes : input.notes || null;
+      const affectsApproval=amountCents!==row.amount_cents || description!==row.description ||
+        dueAt!==row.due_at || categoryId!==row.category_id || customerId!==row.customer_id || creditorId!==row.creditor_id;
+      if (affectsApproval) {
+        const cancelled=db.prepare("UPDATE approval_requests SET status='CANCELLED',updated_at=? WHERE entry_id=? AND status IN ('PENDING','APPROVED')")
+          .run(nowIso(),String(entryId));
+        if (cancelled.changes) writeAudit(db,{action:'planning.approval.invalidate',entity:'financial-entry',entityId:String(entryId),actor,
+          context:{invalidated:cancelled.changes,reason:'entry_changed'}},nowIso);
+      }
       db.prepare(`UPDATE financial_entries SET description=?,amount_cents=?,due_at=?,account_id=?,category_id=?,customer_id=?,creditor_id=?,notes=?,updated_at=? WHERE id=?`)
         .run(description,amountCents,dueAt,accountId,categoryId,customerId,creditorId,notes,nowIso(),String(entryId));
       recalculateStatus(entryId);
@@ -144,6 +152,16 @@ function createFinanceService({ db, now = () => new Date().toISOString(), idFact
       if (row.status === 'CANCELLED') throw new Error('cancelled entry cannot be settled');
       const current = getEntry(entryId);
       if (current.openCents <= 0) throw new Error('entry has no open balance');
+      if (row.kind === 'PAYABLE') {
+        const policy=db.prepare('SELECT id FROM approval_policies WHERE active=1 AND min_amount_cents<=? ORDER BY min_amount_cents DESC,id LIMIT 1').get(row.amount_cents);
+        const requests=db.prepare('SELECT status,policy_id FROM approval_requests WHERE entry_id=? ORDER BY created_at DESC,id DESC').all(String(entryId));
+        if (policy) {
+          if (!requests.some((request)=>request.status==='APPROVED' && request.policy_id===policy.id))
+            throw new Error('Pagamento exige aprovação concluída. Abra Planejamento > Aprovações e solicite a aprovação desta conta.');
+        } else if (requests.length && !requests.some((request)=>request.status==='APPROVED')) {
+          throw new Error('Pagamento bloqueado: solicitação de aprovação pendente ou recusada. Abra Planejamento > Aprovações.');
+        }
+      }
       const amountCents = assertCents(input.amountCents, 'amountCents');
       if (amountCents <= 0) throw new Error('settlement must be greater than zero');
       if (amountCents > current.openCents) throw new Error('settlement exceeds open balance');
