@@ -11,6 +11,10 @@ export default function ReportsPage({token}:Props){
   const [filters,setFilters]=useState({from:firstDay(),to:today(),kind:'' as ''|FinanceiroKind,status:'',costCenterId:'',tagId:''});
   const [report,setReport]=useState<FinancialReport|null>(null); const [centers,setCenters]=useState<PlanningCostCenter[]>([]); const [tags,setTags]=useState<PlanningTag[]>([]);
   const [error,setError]=useState('');
+  const [pdfForm,setPdfForm]=useState<{formId:string;filename:string;fields:Array<{name:string;type:string;options:string[]}>}|null>(null);
+  const [pdfValues,setPdfValues]=useState<Record<string,string|boolean>>({});
+  const [archive,setArchive]=useState<{archiveId:string;filename:string;preview:{valid:boolean;summary:{rows:number;amountCents:number;settledCents:number;openCents:number}}}|null>(null);
+  const [notice,setNotice]=useState('');
   useEffect(()=>{Promise.all([planning.listCostCenters(token),planning.listTags(token)]).then(([nextCenters,nextTags])=>{setCenters(nextCenters);setTags(nextTags);}).catch((err)=>setError(err instanceof Error?err.message:String(err)));},[planning,token]);
   const payload=useCallback(()=>{const result:Record<string,unknown>={from:filters.from,to:filters.to};if(filters.kind)result.kind=filters.kind;if(filters.status)result.status=filters.status;if(filters.costCenterId)result.costCenterId=filters.costCenterId;if(filters.tagId)result.tagId=filters.tagId;return result;},[filters]);
   const load=useCallback(async()=>{try{setReport(await api.reports.financial(token,payload()));setError('');}catch(err){setError(err instanceof Error?err.message:String(err));}},[api,token,payload]);
@@ -22,10 +26,61 @@ export default function ReportsPage({token}:Props){
   async function json(){try{const file=await api.reports.json(token,payload());saveBlob(file.filename,new Blob([file.data],{type:file.mime}));}catch(err){setError(err instanceof Error?err.message:String(err));}}
   async function zip(){try{const file=await api.reports.package(token,payload());saveBlob(file.filename,new Blob([fromBase64(file.dataBase64)],{type:file.mime}));}catch(err){setError(err instanceof Error?err.message:String(err));}}
   async function mergePdf(){try{await api.reports.mergePdf(token);}catch(err){setError(err instanceof Error?err.message:String(err));}}
+  async function selectArchive(){
+    try{
+      const chosen=await api.reports.selectArchive(token);
+      if(chosen.canceled)return;
+      if(!chosen.archiveId||!chosen.filename||!chosen.preview)throw new Error('Prévia de pacote incompleta');
+      setArchive({archiveId:chosen.archiveId,filename:chosen.filename,preview:chosen.preview});setNotice('');
+      setError('');
+    }catch(err){setError(err instanceof Error?err.message:String(err));}
+  }
+  async function importArchive(){
+    if(!archive)return;
+    try{
+      const saved=await api.reports.importArchive(token,archive.archiveId);
+      setNotice(`Pacote ZIP validado e arquivado para consulta (${saved.rows} linhas). Nenhum lançamento financeiro foi alterado.`);
+      setArchive(null);setError('');
+    }catch(err){setError(err instanceof Error?err.message:String(err));}
+  }
+  async function selectPdfForm(){
+    try{
+      const chosen=await api.reports.selectPdfForm(token);
+      if(chosen.canceled)return;
+      if(!chosen.formId||!chosen.fields||!chosen.filename)throw new Error('Formulário PDF não possui campos');
+      setPdfForm({formId:chosen.formId,fields:chosen.fields,filename:chosen.filename});setPdfValues({});setError('');
+    }catch(err){setError(err instanceof Error?err.message:String(err));}
+  }
+  async function saveFilledPdf(){
+    if(!pdfForm)return;
+    try{
+      const saved=await api.reports.fillPdfForm(token,pdfForm.formId,pdfValues);
+      if(!saved.canceled){setNotice('Formulário PDF preenchido salvo localmente.');setPdfForm(null);setPdfValues({});}
+      setError('');
+    }catch(err){setError(err instanceof Error?err.message:String(err));}
+  }
   async function pdf(){try{await api.reports.savePdf(token,payload());}catch(err){setError(err instanceof Error?err.message:String(err));}}
   async function print(){try{await api.reports.print(token,payload());}catch(err){setError(err instanceof Error?err.message:String(err));}}
   return <section className="page-stack"><div className="page-header"><div><p className="eyebrow">Relatórios</p><h2>Financeiro e exportações</h2><p className="muted">Filtre por período, centro de custo e tags; imprima ou exporte localmente em CSV, XLSX, Word, JSON, ZIP e PDF.</p></div></div>
     {error&&<div className="error-box">{error}</div>}
+    {notice&&<div className="status status-ok" role="status">{notice}</div>}
+    <div className="panel" style={{padding:16}}>
+      <div className="panel-title"><div><strong>Ferramentas de documentos</strong><small>Formulários PDF e pacotes ZIP locais; importação de ZIP é um arquivo de referência auditável e não restaura lançamentos automaticamente.</small></div></div>
+      <div className="inline-actions">
+        <button type="button" className="secondary-button" onClick={()=>void selectPdfForm()}>Selecionar formulário PDF</button>
+        <button type="button" className="secondary-button" onClick={()=>void selectArchive()}>Importar pacote ZIP</button>
+      </div>
+      {pdfForm&&<div className="nested-form"><h3>Preencher: {pdfForm.filename}</h3><div className="form-grid">
+        {pdfForm.fields.map(field=><label key={field.name}><span>{field.name}</span>
+          {field.type==='checkbox'?<input type="checkbox" checked={pdfValues[field.name]===true} onChange={event=>setPdfValues(values=>({...values,[field.name]:event.target.checked}))}/>:
+            field.type==='select'||field.type==='radio'?<select value={String(pdfValues[field.name]||'')} onChange={event=>setPdfValues(values=>({...values,[field.name]:event.target.value}))}><option value="">Selecione</option>{field.options.map(option=><option key={option}>{option}</option>)}</select>:
+            <input value={String(pdfValues[field.name]||'')} disabled={field.type==='unsupported'} onChange={event=>setPdfValues(values=>({...values,[field.name]:event.target.value}))}/>}
+        </label>)}</div><button type="button" className="primary-button" onClick={()=>void saveFilledPdf()}>Salvar formulário preenchido</button></div>}
+      {archive&&<div className="nested-form"><h3>Revisar pacote: {archive.filename}</h3>
+        <p>{archive.preview.summary.rows} lançamentos · Total {brl(archive.preview.summary.amountCents)} · Baixado {brl(archive.preview.summary.settledCents)} · Aberto {brl(archive.preview.summary.openCents)}</p>
+        <button type="button" className="primary-button" onClick={()=>void importArchive()}>Confirmar importação no arquivo de referência</button>
+      </div>}
+    </div>
     <div className="panel report-toolbar"><label>De<input type="date" value={filters.from} onChange={(e)=>setFilters({...filters,from:e.target.value})}/></label><label>Até<input type="date" value={filters.to} onChange={(e)=>setFilters({...filters,to:e.target.value})}/></label><label>Tipo<select value={filters.kind} onChange={(e)=>setFilters({...filters,kind:e.target.value as typeof filters.kind})}><option value="">Todos</option><option value="PAYABLE">A pagar</option><option value="RECEIVABLE">A receber</option></select></label><label>Status<select value={filters.status} onChange={(e)=>setFilters({...filters,status:e.target.value})}><option value="">Todos</option><option value="OPEN">Aberto</option><option value="PARTIAL">Parcial</option><option value="SETTLED">Baixado</option><option value="CANCELLED">Cancelado</option></select></label><label>Centro<select value={filters.costCenterId} onChange={(e)=>setFilters({...filters,costCenterId:e.target.value})}><option value="">Todos</option>{centers.map((center)=><option key={center.id} value={center.id}>{center.code} · {center.name}</option>)}</select></label><label>Tag<select value={filters.tagId} onChange={(e)=>setFilters({...filters,tagId:e.target.value})}><option value="">Todas</option>{tags.map((tag)=><option key={tag.id} value={tag.id}>{tag.name}</option>)}</select></label><div className="report-actions"><button className="secondary-button" onClick={()=>void csv()}><Download size={16}/>CSV</button><button className="secondary-button" onClick={()=>void xlsx()}><FileSpreadsheet size={16}/>XLSX</button><button className="secondary-button" onClick={()=>void docx()}><FileDown size={16}/>Word</button><button className="secondary-button" onClick={()=>void json()}><Download size={16}/>JSON</button><button className="secondary-button" onClick={()=>void zip()}><Download size={16}/>ZIP</button><button className="secondary-button" onClick={()=>void pdf()}><FileDown size={16}/>PDF</button><button className="primary-button" onClick={()=>void print()}><Printer size={16}/>Imprimir</button><button className="secondary-button" onClick={()=>void mergePdf()}><FileDown size={16}/>Unir PDFs</button></div></div>
     {report&&<><div className="metric-grid"><div className="metric-card"><span>Total</span><strong>{brl(report.totals.amountCents)}</strong></div><div className="metric-card"><span>Baixado</span><strong>{brl(report.totals.settledCents)}</strong></div><div className="metric-card"><span>Em aberto</span><strong>{brl(report.totals.openCents)}</strong></div><div className="metric-card"><span>Lançamentos</span><strong>{report.rows.length}</strong></div></div><ReportsCharts report={report}/><div className="panel table-panel table-scroll"><table><thead><tr><th>Vencimento</th><th>Descrição</th><th>Tipo</th><th>Status</th><th>Conta</th><th>Categoria</th><th>Centro(s)</th><th>Tags</th><th>Contraparte</th><th>Valor</th><th>Aberto</th></tr></thead><tbody>{report.rows.map((row)=><tr key={row.id}><td>{row.dueAt}</td><td>{row.description}</td><td>{row.kind==='PAYABLE'?'Despesa':'Receita'}</td><td>{({OPEN:'Em aberto',PARTIAL:'Parcial',SETTLED:'Quitado',CANCELLED:'Cancelado'} as Record<string,string>)[row.status]||row.status}</td><td>{row.account||'-'}</td><td>{row.category||'-'}</td><td>{row.costCenters||'-'}</td><td>{row.tags||'-'}</td><td>{row.counterparty||'-'}</td><td>{brl(row.amountCents)}</td><td className={row.isOverdue?'danger-text':''}>{brl(row.openCents)}</td></tr>)}</tbody></table>{report.rows.length===0&&<div className="empty-state">Nenhum lançamento no período.</div>}</div></>}
   </section>;
