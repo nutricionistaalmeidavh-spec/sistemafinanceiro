@@ -152,7 +152,7 @@ try {
   await recurringForm.getByLabel('Descrição',{exact:true}).fill('Recorrência E2E');
   await recurringForm.getByLabel('Valor',{exact:true}).fill('89,90');
   await recurringForm.getByRole('button',{name:'Salvar recorrência'}).click();
-  const recurringRow=page.locator('tr').filter({hasText:'Recorrência E2E'});
+  const recurringRow=page.getByTestId('page-recurring').locator('table').first().locator('tbody tr').filter({hasText:'Recorrência E2E'});
   await recurringRow.waitFor({timeout:15000});
   await recurringRow.getByRole('button',{name:'Editar'}).click();
   await recurringForm.getByLabel('Valor',{exact:true}).fill('99,90');
