@@ -80,8 +80,8 @@ jobs:
             qa-artifacts/final/metrics/*.json
           if-no-files-found: error
           retention-days: 90
-      - name: Publicar uma release somente por comando manual na main
-        if: github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && contains(github.event.head_commit.message, '[publish-finance-013]')))
+      - name: Publicar release explicitamente autorizada na main
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && contains(github.event.head_commit.message, '[publish-finance-014]')))
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -92,5 +92,5 @@ jobs:
           if ($LASTEXITCODE -eq 0) { throw "Release existente: $tag. Nunca sobrescrever." }
           $assets=@("release/ArtiSys-Financeiro-Setup-$v.exe","release/ArtiSys-Financeiro-Setup-$v.sha256","release/latest.yml")
           $assets += @(Get-ChildItem release -Filter '*.blockmap' | ForEach-Object { $_.FullName })
-          gh release create $tag $assets --repo "${{ github.repository }}" --target "${{ github.sha }}" --title "ArtiSys Financeiro v$v" --notes "Instalador Windows unificado com ativacao por codigo obrigatoria e atualizacao opcional via GitHub. SQLite local preservado." --latest
+          gh release create $tag $assets --repo "${{ github.repository }}" --target "${{ github.sha }}" --title "ArtiSys Financeiro v$v" --notes "Atualizacao Windows v$v: identidade do instalador de avaliacao anterior preservada para atualizacao sobre a instalacao existente. Nome unificado ArtiSys Financeiro, licenca temporaria e dados SQLite preservados. Atualizacao opcional pelo GitHub." --latest
           if ($LASTEXITCODE -ne 0) { throw 'Falha ao publicar release' }
