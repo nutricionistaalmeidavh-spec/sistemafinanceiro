@@ -91,7 +91,20 @@ function inspectStatementOds(dataBase64){
   const {headers,rows}=parseOdsCells(dataBase64);
   return {headers,rowCount:rows.length,previewRows:rows.slice(0,5)};
 }
-function parseQif(content) {
+function normalizeQifDate(value,order='AUTO'){
+  const raw=String(value||'').trim();
+  const parts=raw.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2}|\d{4})$/);
+  if(!parts)throw new TypeError('data QIF inválida: '+raw);
+  const a=Number(parts[1]),b=Number(parts[2]);
+  const year=parts[3].length===2?(Number(parts[3])<70?2000+Number(parts[3]):1900+Number(parts[3])):Number(parts[3]);
+  if(!['AUTO','DMY','MDY'].includes(order))throw new TypeError('formato QIF inválido');
+  const resolved=order==='AUTO'?(a>12?'DMY':b>12?'MDY':'MDY'):order;
+  const month=resolved==='MDY'?a:b,day=resolved==='MDY'?b:a;
+  const date=new Date(Date.UTC(year,month-1,day));
+  if(year<1900||year>2200||date.getUTCFullYear()!==year||date.getUTCMonth()!==month-1||date.getUTCDate()!==day)throw new TypeError('data QIF inválida: '+raw);
+  return [year,String(month).padStart(2,'0'),String(day).padStart(2,'0')].join('-');
+}
+function parseQif(content, {dateOrder='AUTO'}={}) {
   const raw=String(content||'').replace(/^\uFEFF/,'');
   if(Buffer.byteLength(raw,'utf8')>MAX_BYTES)throw new RangeError('QIF maior que 12MB');
   const lines=raw.split(/\r?\n/);
@@ -104,7 +117,7 @@ function parseQif(content) {
     if(!type)throw new TypeError('QIF sem declaração !Type:Bank');
     if(trimmed==='^'){
       if(!current.date||!current.amount)throw new TypeError('transação QIF incompleta');
-      rows.push({date:current.date,description:current.description||current.memo||'Transação QIF',
+      rows.push({date:normalizeQifDate(current.date,dateOrder),description:current.description||current.memo||'Transação QIF',
         amount:current.amount,externalId:current.id||'qif-'+(++seq)});
       current={};if(rows.length>MAX_ROWS)throw new RangeError('QIF excede 50 mil transações');continue;
     }
@@ -131,4 +144,4 @@ function inspectCnab(content){
   return {layout:length,bankCode:lines[0].slice(0,3),records:lines.length,transactionImportSupported:false,
     note:'CNAB de cobrança/remessa/retorno exige homologação por banco e convênio; não é extrato bancário nem gera lançamentos automaticamente.'};
 }
-module.exports={toOdsBuffer,parseStatementOds,inspectStatementOds,parseQif,inspectCnab};
+module.exports={toOdsBuffer,parseStatementOds,inspectStatementOds,parseQif,inspectCnab,normalizeQifDate};
