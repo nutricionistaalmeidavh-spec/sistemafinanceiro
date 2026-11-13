@@ -1,4 +1,5 @@
 'use strict';
+const { localDay } = require('./date-utils.cjs');
 
 function monthKey(value) { return String(value).slice(0, 7); }
 function yearRange(year) { const y = Number(year); if (!Number.isInteger(y) || y < 2000 || y > 2200) throw new Error('invalid year'); return { from: `${y}-01-01`, to: `${y}-12-31` }; }
@@ -53,7 +54,7 @@ function createAnalyticsService({ db, finance, cashflow, now = () => new Date().
     return { basis, from: start, to: end, groups: items, totals };
   }
 
-  function getIndicators({ from = null, to = null, asOf = nowIso().slice(0, 10) } = {}) {
+  function getIndicators({ from = null, to = null, asOf = localDay(nowIso()) } = {}) {
     const summary = finance.getSummary({ from, to, asOf });
     const clauses = ['fs.reversed_at IS NULL', "fe.status<>'CANCELLED'"]; const params = [];
     if (from) { clauses.push('fs.occurred_at>=?'); params.push(String(from)); }
@@ -69,11 +70,15 @@ function createAnalyticsService({ db, finance, cashflow, now = () => new Date().
 
   function getDashboardSnapshot({ year = Number(nowIso().slice(0, 4)) } = {}) {
     const range = yearRange(year);
-    const indicators = getIndicators({ from: range.from, to: range.to, asOf: range.to });
-    const accountBalances = cashflow.getAccountBalances({ asOf: range.to });
+    const currentDay = localDay(nowIso());
+    // Ano anterior e foto de 31/12; ano atual e futuro nunca antecipam disponibilidade.
+    const balanceAsOf = range.to < currentDay ? range.to : currentDay;
+    const periodTo = range.to < currentDay ? range.to : currentDay;
+    const indicators = getIndicators({ from: range.from, to: periodTo, asOf: balanceAsOf });
+    const accountBalances = cashflow.getAccountBalances({ asOf: balanceAsOf });
     const buckets = Array.from({ length: 12 }, (_, index) => ({ month: `${year}-${String(index + 1).padStart(2, '0')}`, inCents: 0, outCents: 0, netCents: 0 }));
     const byMonth = new Map(buckets.map((item) => [item.month, item]));
-    for (const movement of cashflow.listMovements(range)) {
+    for (const movement of cashflow.listMovements({ from:range.from,to:periodTo })) {
       const bucket = byMonth.get(monthKey(movement.occurredAt)); if (!bucket) continue;
       movement.direction === 'IN' ? bucket.inCents += movement.amountCents : bucket.outCents += movement.amountCents;
       bucket.netCents = bucket.inCents - bucket.outCents;
@@ -81,8 +86,8 @@ function createAnalyticsService({ db, finance, cashflow, now = () => new Date().
     const topExpenses = db.prepare(`SELECT fe.description,SUM(fs.amount_cents) amount_cents
       FROM financial_settlements fs JOIN financial_entries fe ON fe.id=fs.entry_id
       WHERE fs.reversed_at IS NULL AND fe.status<>'CANCELLED' AND fe.kind='PAYABLE' AND fs.occurred_at>=? AND fs.occurred_at<=?
-      GROUP BY fe.description ORDER BY amount_cents DESC,fe.description LIMIT 5`).all(range.from, range.to).map((row) => ({ description: row.description, amountCents: Number(row.amount_cents || 0) }));
-    return { year: Number(year), range, cards: indicators, accountBalances, monthly: buckets, topExpenses, dre: getDre({ ...range, basis: 'realized' }) };
+      GROUP BY fe.description ORDER BY amount_cents DESC,fe.description LIMIT 5`).all(range.from, periodTo).map((row) => ({ description: row.description, amountCents: Number(row.amount_cents || 0) }));
+    return { year: Number(year), range, balanceAsOf, cards: indicators, accountBalances, monthly: buckets, topExpenses, dre: getDre({ ...range, to:periodTo, basis: 'realized' }) };
   }
 
   return { getDre, getIndicators, getDashboardSnapshot };

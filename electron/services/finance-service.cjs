@@ -43,6 +43,17 @@ function createFinanceService({ db, now = () => new Date().toISOString(), idFact
   function mapSettlement(row) {
     return row && { id: row.id, entryId: row.entry_id, accountId: row.account_id || null, amountCents: row.amount_cents, method: row.method, note: row.note, occurredAt: row.occurred_at, createdAt: row.created_at, reversedAt: row.reversed_at };
   }
+  const approvalSchemaAvailable=Boolean(db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='approval_policies'").get());
+  function paymentApproval(row) {
+    if (!approvalSchemaAvailable || row.kind !== 'PAYABLE' || row.status === 'CANCELLED') return { status:'NOT_REQUIRED', policyId:null };
+    const policy = db.prepare('SELECT id FROM approval_policies WHERE active=1 AND min_amount_cents<=? ORDER BY min_amount_cents DESC,id LIMIT 1').get(row.amount_cents);
+    if (!policy) return { status:'NOT_REQUIRED', policyId:null };
+    const request = db.prepare(`SELECT status FROM approval_requests
+      WHERE entry_id=? AND policy_id=? AND entry_amount_cents_at_request=? AND status IN ('APPROVED','PENDING')
+      ORDER BY CASE status WHEN 'APPROVED' THEN 0 ELSE 1 END, updated_at DESC LIMIT 1`)
+      .get(row.id,policy.id,row.amount_cents);
+    return { status:request?.status || 'REQUIRED',policyId:policy.id };
+  }
   function mapEntry(row, asOf = localDay(nowIso())) {
     if (!row) return null;
     const settlements = activeSettlements(row.id).map(mapSettlement);
@@ -55,7 +66,7 @@ function createFinanceService({ db, now = () => new Date().toISOString(), idFact
       dueAt: row.due_at, status: row.status, sourceType: row.source_type, sourceId: row.source_id, notes: row.notes,
       recurrenceRuleId: row.recurrence_rule_id || null, recurrenceKey: row.recurrence_key || null,
       createdAt: row.created_at, updatedAt: row.updated_at, cancelledAt: row.cancelled_at,
-      settledCents, openCents, isOverdue, settlements,
+      settledCents, openCents, isOverdue, settlements, approval: paymentApproval(row),
     };
   }
   function getEntry(id, { asOf } = {}) { return mapEntry(db.prepare('SELECT * FROM financial_entries WHERE id=?').get(String(id)), asOf || localDay(nowIso())); }
@@ -147,6 +158,10 @@ function createFinanceService({ db, now = () => new Date().toISOString(), idFact
       const amountCents = assertCents(input.amountCents, 'amountCents');
       if (amountCents <= 0) throw new Error('settlement must be greater than zero');
       if (amountCents > current.openCents) throw new Error('settlement exceeds open balance');
+      const approval = paymentApproval(row);
+      if (approval.status !== 'NOT_REQUIRED' && approval.status !== 'APPROVED') {
+        throw new Error('Pagamento exige aprovação. Solicite ou conclua a aprovação em Planejamento > Aprovações antes de registrar a baixa.');
+      }
       const occurredAt = assertDateOnly(input.occurredAt || localDay(nowIso()), 'settlement date');
       const method = String(input.method || 'OTHER').toUpperCase();
       if (!['PIX','CASH','TRANSFER','BOLETO','DEBIT_CARD','CREDIT_CARD','OTHER'].includes(method)) throw new Error('invalid payment method');

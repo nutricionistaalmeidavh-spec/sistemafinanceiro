@@ -23,7 +23,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: financeiro-trial-windows
+  group: financeiro-trial-windows-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
