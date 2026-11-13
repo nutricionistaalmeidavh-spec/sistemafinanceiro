@@ -67,3 +67,12 @@
  .crm-page .crm-detail-heading{align-items:start}
  .crm-page .crm-toolbar .search-control{width:100%}
 }
+
+.crm-page .crm-import{display:grid;gap:12px}
+.crm-page .crm-import-preview{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+.crm-page .crm-import-preview small{display:block;width:100%;color:#93601d}
+.crm-page .crm-lead-actions{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.crm-page .crm-lead-actions select{min-width:115px;width:auto;padding:7px;font-size:12px}
+.crm-page .crm-stage-history{background:#f8f9fd;padding:10px;border:1px solid #e5e9f2;border-radius:9px}
+.crm-page .crm-stage-history strong{font-size:12px}
+.crm-page .crm-stage-history p{font-size:12px;margin:7px 0 0;color:#657289}
