@@ -51,10 +51,12 @@ test('alterar valor de despesa aprovada impede reutilizar autorizacao anterior',
 });
 
 test('visao historica nao considera baixa futura nem estorno posterior ao fechamento',()=>{
- const h=createHarness();
+ let clock='2026-09-01T12:00:00.000Z';
+ const h=createHarness({now:()=>clock});
  try{
   const account=h.finance.createAccount({name:'Banco',type:'BANK'});
   const entry=h.finance.createEntry({kind:'PAYABLE',description:'Conta a pagar',amountCents:12000,dueAt:'2026-09-10'});
+  clock='2026-09-20T12:00:00.000Z';
   h.finance.settleEntry(entry.id,{amountCents:12000,accountId:account.id,occurredAt:'2026-09-20'});
   const before=h.finance.getEntry(entry.id,{asOf:'2026-09-12'});
   assert.equal(before.openCents,12000);
