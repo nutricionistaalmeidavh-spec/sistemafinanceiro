@@ -1,5 +1,7 @@
 'use strict';
 
+const openDocs = require('./open-document-suite.cjs');
+
 let printing = null;
 try { printing = require('@artisys/printing'); } catch {}
 
@@ -173,7 +175,11 @@ function createReportService({ db, finance, analytics = null, now = () => new Da
     throw new Error('unsupported printable document');
   }
 
-  return { settlementReceipt, financialReport, toCsv, toXlsxBuffer, toPrintableHtml };
+  const toStyledXlsxBuffer = openDocs.toStyledXlsxBuffer;
+  const toDocxBuffer = openDocs.toDocxBuffer;
+  const toJsonBuffer = openDocs.toJsonBuffer;
+  const toPackageBuffer = (report) => openDocs.toPackageBuffer(report, { toCsv, zipStore });
+  return { settlementReceipt, financialReport, toCsv, toXlsxBuffer, toStyledXlsxBuffer, toDocxBuffer, toJsonBuffer, toPackageBuffer, toPrintableHtml };
 }
 
 module.exports = { createReportService, zipStore, crc32, proportionalCents, csvCell };
