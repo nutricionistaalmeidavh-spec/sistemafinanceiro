@@ -11,7 +11,7 @@ test('open-format ODS exporter and importer round-trip Brazilian amounts without
   });
   assert.equal(file.subarray(0,2).toString(),'PK');
   const rows=await parseStatementOds(file.toString('base64'));
-  assert.equal(rows[0].description,'Transferência fictícia');
+  assert.equal(rows[0].description,'Transferência & ação <fictícia>');
   assert.equal(rows[0].amount,'-120.35');
   assert.equal(rows[0].direction,'debit');
 });
