@@ -2,14 +2,14 @@
 import { BarChart3, CheckCircle2, FileText, Layers3, Plus, RefreshCcw, Target } from 'lucide-react';
 import { brl, can, toCents } from '../lib/format';
 
-type Props={token:string;session:FinanceiroSession};
+type Props={token:string;session:FinanceiroSession;focusApprovalEntryId?:string|null;onApprovalFocusHandled?:()=>void};
 type Tab='centers'|'budget'|'scenarios'|'approvals'|'projection';
 type SplitRow={costCenterId:string;percentage:string};
 
 function parseSignedCents(value:string){const parsed=Number(value.trim().replace(/\./g,'').replace(',','.'));if(!Number.isFinite(parsed)||parsed===0)throw new Error('Informe um impacto diferente de zero.');return Math.round(parsed*100);}
 function parseNonNegativeCents(value:string){if(!value.trim())return 0;const parsed=Number(value.trim().replace(/\./g,'').replace(',','.'));if(!Number.isFinite(parsed)||parsed<0)throw new Error('Informe um valor maior ou igual a zero.');return Math.round(parsed*100);}
 
-export default function PlanningPage({token,session}:Props){
+export default function PlanningPage({token,session,focusApprovalEntryId,onApprovalFocusHandled}:Props){
   const api=window.financeiro!; const planning=window.financeiroPlanning!; const editable=can(session,'finance.manage');
   const [tab,setTab]=useState<Tab>('centers'); const [error,setError]=useState(''); const [loading,setLoading]=useState(true);
   const [centers,setCenters]=useState<PlanningCostCenter[]>([]); const [tags,setTags]=useState<PlanningTag[]>([]); const [entries,setEntries]=useState<FinanceEntry[]>([]); const [categories,setCategories]=useState<FinancialCategory[]>([]);
@@ -17,6 +17,7 @@ export default function PlanningPage({token,session}:Props){
   const [policies,setPolicies]=useState<ApprovalPolicyRecord[]>([]); const [approvals,setApprovals]=useState<ApprovalRequestRecord[]>([]); const [projection,setProjection]=useState<PlanningProjectionRow[]>([]);
   const [selectedEntry,setSelectedEntry]=useState(''); const [splits,setSplits]=useState<SplitRow[]>([{costCenterId:'',percentage:'100'}]); const [selectedTags,setSelectedTags]=useState<string[]>([]); const [attachments,setAttachments]=useState<EntryAttachmentRecord[]>([]);
   const [selectedBulk,setSelectedBulk]=useState<string[]>([]);
+  useEffect(()=>{if(!focusApprovalEntryId)return;setTab('approvals');setSelectedEntry(focusApprovalEntryId);onApprovalFocusHandled?.();},[focusApprovalEntryId,onApprovalFocusHandled]);
   const year=new Date().getFullYear(); const month=new Date().getMonth()+1;
   const [centerForm,setCenterForm]=useState({code:'',name:'',parentId:''}); const [tagName,setTagName]=useState('');
   const [budgetForm,setBudgetForm]=useState({scenarioId:'base',year:String(year),month:String(month),nature:'EXPENSE',amount:'',categoryId:'',costCenterId:''});
