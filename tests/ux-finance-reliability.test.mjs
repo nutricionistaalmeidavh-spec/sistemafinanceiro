@@ -11,9 +11,9 @@ test('dashboard atual mostra caixa e banco no saldo consolidado e nao inclui mov
  try{
   const bank=h.finance.createAccount({name:'Banco',type:'BANK'});
   const cash=h.finance.createAccount({name:'Caixa',type:'CASH'});
-  h.cashflow.createMovement({accountId:bank.id,type:'DEPOSIT',amountCents:20000,occurredAt:'2026-09-11'});
-  h.cashflow.createMovement({accountId:cash.id,type:'DEPOSIT',amountCents:5000,occurredAt:'2026-09-11'});
-  h.cashflow.createMovement({accountId:bank.id,type:'DEPOSIT',amountCents:990000,occurredAt:'2026-11-11'});
+  h.cashflow.createManualMovement({accountId:bank.id,type:'DEPOSIT',amountCents:20000,occurredAt:'2026-09-11'});
+  h.cashflow.createManualMovement({accountId:cash.id,type:'DEPOSIT',amountCents:5000,occurredAt:'2026-09-11'});
+  h.cashflow.createManualMovement({accountId:bank.id,type:'DEPOSIT',amountCents:990000,occurredAt:'2026-11-11'});
   const snapshot=h.analytics.getDashboardSnapshot({year:2026});
   assert.equal(snapshot.balanceAsOf,'2026-09-12');
   assert.equal(snapshot.cards.totalBalanceCents,25000);
@@ -26,8 +26,8 @@ test('ano historico mostra saldo ate fim daquele ano e nao valores posteriores',
  const h=createHarness();
  try{
   const bank=h.finance.createAccount({name:'Banco',type:'BANK'});
-  h.cashflow.createMovement({accountId:bank.id,type:'DEPOSIT',amountCents:12000,occurredAt:'2025-12-01'});
-  h.cashflow.createMovement({accountId:bank.id,type:'DEPOSIT',amountCents:25000,occurredAt:'2026-01-01'});
+  h.cashflow.createManualMovement({accountId:bank.id,type:'DEPOSIT',amountCents:12000,occurredAt:'2025-12-01'});
+  h.cashflow.createManualMovement({accountId:bank.id,type:'DEPOSIT',amountCents:25000,occurredAt:'2026-01-01'});
   const snapshot=h.analytics.getDashboardSnapshot({year:2025});
   assert.equal(snapshot.balanceAsOf,'2025-12-31');
   assert.equal(snapshot.cards.totalBalanceCents,12000);
