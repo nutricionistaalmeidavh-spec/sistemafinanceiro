@@ -17,6 +17,7 @@ function withTransaction(db, fn) {
 function createFinanceService({ db, now = () => new Date().toISOString(), idFactory = (prefix) => `${prefix}-${randomUUID()}` } = {}) {
   if (!db) throw new TypeError('Database is required.');
   const nowIso = () => String(now());
+  const hasApprovalSchema=Boolean(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='approval_policies'").get());
 
   function mapAccount(row) {
     return row && { id: row.id, name: row.name, type: row.type, active: Boolean(row.active), createdAt: row.created_at, updatedAt: row.updated_at };
@@ -123,7 +124,7 @@ function createFinanceService({ db, now = () => new Date().toISOString(), idFact
       const notes = input.notes === undefined ? row.notes : input.notes || null;
       const affectsApproval=amountCents!==row.amount_cents || description!==row.description ||
         dueAt!==row.due_at || categoryId!==row.category_id || customerId!==row.customer_id || creditorId!==row.creditor_id;
-      if (affectsApproval) {
+      if (affectsApproval && hasApprovalSchema) {
         const cancelled=db.prepare("UPDATE approval_requests SET status='CANCELLED',updated_at=? WHERE entry_id=? AND status IN ('PENDING','APPROVED')")
           .run(nowIso(),String(entryId));
         if (cancelled.changes) writeAudit(db,{action:'planning.approval.invalidate',entity:'financial-entry',entityId:String(entryId),actor,
@@ -152,7 +153,7 @@ function createFinanceService({ db, now = () => new Date().toISOString(), idFact
       if (row.status === 'CANCELLED') throw new Error('cancelled entry cannot be settled');
       const current = getEntry(entryId);
       if (current.openCents <= 0) throw new Error('entry has no open balance');
-      if (row.kind === 'PAYABLE') {
+      if (row.kind === 'PAYABLE' && hasApprovalSchema) {
         const policy=db.prepare('SELECT id FROM approval_policies WHERE active=1 AND min_amount_cents<=? ORDER BY min_amount_cents DESC,id LIMIT 1').get(row.amount_cents);
         const requests=db.prepare('SELECT status,policy_id FROM approval_requests WHERE entry_id=? ORDER BY created_at DESC,id DESC').all(String(entryId));
         if (policy) {
