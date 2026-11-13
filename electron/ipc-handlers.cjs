@@ -33,7 +33,7 @@ function registerIpcHandlers({ ipcMain, app, dialog, database, auth, finance, re
   ipcMain.handle('statements:list', (_event, token, filters) => { auth.require(token, 'finance.view'); return statements.listTransactions(filters || {}); });
   ipcMain.handle('statements:suggest-transfers', async (_event, token, filters) => { auth.require(token, 'finance.view'); return statements.suggestTransfers(filters || {}); });
   ipcMain.handle('statements:suggest-entries', async (_event, token, filters) => { auth.require(token, 'finance.view'); return statements.suggestEntries(filters || {}); });
-  ipcMain.handle('statements:decision', async (_event, token, input) => { const actor = auth.require(token, 'finance.manage'); return statements.recordDecision(input || {}, actor); });
+  ipcMain.handle('statements:decision', async (event, token, input) => { const actor = auth.require(token, 'finance.manage'); const result = await statements.recordDecision(input || {}, actor); return input?.registerSettlement ? broadcast(event, result) : result; });
 
   ipcMain.handle('workspace:list', (_event, token, relativePath) => { auth.require(token, 'finance.view'); return workspace.list(relativePath || ''); });
   ipcMain.handle('workspace:tree', (_event, token) => { auth.require(token, 'finance.view'); return workspace.tree(); });
