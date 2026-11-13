@@ -18,6 +18,7 @@ test('dashboard atual mostra caixa e banco no saldo consolidado e nao inclui mov
   assert.equal(snapshot.balanceAsOf,'2026-09-12');
   assert.equal(snapshot.cards.totalBalanceCents,25000);
   assert.equal(snapshot.cards.bankBalanceCents,20000);
+  assert.equal(snapshot.monthly[10].inCents,0,'novembro futuro não é fluxo realizado na data atual');
   assert.equal(snapshot.accountBalances.find(a=>a.id===cash.id).balanceCents,5000);
  }finally{h.cleanup();}
 });
