@@ -172,10 +172,11 @@ export default function RecurringPage({token,session}:Props){
         <td>{rule.generatedCount}{rule.maxOccurrences?` / ${rule.maxOccurrences}`:''}</td>
         <td><span className={`badge ${rule.lifecycleStatus==='ACTIVE'?'badge-settled':'badge-cancelled'}`}>{rule.lifecycleStatus==='ACTIVE'?'Ativa':rule.lifecycleStatus==='PAUSED'?'Pausada':'Concluída'}</span></td>
         <td>{forecast(rule).join(' · ')||'Sem próximas parcelas'}</td>
-        <td><div className="row-actions"><button type="button" className="secondary-button small" disabled={historyBusy} onClick={()=>void viewHistory(rule)}>Ver lançamentos</button>{editable&&
-          <button type="button" className="secondary-button small" onClick={()=>edit(rule)}><Pencil size={14}/> Editar</button>
-          {rule.lifecycleStatus!=='COMPLETED'&&<button type="button" className="secondary-button small" onClick={()=>void toggle(rule)}>{rule.active?<Pause size={14}/>:<Play size={14}/>} {rule.active?'Pausar':'Ativar'}</button>}
-        </div>}</td>
+        <td><div className="row-actions">
+          <button type="button" className="secondary-button small" disabled={historyBusy} onClick={()=>void viewHistory(rule)}>Ver lançamentos</button>
+          {editable&&<button type="button" className="secondary-button small" onClick={()=>edit(rule)}><Pencil size={14}/> Editar</button>}
+          {editable&&rule.lifecycleStatus!=='COMPLETED'&&<button type="button" className="secondary-button small" disabled={busy} onClick={()=>void toggle(rule)}>{rule.active?<Pause size={14}/>:<Play size={14}/>} {rule.active?'Pausar':'Ativar'}</button>}
+        </div></td>
       </tr>)}</tbody></table>
       {filtered.length===0&&<div className="empty-state">Nenhuma recorrência encontrada.</div>}
     </div>
