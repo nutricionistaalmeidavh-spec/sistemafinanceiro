@@ -7,7 +7,7 @@ test('open-format ODS exporter and importer round-trip Brazilian amounts without
   const {toOdsBuffer,parseStatementOds}=require('../electron/services/open-format-service.cjs');
   const file=await toOdsBuffer({
     headers:['Data','Descrição','Valor','Direção'],
-    rows:[['13/11/2026','Transferência fictícia',-120.35,'debit']]
+    rows:[['13/11/2026','Transferência & ação <fictícia>',-120.35,'debit']]
   });
   assert.equal(file.subarray(0,2).toString(),'PK');
   const rows=await parseStatementOds(file.toString('base64'));
