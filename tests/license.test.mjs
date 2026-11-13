@@ -134,3 +134,28 @@ test('licença desbloqueada por código curto vence no prazo mesmo após ativaç
     assert.throws(()=>service.requireActive(),/expirada/i);
   } finally { fs.rmSync(f.dir,{recursive:true,force:true}); }
 });
+
+
+test('rotação de chave aceita ativações antigas sem impedir licenças permanentes novas', () => {
+  const f=fixture();
+  try {
+    const newer=generateKeyPairSync('ed25519');
+    const service=createLicenseService({
+      dataDir:f.dir,publicKey:newer.publicKey,legacyPublicKeys:[f.publicKey],now:f.current
+    });
+    // A licença existente continua válida depois do upgrade e reinício.
+    assert.equal(service.activate(f.encode(f.payload)).active,true);
+    assert.equal(service.status().type,'TRIAL');
+    const permanent={...f.payload,licenseId:'PERPETUAL-0001',type:'PERPETUAL'};
+    delete permanent.expiresAt;
+    const newSigned=f.encode(permanent,newer.privateKey);
+    const switched=service.activate(newSigned);
+    assert.equal(switched.type,'PERPETUAL');
+    assert.equal(switched.expiresAt,undefined);
+    assert.equal(service.status().type,'PERPETUAL');
+    // Licença de terceiro permanece rejeitada mesmo com rotação.
+    const attacker=generateKeyPairSync('ed25519');
+    assert.throws(()=>service.activate(f.encode(permanent,attacker.privateKey)),/assinatura inválida/i);
+    assert.equal(service.status().type,'PERPETUAL');
+  }finally{fs.rmSync(f.dir,{recursive:true,force:true});}
+});
