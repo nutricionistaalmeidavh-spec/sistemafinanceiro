@@ -93,10 +93,12 @@ test('calendario de vencimentos e valores projetados usa ajustes sem floats acum
 
 
 test('filtro historico de status usa status naquela data, nao o estado atual',()=>{
-  const h=createHarness({now:()=> '2026-09-01T12:00:00.000Z'});
+  let current='2026-09-01T12:00:00.000Z';
+  const h=createHarness({now:()=>current});
   try{
     const account=h.finance.createAccount({name:'Banco',type:'BANK'});
     const bill=h.finance.createEntry({kind:'PAYABLE',description:'Fatura',amountCents:10000,dueAt:'2026-09-15'});
+    current='2026-09-12T12:00:00.000Z';
     h.finance.settleEntry(bill.id,{amountCents:10000,occurredAt:'2026-09-10',accountId:account.id});
     assert.equal(h.finance.getEntry(bill.id,{asOf:'2026-09-05'}).status,'OPEN');
     assert.equal(h.finance.listEntries({status:'OPEN',asOf:'2026-09-05'}).some(x=>x.id===bill.id),true);
