@@ -122,7 +122,7 @@ function createCrmService({db,finance,registry,now=()=>new Date().toISOString(),
   return task(lookup('crm_tasks',id));
  }
  function listTasks({opportunityId='',pending=false}={}){
-  const sql='SELECT * FROM crm_tasks WHERE (?="" OR opportunity_id=?) AND (?=0 OR done_at IS NULL) ORDER BY CASE WHEN due_at IS NULL THEN 1 ELSE 0 END,due_at,created_at';
+  const sql='SELECT * FROM crm_tasks WHERE (?='' OR opportunity_id=?) AND (?=0 OR done_at IS NULL) ORDER BY CASE WHEN due_at IS NULL THEN 1 ELSE 0 END,due_at,created_at';
   return db.prepare(sql).all(opportunityId,opportunityId,pending?1:0).map(task);
  }
  function convertLead(leadId,{customerId=null}={},actor=null){
@@ -236,12 +236,48 @@ function createCrmService({db,finance,registry,now=()=>new Date().toISOString(),
    return {alreadyConfirmed:false,entries};
   });
  }
+
+ function previewLeadImport(rows){
+  if(!Array.isArray(rows)||rows.length>5000)throw new Error('CSV limitado a 5.000 linhas por operação');
+  const seen=new Set();
+  const output=rows.map((original,index)=>{
+   const raw=original&&typeof original==='object'?original:{};
+   const item={
+    name:String(raw.name||'').trim(),email:String(raw.email||'').trim().toLowerCase(),
+    phone:String(raw.phone||'').trim(),document:String(raw.document||'').trim(),
+    source:String(raw.source||'CSV').trim()||'CSV',notes:String(raw.notes||'').trim()
+   };
+   const itemError=!item.name||item.name.length>240||item.email.length>240||item.document.length>40||
+    item.phone.length>45||item.notes.length>2000||item.source.length>64||
+    (item.email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(item.email));
+   if(itemError)return {index:index+1,...item,status:'INVALID',reason:'Campos obrigatórios ou formatos inválidos'};
+   const keys=[item.email?'e:'+item.email:'',item.document?'d:'+item.document:''].filter(Boolean);
+   if(!keys.length&&item.phone)keys.push('p:'+item.phone.replace(/\D/g,''));
+   const inFile=keys.some(k=>seen.has(k));
+   const inDb=!!db.prepare("SELECT 1 FROM crm_leads WHERE (?<>'' AND document=?) OR (?<>'' AND LOWER(email)=?) LIMIT 1")
+    .get(item.document,item.document,item.email,item.email);
+   keys.forEach(k=>seen.add(k));
+   return {index:index+1,...item,status:inFile||inDb?'DUPLICATE':'READY',reason:inFile?'Duplicado dentro do arquivo':inDb?'Lead já cadastrado':''};
+  });
+  return {rows:output,ready:output.filter(r=>r.status==='READY').length,duplicates:output.filter(r=>r.status==='DUPLICATE').length,invalid:output.filter(r=>r.status==='INVALID').length};
+ }
+ function commitLeadImport(rows,actor=null){
+  return tx(db,()=>{
+   const preview=previewLeadImport(rows);
+   for(const row of preview.rows.filter(r=>r.status==='READY')){
+    saveLead({name:row.name,email:row.email,phone:row.phone,document:row.document,source:row.source,notes:row.notes},actor);
+   }
+   audit('crm.leads.import','crm-lead',null,actor,{created:preview.ready,skipped:preview.invalid+preview.duplicates});
+   return {created:preview.ready,skipped:preview.invalid+preview.duplicates};
+  });
+ }
+
  function getMetrics(){
   const rows=db.prepare('SELECT stage,COUNT(*) count,COALESCE(SUM(amount_cents),0) total FROM crm_opportunities GROUP BY stage').all();
   const out={NEW:0,QUALIFIED:0,PROPOSAL:0,WON:0,LOST:0};
   for(const r of rows)out[r.stage]=r.total;
   return {stageTotalsCents:out,wonCount:Number(rows.find(r=>r.stage==='WON')?.count||0),leadCount:Number(db.prepare('SELECT COUNT(*) n FROM crm_leads').get().n),
-   overdueTasks:Number(db.prepare("SELECT COUNT(*) n FROM crm_tasks WHERE done_at IS NULL AND due_at<date('now','localtime')").get().n)};
+   overdueTasks:Number(db.prepare("SELECT COUNT(*) n FROM crm_tasks WHERE done_at IS NULL AND due_at<?").get(at().slice(0,10)).n)};
  }
  const escape=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
  function quoteHtml(quoteId){
@@ -252,7 +288,7 @@ function createCrmService({db,finance,registry,now=()=>new Date().toISOString(),
   const trs=q.items.map(i=>'<tr><td>'+escape(i.description)+'</td><td>'+i.quantity+'</td><td>'+money(i.unitPriceCents)+'</td><td>'+money(i.totalCents)+'</td></tr>').join('');
   return '<!doctype html><html lang="pt-BR"><meta charset="utf-8"><style>body{font-family:Arial,sans-serif;padding:36px;color:#222}h1{color:#4f46e5}table{width:100%;border-collapse:collapse;margin-top:28px}td,th{border-bottom:1px solid #ddd;padding:12px;text-align:left}.total{text-align:right;font-size:22px;font-weight:bold;margin-top:24px}small{color:#777}</style><h1>Proposta comercial</h1><p>ArtiSys Financeiro — Proposta v'+q.version+'</p><p><b>Cliente:</b> '+escape(customer?.name||lead?.name||'Não identificado')+'</p><p><b>Negócio:</b> '+escape(opp.title)+'</p><table><thead><tr><th>Descrição</th><th>Qtd.</th><th>Unitário</th><th>Total</th></tr></thead><tbody>'+trs+'</tbody></table><p class="total">'+money(q.totalCents)+'</p><p>'+escape(q.notes||'')+'</p><small>Documento comercial. Não representa pagamento ou recibo.</small></html>';
  }
- return {listLeads,saveLead,getLead,listOpportunities,getOpportunity,saveOpportunity,moveOpportunity,
+ return {listLeads,saveLead,previewLeadImport,commitLeadImport,getLead,listOpportunities,getOpportunity,saveOpportunity,moveOpportunity,
   addActivity,listActivities,saveTask,setTaskDone,listTasks,convertLead,createQuote,getQuote,listQuotes,
   setQuoteStatus,previewReceivables,confirmReceivables,listBillingLinks,getMetrics,quoteHtml};
 }
