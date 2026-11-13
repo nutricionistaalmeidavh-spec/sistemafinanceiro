@@ -1,0 +1,94 @@
+name: ArtiSys Financeiro 0.1.2 | publicar instaladores ja validados
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/finance-012-publish-verified.yml'
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: artisys-financeiro-012-verified-release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: contains(github.event.head_commit.message, '[publish-finance-012-verified]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Baixar instalador comercial validado no Windows
+        uses: actions/download-artifact@v4
+        with:
+          repository: ${{ github.repository }}
+          run-id: 43361916140
+          name: artisys-financeiro-windows-d00e5be6585d86295ec0198eabddcf6a3daf6f8e
+          path: verified/commercial
+          github-token: ${{ github.token }}
+      - name: Baixar instalador de avaliacao validado no Windows
+        uses: actions/download-artifact@v4
+        with:
+          repository: ${{ github.repository }}
+          run-id: 43361916200
+          name: artisys-financeiro-trial-d00e5be6585d86295ec0198eabddcf6a3daf6f8e
+          path: verified/trial
+          github-token: ${{ github.token }}
+      - name: Conferir artefatos reais e checksums antes de publicar
+        shell: bash
+        run: |
+          set -euo pipefail
+          commercial="$(find verified/commercial -type f -name 'ArtiSys-Financeiro-Setup-0.1.2.exe' -print -quit)"
+          trial="$(find verified/trial -type f -name 'ArtiSys-Financeiro-Avaliacao-Setup-0.1.2.exe' -print -quit)"
+          trialSum="$(find verified/trial -type f -name 'ArtiSys-Financeiro-Avaliacao-Setup-0.1.2.sha256' -print -quit)"
+          [[ -n "$commercial" && -f "$commercial" ]] || { echo 'Instalador comercial nao encontrado'; exit 1; }
+          [[ -n "$trial" && -f "$trial" ]] || { echo 'Instalador trial nao encontrado'; exit 1; }
+          [[ -n "$trialSum" && -f "$trialSum" ]] || { echo 'Checksum trial nao encontrado'; exit 1; }
+          [[ "$(wc -c < "$commercial")" -gt 50000000 ]] || exit 1
+          [[ "$(wc -c < "$trial")" -gt 50000000 ]] || exit 1
+          commercialHash="$(sha256sum "$commercial" | awk '{print $1}')"
+          [[ "$commercialHash" == 'e667d71616fff778c521088f5ec7030eaa3d7dd655f816aad10de0406d40d407' ]] || { echo 'Checksum comercial difere do Actions Windows validado'; exit 1; }
+          trialHash="$(sha256sum "$trial" | awk '{print $1}')"
+          trialExpected="$(tr -d '\r\n[:space:]' < "$trialSum" | tr '[:upper:]' '[:lower:]')"
+          [[ "$trialHash" == "$trialExpected" ]] || { echo 'Checksum trial nao confere'; exit 1; }
+          mkdir -p publish
+          cp "$commercial" publish/ArtiSys-Financeiro-Setup-0.1.2.exe
+          cp "$trial" publish/ArtiSys-Financeiro-Avaliacao-Setup-0.1.2.exe
+          printf '%s\n' "$commercialHash" > publish/ArtiSys-Financeiro-Setup-0.1.2.sha256
+          printf '%s\n' "$trialHash" > publish/ArtiSys-Financeiro-Avaliacao-Setup-0.1.2.sha256
+          echo "SHA256 comercial: $commercialHash"
+          echo "SHA256 avaliacao: $trialHash"
+      - name: Publicar duas releases sem sobrescrever versoes existentes
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          commercialTag='financeiro-v0.1.2'
+          trialTag='financeiro-avaliacao-v0.1.2-d00e5be'
+          if gh release view "$commercialTag" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo 'Release comercial ja publicada; proibido sobrescrever'
+            exit 1
+          fi
+          if gh release view "$trialTag" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo 'Prerelease ja publicada; proibido sobrescrever'
+            exit 1
+          fi
+          gh release create "$commercialTag" \
+            publish/ArtiSys-Financeiro-Setup-0.1.2.exe \
+            publish/ArtiSys-Financeiro-Setup-0.1.2.sha256 \
+            --repo "${{ github.repository }}" \
+            --target d00e5be6585d86295ec0198eabddcf6a3daf6f8e \
+            --title 'ArtiSys Financeiro v0.1.2' \
+            --notes 'P0-P3 canonicidade, conciliacao explicita, fechamento historico, desempenho e UX. Core SQLite local e open source. Instalador compilado e aprovado no Windows Actions 43361916140.' \
+            --latest
+          gh release create "$trialTag" \
+            publish/ArtiSys-Financeiro-Avaliacao-Setup-0.1.2.exe \
+            publish/ArtiSys-Financeiro-Avaliacao-Setup-0.1.2.sha256 \
+            --repo "${{ github.repository }}" \
+            --target d00e5be6585d86295ec0198eabddcf6a3daf6f8e \
+            --title 'ArtiSys Financeiro Avaliacao v0.1.2' \
+            --notes 'Instalador de avaliacao isolado. Exige codigo de licenca de teste valido. Compilado e aprovado no Windows Actions 43361916200. Nenhuma chave de ativacao foi modificada.' \
+            --prerelease --latest=false
