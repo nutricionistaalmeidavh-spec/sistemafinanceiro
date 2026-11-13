@@ -1,4 +1,4 @@
-﻿import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+﻿import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BarChart3, CheckCircle2, FileText, Layers3, Plus, RefreshCcw, Target } from 'lucide-react';
 import { brl, can, toCents } from '../lib/format';
 
@@ -25,10 +25,11 @@ export default function PlanningPage({token,session}:Props){
   const [attachmentForm,setAttachmentForm]=useState({workspacePath:'',filename:'',extractedText:''}); const [bulkForm,setBulkForm]=useState({action:'CATEGORY',value:''});
   const [projectionForm,setProjectionForm]=useState({months:'12',adjustmentMonth:`${year}-${String(month).padStart(2,'0')}`,adjustmentAmount:''});
 
+  const requestVersion=useRef(0);
   const handleError=(err:unknown)=>setError(err instanceof Error?err.message:String(err));
-  const reload=useCallback(async()=>{setLoading(true);try{const [nextCenters,nextTags,nextEntries,nextCategories,nextScenarios,nextBudgets,nextGoals,nextPolicies,nextApprovals,nextProjection,nextComparisons]=await Promise.all([
+  const reload=useCallback(async()=>{const version=++requestVersion.current;setLoading(true);try{const [nextCenters,nextTags,nextEntries,nextCategories,nextScenarios,nextBudgets,nextGoals,nextPolicies,nextApprovals,nextProjection,nextComparisons]=await Promise.all([
     planning.listCostCenters(token),planning.listTags(token),api.finance.listEntries(token),api.registry.listCategories(token,{includeInactive:false}),planning.listScenarios(token),planning.listBudgets(token,{year}),planning.listGoals(token),planning.listApprovalPolicies(token),planning.listApprovals(token),planning.projection(token,{months:12}),planning.compareBudget(token,{scenarioId:'base',year})
-  ]);setCenters(nextCenters);setTags(nextTags);setEntries(nextEntries);setCategories(nextCategories);setScenarios(nextScenarios);setBudgets(nextBudgets);setGoals(nextGoals);setPolicies(nextPolicies);setApprovals(nextApprovals);setProjection(nextProjection);setComparisons(nextComparisons);if(!selectedEntry&&nextEntries[0])setSelectedEntry(nextEntries[0].id);setError('');}catch(err){handleError(err);}finally{setLoading(false);}},[api,planning,token,year,selectedEntry]);
+  ]);if(version!==requestVersion.current)return;setCenters(nextCenters);setTags(nextTags);setEntries(nextEntries);setCategories(nextCategories);setScenarios(nextScenarios);setBudgets(nextBudgets);setGoals(nextGoals);setPolicies(nextPolicies);setApprovals(nextApprovals);setProjection(nextProjection);setComparisons(nextComparisons);setSelectedEntry((current)=>current || nextEntries[0]?.id || '');setError('');}catch(err){if(version===requestVersion.current)handleError(err);}finally{if(version===requestVersion.current)setLoading(false);}},[api,planning,token,year]);
   useEffect(()=>{void reload();},[reload]);
   useEffect(()=>api.finance.onDataChanged(()=>{void reload();}),[api,reload]);
   useEffect(()=>{if(!selectedEntry)return;Promise.all([planning.getAllocations(token,selectedEntry),planning.getEntryTags(token,selectedEntry),planning.listAttachments(token,selectedEntry)]).then(([allocationRows,tagRows,attachmentRows])=>{setSplits(allocationRows.length?allocationRows.map((row)=>({costCenterId:row.costCenterId,percentage:String(row.percentageBasisPoints/100)})):[{costCenterId:'',percentage:'100'}]);setSelectedTags(tagRows.map((row)=>row.id));setAttachments(attachmentRows);}).catch(handleError);},[planning,token,selectedEntry]);
