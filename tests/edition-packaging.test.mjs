@@ -26,6 +26,7 @@ test('um unico workflow de publicacao com gatilho explicito e protegido',()=>{
   assert.match(wf,/workflow_dispatch:/);
   assert.match(wf,/github\.event_name == 'workflow_dispatch'/);
   assert.match(wf,/latest\.yml/);
+  assert.doesNotMatch(wf,/\$v:/,'PowerShell interpreta $v: como drive e falha no parser');
 });
 test('QA nao abre bypass num aplicativo instalado',()=>{
   assert.match(fs.readFileSync('electron/main.cjs','utf8'),/ARTISYS_QA === '1' && !app\.isPackaged/);
