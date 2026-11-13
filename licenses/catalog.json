@@ -1,5 +1,16 @@
 {
   "version": 1,
   "product": "artisys-financeiro",
-  "entries": {}
+  "entries": {
+    "82662e64f33df8257054c6eb9593e0583b2efe39ad58a4d5d6dc3215adc1f6f0": {
+      "version": 1,
+      "kdf": "scrypt",
+      "cipher": "aes-256-gcm",
+      "product": "artisys-financeiro",
+      "salt": "DOnYStwruZxPCleQWf-TMKClTKf8YYaY",
+      "iv": "ZgwvVxUtPxq0al9n",
+      "tag": "Qj7UU7oiO85O5CIXGJvM6w",
+      "ciphertext": "4nZtooSV838t8i-guSAQxufv7TE7SmWmNwWvUj8e7tG2j6uzbqNzBemnggBS4-7yO-wrWNiNNARajEBkdJqAXMfBxFJLCQslfD4T76tDCgo_PHUuWplAll-LnH2u14DLT-FS8sKDqJgscaxDv2CjtYyfTq_M5V_7_NuldCnXa4YqNjvkRAShL5Y5xc5kFrg60OmqrZVb8V_WKhHN2UqPVq7iUCZbb2Cq8ogQfbpQHoGJ_wsuyVS1_Z9_r2G6nYGGCMFInqlm5vIzSnoXHi5PKrH8G_6H9zHrd61kekdDUDVkExlesVCgrkb9i3tzsba-AXuG2FDwOwCRx3zUqUPEPgk2B9_CWAQXWvNaATxLkTMv8jXgePkBF2-fXmiphUmC0W2KQ74Lp7ieLv51ME7cmMhZ94p3SdowTgHpitupa4CIaTQ7uSsbb9a65GwRqPLLg83TVuvXLBsUntHVJwWdqYyncRqosRw5mD3NeoI81rC4BwSf9GXDl_OZPpk_5OnSlRyThgD28m4"
+    }
+  }
 }

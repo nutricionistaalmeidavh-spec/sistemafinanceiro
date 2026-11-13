@@ -71,7 +71,11 @@ app.whenReady().then(async () => {
   // Apenas o Electron de desenvolvimento com fixture isolada pode dispensar a ativação.
   const license = qaMode
     ? { status:() => ({active:true,mode:'licensed',reason:'qa-fixture',type:'PERPETUAL'}), requireActive:() => true, activateFromCatalog:async () => {throw new Error('QA only');} }
-    : createLicenseService({dataDir:app.getPath('userData'),publicKey:fs.readFileSync(path.join(__dirname,'services','license-public.pem'),'utf8')});
+    : createLicenseService({
+        dataDir:app.getPath('userData'),
+        publicKey:fs.readFileSync(path.join(__dirname,'services','license-public.pem'),'utf8'),
+        legacyPublicKeys:[fs.readFileSync(path.join(__dirname,'services','license-legacy-public.pem'),'utf8')]
+      });
   if (qaMode) seedQaFixture({ db, auth });
   const finance = createFinanceService({ db });
   const registry = createRegistryService({ db });

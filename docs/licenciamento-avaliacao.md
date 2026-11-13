@@ -29,6 +29,12 @@ A primeira ativação requer internet para consultar o catálogo HTTPS público 
 
 Não copie a chave privada ao GitHub, ao instalador nem ao catálogo. Se a chave privada correspondente à chave pública existente tiver sido perdida, planeje a rotação da chave pública antes de emitir licenças novas.
 
+## Rotação de chave de emissão (v0.1.5)
+
+Uma chave privada antiga não recuperada foi substituída por um novo par Ed25519. O app confia na **chave pública primária nova** para códigos emitidos daqui em diante e na **chave pública anterior** apenas para preservar licenças já instaladas e assinadas. A versão v0.1.4 e anteriores não conseguem ativar códigos emitidos com a chave nova; precisam atualizar primeiro para v0.1.5. A validade original das licenças anteriores não é alterada.
+
+A chave privada nova é material confidencial **externo ao GitHub**; deve ser guardada com backup seguro pelo titular. Nunca publique a chave privada no repositório, no catálogo nem em Actions/artifacts públicos. As atualizações de catálogo mantêm apenas dados cifrados por código.
+
 ## Atualização
 
 O aplicativo instalado consulta `latest.yml` das GitHub Releases estáveis ao iniciar. Havendo uma versão superior, mostra **Baixar atualização** e **Agora não**. O usuário pode baixar, validar o pacote pelo SHA-512 e escolher **Instalar e reiniciar**. Nenhuma instalação silenciosa é feita. O núcleo não usa serviços pagos ou SaaS.
