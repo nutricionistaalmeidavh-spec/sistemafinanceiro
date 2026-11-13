@@ -55,11 +55,12 @@ function createAnalyticsService({ db, finance, cashflow, now = () => new Date().
     return { basis, from: start, to: end, groups: items, totals };
   }
 
-  function getIndicators({ from = null, to = null, asOf = nowIso().slice(0, 10) } = {}) {
+  function getIndicators({ from = null, to = null, asOf = localDay(nowIso()) } = {}) {
     const summary = finance.getSummary({ from, to, asOf });
+    const effectiveTo = to && String(to) < String(asOf) ? String(to) : String(asOf);
     const clauses = ['fs.reversed_at IS NULL', "fe.status<>'CANCELLED'"]; const params = [];
     if (from) { clauses.push('fs.occurred_at>=?'); params.push(String(from)); }
-    if (to) { clauses.push('fs.occurred_at<=?'); params.push(String(to)); }
+    if (effectiveTo) { clauses.push('fs.occurred_at<=?'); params.push(effectiveTo); }
     const realized = db.prepare(`SELECT fe.kind,SUM(fs.amount_cents) total FROM financial_settlements fs JOIN financial_entries fe ON fe.id=fs.entry_id WHERE ${clauses.join(' AND ')} GROUP BY fe.kind`).all(...params);
     let receivedCents = 0; let paidCents = 0;
     for (const row of realized) row.kind === 'RECEIVABLE' ? receivedCents += Number(row.total || 0) : paidCents += Number(row.total || 0);
@@ -77,7 +78,7 @@ function createAnalyticsService({ db, finance, cashflow, now = () => new Date().
     const accountBalances = cashflow.getAccountBalances({ asOf });
     const buckets = Array.from({ length: 12 }, (_, index) => ({ month: `${year}-${String(index + 1).padStart(2, '0')}`, inCents: 0, outCents: 0, netCents: 0 }));
     const byMonth = new Map(buckets.map((item) => [item.month, item]));
-    for (const movement of cashflow.listMovements(range)) {
+    for (const movement of cashflow.listMovements({ from:range.from, to:asOf })) {
       const bucket = byMonth.get(monthKey(movement.occurredAt)); if (!bucket) continue;
       movement.direction === 'IN' ? bucket.inCents += movement.amountCents : bucket.outCents += movement.amountCents;
       bucket.netCents = bucket.inCents - bucket.outCents;
@@ -85,8 +86,8 @@ function createAnalyticsService({ db, finance, cashflow, now = () => new Date().
     const topExpenses = db.prepare(`SELECT fe.description,SUM(fs.amount_cents) amount_cents
       FROM financial_settlements fs JOIN financial_entries fe ON fe.id=fs.entry_id
       WHERE fs.reversed_at IS NULL AND fe.status<>'CANCELLED' AND fe.kind='PAYABLE' AND fs.occurred_at>=? AND fs.occurred_at<=?
-      GROUP BY fe.description ORDER BY amount_cents DESC,fe.description LIMIT 5`).all(range.from, range.to).map((row) => ({ description: row.description, amountCents: Number(row.amount_cents || 0) }));
-    return { year: Number(year), range, asOf, cards: indicators, accountBalances, monthly: buckets, topExpenses, dre: getDre({ ...range, basis: 'realized' }) };
+      GROUP BY fe.description ORDER BY amount_cents DESC,fe.description LIMIT 5`).all(range.from, asOf).map((row) => ({ description: row.description, amountCents: Number(row.amount_cents || 0) }));
+    return { year: Number(year), range, asOf, cards: indicators, accountBalances, monthly: buckets, topExpenses, dre: getDre({ from:range.from, to:asOf, basis: 'realized' }) };
   }
 
   return { getDre, getIndicators, getDashboardSnapshot };
