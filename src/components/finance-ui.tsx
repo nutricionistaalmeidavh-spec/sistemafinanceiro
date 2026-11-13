@@ -1,4 +1,4 @@
-import { type ButtonHTMLAttributes, type ReactNode } from 'react';
+import { type ButtonHTMLAttributes, type ReactNode, useEffect, useRef } from 'react';
 import { Search, X } from 'lucide-react';
 
 const cx = (...classes: Array<string | false | null | undefined>) => classes.filter(Boolean).join(' ');
@@ -95,10 +95,31 @@ export function FinanceDrawer({
   children: ReactNode;
   testId?: string;
 }) {
+  const dialogRef=useRef<HTMLElement|null>(null);
+  useEffect(()=>{
+    if(!open)return;
+    const dialog=dialogRef.current;
+    if(!dialog)return;
+    const previous=document.activeElement instanceof HTMLElement?document.activeElement:null;
+    const selector='input:not([disabled]),select:not([disabled]),textarea:not([disabled]),button:not([disabled]),[tabindex]:not([tabindex="-1"])';
+    const focusables=()=>Array.from(dialog.querySelectorAll<HTMLElement>(selector));
+    (dialog.querySelector<HTMLElement>('[autofocus]')||focusables()[0])?.focus();
+    function onKey(event:KeyboardEvent){
+      if(event.key==='Escape'){event.preventDefault();onClose();return;}
+      if(event.key!=='Tab')return;
+      const nodes=focusables();
+      if(!nodes.length)return;
+      const first=nodes[0],last=nodes[nodes.length-1];
+      if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus();}
+      else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus();}
+    }
+    dialog.addEventListener('keydown',onKey);
+    return ()=>{dialog.removeEventListener('keydown',onKey);previous?.focus();};
+  },[open,onClose]);
   if (!open) return null;
   return <div className="finance-drawer-layer" data-testid={testId}>
     <button className="finance-drawer-backdrop" type="button" aria-label="Fechar painel" onClick={onClose}/>
-    <aside className="finance-drawer" role="dialog" aria-modal="true" aria-label={title}>
+    <aside ref={dialogRef} className="finance-drawer" role="dialog" aria-modal="true" aria-label={title}>
       <header className="finance-drawer-header">
         <div><p className="eyebrow">Ação</p><h3>{title}</h3>{description ? <p className="muted">{description}</p> : null}</div>
         <button className="finance-icon-button" type="button" aria-label="Fechar" onClick={onClose}><X size={18}/></button>
