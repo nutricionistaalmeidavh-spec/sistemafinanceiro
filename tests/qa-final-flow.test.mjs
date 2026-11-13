@@ -67,4 +67,5 @@ test('capturador falha caso alguma tela não seja registrada e preserva screensh
   assert.match(source, /FINAL_SCREENSHOTS_OK/);
   assert.match(source, /failure\.png/);
   assert.match(source, /run-summary\.json/);
+  assert.match(source, /electron\/install\.js/, 'Electron deve ser reinstalado quando o binário estiver ausente');
 });
