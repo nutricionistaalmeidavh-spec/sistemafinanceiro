@@ -2,16 +2,16 @@ import {FormEvent,useState} from 'react';
 import {CheckCircle2,ChevronRight,WalletCards} from 'lucide-react';
 import {brl,toCents,today} from '../lib/format';
 
-type Props={token:string;userId:string;onDone:()=>void;onSkip:()=>void};
+type Props={token:string;userId:string;existingAccountId?:string;onDone:()=>void;onSkip:()=>void};
 type Step='account'|'opening'|'entry'|'complete';
 export const guideKey=(userId:string)=>`artisys-financeiro-guide-v1:${userId}`;
-export default function FirstUseGuide({token,userId,onDone,onSkip}:Props){
+export default function FirstUseGuide({token,userId,existingAccountId,onDone,onSkip}:Props){
   const api=window.financeiro!;
-  const [step,setStep]=useState<Step>('account');
+  const [step,setStep]=useState<Step>(existingAccountId?'entry':'account');
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState('');
   const [result,setResult]=useState('');
-  const [accountId,setAccountId]=useState('');
+  const [accountId,setAccountId]=useState(existingAccountId||'');
   const [account,setAccount]=useState({name:'',type:'BANK' as FinanceAccount['type']});
   const [balance,setBalance]=useState('');
   const [entry,setEntry]=useState({description:'',amount:'',dueAt:today(),kind:'PAYABLE' as FinanceiroKind});
