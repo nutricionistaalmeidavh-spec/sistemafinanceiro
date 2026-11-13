@@ -15,6 +15,7 @@ declare global {
   interface CrmImportPreview {rows:Array<CrmImportRow&{index:number;status:'INVALID'|'DUPLICATE'|'READY';reason:string}>;ready:number;duplicates:number;invalid:number}
   interface CrmLead {id:string;name:string;document:string|null;phone:string|null;email:string|null;source:string;status:'NEW'|'QUALIFIED'|'CONVERTED'|'DISCARDED';customerId:string|null;notes:string|null;ownerId:string|null;createdAt:string;updatedAt:string}
   interface CrmOpportunity {id:string;leadId:string|null;customerId:string|null;title:string;amountCents:number;stage:CrmStage;ownerId:string|null;lossReason:string|null;closedAt:string|null;createdAt:string;updatedAt:string}
+  interface CrmStageHistory {id:string;opportunityId:string;fromStage:CrmStage|null;toStage:CrmStage;actorId:string|null;changedAt:string}
   interface CrmActivity {id:string;opportunityId:string;kind:'CALL'|'EMAIL'|'WHATSAPP'|'MEETING'|'NOTE';note:string;occurredAt:string;createdAt:string}
   interface CrmTask {id:string;opportunityId:string;title:string;dueAt:string|null;doneAt:string|null;done:boolean;createdAt:string;updatedAt:string}
   interface CrmQuoteItem {id:string;description:string;quantity:number;unitPriceCents:number;totalCents:number;position:number}
@@ -93,6 +94,7 @@ declare global {
         listOpportunities(token:string,filters?:{query?:string;stage?:CrmStage}):Promise<CrmOpportunity[]>;
         saveOpportunity(token:string,input:{id?:string;leadId?:string;customerId?:string;title:string;amountCents:number}):Promise<CrmOpportunity>;
         moveOpportunity(token:string,id:string,stage:CrmStage,options?:{lossReason?:string}):Promise<CrmOpportunity>;
+        listStageHistory(token:string,opportunityId:string):Promise<CrmStageHistory[]>;
         listActivities(token:string,opportunityId:string):Promise<CrmActivity[]>;
         addActivity(token:string,input:{opportunityId:string;kind:CrmActivity['kind'];note:string}):Promise<CrmActivity>;
         listTasks(token:string,filters?:{opportunityId?:string;pending?:boolean}):Promise<CrmTask[]>;
