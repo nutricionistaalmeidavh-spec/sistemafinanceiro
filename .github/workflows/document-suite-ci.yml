@@ -54,3 +54,34 @@ jobs:
             } finally {await worker.terminate();}
           })().catch(error => {console.error(error);process.exitCode=1});
           NODE
+
+      - name: Rasterize fictional scanned PDF and OCR entirely offline
+        run: |
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const os = require('node:os');
+          const path = require('node:path');
+          const { createCanvas } = require('@napi-rs/canvas');
+          const { PDFDocument } = require('pdf-lib');
+          const { recognizeLocal } = require('./electron/services/attachment-ocr-service.cjs');
+          (async () => {
+            const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'artisys-scanned-ocr-'));
+            try {
+              const canvas = createCanvas(1000, 220);
+              const ctx = canvas.getContext('2d');
+              ctx.fillStyle='white';ctx.fillRect(0,0,1000,220);
+              ctx.fillStyle='black';ctx.font='54px Arial';ctx.fillText('RECIBO TESTE 123,45',25,120);
+              const pdf = await PDFDocument.create();
+              const page = pdf.addPage([500,130]);
+              const png = await pdf.embedPng(canvas.toBuffer('image/png'));
+              page.drawImage(png,{x:0,y:0,width:500,height:130});
+              const filename=path.join(directory,'teste-ocr.pdf');
+              fs.writeFileSync(filename,await pdf.save());
+              const result=await recognizeLocal(filename,'por');
+              if (!result?.text?.trim()) throw new Error('Scanned PDF OCR returned empty text');
+              console.log('[scanned PDF OCR]',result.text.trim());
+            } finally {
+              fs.rmSync(directory,{recursive:true,force:true});
+            }
+          })().catch(error=>{ console.error(error); process.exitCode=1; });
+          NODE
