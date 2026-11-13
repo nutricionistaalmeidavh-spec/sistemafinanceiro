@@ -29,6 +29,7 @@ function createLanService({
   codeFactory = () => String(randomInt(0, 1_000_000)).padStart(6, '0'),
   pairingTtlMs = 5 * 60 * 1000,
   sessionTtlMs = 12 * 60 * 60 * 1000,
+  authorize = () => {},
 } = {}) {
   if (!db || !finance || !cashflow || !analytics || !alerts) throw new TypeError('db, finance, cashflow, analytics and alerts are required');
   const nowIso = () => String(now());
@@ -135,6 +136,7 @@ function createLanService({
   }
 
   async function route(req, res) {
+    try { authorize(); } catch (error) { return json(res, 403, { error: error.message || 'Licença necessária' }); }
     const config = settings();
     if (!config.enabled) return json(res, 503, { error: 'LAN access disabled' });
     const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
