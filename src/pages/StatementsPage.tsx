@@ -12,7 +12,7 @@ type StatementTransaction = {
 type Preview = { sourceType:SourceType; documentId:string; transactions:StatementTransaction[]; duplicates:StatementTransaction[]; summary:{parsed:number;accepted:number;duplicates:number;classified:number;needsReview:number} };
 type StoredTransaction = { id:string; account_id:string; account_name:string; occurred_at:string; description:string; amount_cents:number; direction:'credit'|'debit'; category_label?:string|null; review_status:string; has_registered_payment?:number; rule_reason?:string|null };
 type EntrySuggestion = { transactionId:string; allocations:Array<{obligationId:string;amountCents:number}>; confidence:number; kind:string; reason:string };
-type StatementInput = { sourceType:SourceType; accountId:string; documentId:string; filename?:string; content?:string; dataBase64?:string; rows?:Array<Record<string,unknown>>; columnMapping?:Record<string,string> };
+type StatementInput = { sourceType:SourceType; accountId:string; documentId:string; filename?:string; content?:string; dataBase64?:string; rows?:Array<Record<string,unknown>>; columnMapping?:Record<string,string>; qifDateOrder?:'AUTO'|'DMY'|'MDY' };
 type StatementApi = {
   preview(token:string,input:StatementInput):Promise<Preview>;
   inspectXlsx(token:string,dataBase64:string):Promise<{headers:string[];rowCount:number;previewRows:string[][]}>;
@@ -49,6 +49,7 @@ export default function StatementsPage({ token, session, onOpenFinance }: Props)
   const [file,setFile] = useState<File|null>(null);
   const [xlsxInfo,setXlsxInfo] = useState<{headers:string[];rowCount:number;previewRows:string[][]}|null>(null);
   const [columnMapping,setColumnMapping] = useState<Record<string,string>>({});
+  const [qifDateOrder,setQifDateOrder] = useState<'AUTO'|'DMY'|'MDY'>('AUTO');
   const [manual,setManual] = useState({date:today(),description:'',amount:'',direction:'debit' as 'debit'|'credit'});
   const [preview,setPreview] = useState<Preview|null>(null);
   const [pendingInput,setPendingInput] = useState<StatementInput|null>(null);
@@ -71,7 +72,7 @@ export default function StatementsPage({ token, session, onOpenFinance }: Props)
     if(!file) throw new Error('Selecione um arquivo para analisar.');
     const base = {sourceType,accountId,documentId:`${file.name}:${file.size}:${file.lastModified}`,filename:file.name};
     if(sourceType==='PDF'||sourceType==='XLSX'||sourceType==='ODS') { if(file.size>12*1024*1024)throw new Error('Arquivo maior que 12 MB.'); return {...base,dataBase64:await fileToBase64(file),...(['XLSX','ODS'].includes(sourceType)?{columnMapping}:{})}; }
-    return {...base,content:await file.text()};
+    return {...base,content:await file.text(),...(sourceType==='QIF'?{qifDateOrder}:{})};
   }
   async function runPreview(event?:FormEvent){
     event?.preventDefault(); setBusy(true); setError(''); setNotice('');
@@ -154,6 +155,7 @@ export default function StatementsPage({ token, session, onOpenFinance }: Props)
         </label>)}</div>
         <small className="muted">{xlsxInfo.rowCount} linhas detectadas. Amostra: {xlsxInfo.previewRows[0]?.join(' | ')||'Sem amostra'}</small>
       </div>}
+      {sourceType==='QIF'&&<label><span>Formato de data QIF</span><select value={qifDateOrder} onChange={event=>{setQifDateOrder(event.target.value as typeof qifDateOrder);setPreview(null);setPendingInput(null);}}><option value="AUTO">Automático (padrão QIF EUA em datas ambíguas)</option><option value="DMY">Brasil — Dia/Mês/Ano</option><option value="MDY">EUA — Mês/Dia/Ano</option></select></label>}
       {sourceType==='MANUAL'&&<><label><span>Data</span><input type="date" value={manual.date} onChange={(e)=>setManual({...manual,date:e.target.value})} required/></label><label><span>Descrição</span><input value={manual.description} onChange={(e)=>setManual({...manual,description:e.target.value})} required/></label><label><span>Valor</span><input inputMode="decimal" placeholder="0,00" value={manual.amount} onChange={(e)=>setManual({...manual,amount:e.target.value})} required/></label><label><span>Tipo</span><select value={manual.direction} onChange={(e)=>setManual({...manual,direction:e.target.value as 'debit'|'credit'})}><option value="debit">Saída</option><option value="credit">Entrada</option></select></label></>}
       {file&&<p className="wide muted"><FileUp size={15}/> {file.name} — {(file.size/1024).toFixed(1)} KB</p>}
       <button className="primary-button" type="submit" disabled={busy}><UploadCloud size={16}/>{busy?'Analisando…':'Gerar prévia'}</button>
