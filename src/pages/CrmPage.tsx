@@ -1,6 +1,7 @@
-import {useCallback,useEffect,useMemo,useState,type FormEvent,type DragEvent} from 'react';
+import {useCallback,useEffect,useMemo,useState,type FormEvent,type DragEvent,type ChangeEvent} from 'react';
 import {ArrowRight,Check,Clock,FileDown,Handshake,Plus,Search,Users} from 'lucide-react';
 import {brl,toCents,today,can} from '../lib/format';
+import Papa from 'papaparse';
 
 type Props={token:string;session:FinanceiroSession};
 type Tab='pipeline'|'leads'|'tasks'|'quotes';
@@ -32,6 +33,8 @@ export default function CrmPage({token,session}:Props){
  const [preview,setPreview]=useState<CrmBillingPreview|null>(null);
  const [query,setQuery]=useState('');
  const [leadForm,setLeadForm]=useState(emptyLead);
+ const [importRows,setImportRows]=useState<CrmImportRow[]>([]);
+ const [importPreview,setImportPreview]=useState<CrmImportPreview|null>(null);
  const [dealForm,setDealForm]=useState({party:'',title:'',amount:'0'});
  const [note,setNote]=useState('');
  const [activityKind,setActivityKind]=useState<CrmActivity['kind']>('NOTE');
@@ -69,6 +72,33 @@ export default function CrmPage({token,session}:Props){
   try{await fn();await load();if(selectedId)await loadDetail(selectedId);setMessage(success);}
   catch(e){setError(errorMessage(e));}finally{setBusy(false);}
  }
+
+ async function loadCsv(e:ChangeEvent<HTMLInputElement>){
+  const file=e.target.files?.[0];setError('');setMessage('');setImportPreview(null);setImportRows([]);
+  if(!file)return;
+  if(file.size>2*1024*1024){setError('O arquivo CSV deve ter até 2 MB.');return;}
+  try{
+   const text=await file.text();
+   const parsed=Papa.parse(text,{header:true,skipEmptyLines:true,transformHeader:(h)=>h.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[\s_-]/g,'')});
+   if(parsed.errors.length)throw new Error('CSV inválido: '+parsed.errors[0].message);
+   const rows=parsed.data.map(r=>({
+    name:r.nome||r.name||'',email:r.email||r.correio||'',
+    phone:r.telefone||r.celular||r.phone||'',
+    document:r.cpfcnpj||r.documento||r.document||'',
+    source:r.origem||r.source||'CSV',notes:r.observacoes||r.notes||''
+   }));
+   const preview=await api.crm.previewLeadImport(token,rows);
+   setImportRows(rows);setImportPreview(preview);
+  }catch(e){setError(errorMessage(e));}
+ }
+ async function importCsv(){
+  if(!importPreview?.ready)return;
+  await run(async()=>{
+   await api.crm.commitLeadImport(token,importRows);
+   setImportRows([]);setImportPreview(null);
+  },'Importação concluída; apenas leads válidos e inéditos foram cadastrados.');
+ }
+
  async function addLead(e:FormEvent){
   e.preventDefault();
   await run(async()=>{await api.crm.saveLead(token,leadForm);setLeadForm(emptyLead);},'Lead cadastrado.');
@@ -155,6 +185,17 @@ export default function CrmPage({token,session}:Props){
    </div>
    <label className="search-control"><Search size={16}/><input aria-label="Buscar oportunidades" value={query} onChange={e=>setQuery(e.target.value)} placeholder="Buscar oportunidades"/></label>
   </div>
+  {tab==='leads'&&<div className="panel crm-import">
+   <div><h3>Importar leads por CSV</h3><p className="muted">Colunas aceitas: nome, email, telefone, cpfcnpj, origem e observacoes. Prévia antes de qualquer cadastro.</p></div>
+   <input type="file" accept=".csv,text/csv" aria-label="Arquivo CSV de leads" onChange={e=>void loadCsv(e)}/>
+   {importPreview&&<div className="crm-import-preview">
+    <span>Prontos: <strong>{importPreview.ready}</strong></span>
+    <span>Duplicados: <strong>{importPreview.duplicates}</strong></span>
+    <span>Inválidos: <strong>{importPreview.invalid}</strong></span>
+    {importPreview.rows.filter(r=>r.status!=='READY').slice(0,5).map(r=><small key={r.index}>Linha {r.index}: {r.reason}</small>)}
+    {editable&&<button type="button" className="primary-button" disabled={busy||importPreview.ready===0} onClick={()=>void importCsv()}>Confirmar importação de {importPreview.ready} lead(s)</button>}
+   </div>}
+  </div>}
   {tab==='leads'&&<div className="crm-split">
    {editable&&<form className="panel crm-form" onSubmit={e=>void addLead(e)}><h3><Users size={18}/> Novo lead</h3>
     <label>Nome<input required maxLength={240} value={leadForm.name} onChange={e=>setLeadForm({...leadForm,name:e.target.value})}/></label>
