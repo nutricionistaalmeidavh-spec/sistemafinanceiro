@@ -2,6 +2,7 @@ import { type ReactNode, useEffect, useState } from 'react';
 import { ArrowLeftRight, BarChart3, BellRing, Database, FileInput, FileText, Folder, LogOut, Menu, ReceiptText, Repeat2, Settings, Users, WalletCards } from 'lucide-react';
 import AuthScreen from './components/AuthScreen';
 import LicenseScreen from './components/LicenseScreen';
+import FirstUseGuide from './components/FirstUseGuide';
 import AlertsPage from './pages/AlertsPage';
 import CashflowPage from './pages/CashflowPage';
 import DashboardPage from './pages/DashboardPage';
@@ -38,6 +39,10 @@ export default function App() {
   const [financeIntent,setFinanceIntent]=useState<FinanceiroKind|null>(null);
   const [approvalEntryIntent,setApprovalEntryIntent]=useState<string|null>(null);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [showFirstUse,setShowFirstUse] = useState(false);
+  const [firstUseContext,setFirstUseContext] = useState({existingAccountId:'',hasOpening:false});
+  const [firstUseError,setFirstUseError] = useState('');
+  const [dashboardVersion,setDashboardVersion] = useState(0);
 
   useEffect(() => {
     if (!api) return;
@@ -52,6 +57,23 @@ export default function App() {
   if (restoring) return <main className="auth-shell"><div className="auth-card"><h1>Sistema Financeiro</h1><p className="muted">Restaurando sessão local…</p></div></main>;
   if (!session || !token) return <AuthScreen onAuthenticated={(nextToken, nextSession) => { setToken(nextToken); setSession(nextSession); }}/>
 
+  async function openFirstUse() {
+    if(!api || !session || !token || !can(session,'finance.manage'))return;
+    setFirstUseError('');
+    try {
+      const [accounts,entries] = await Promise.all([api.finance.listAccounts(token),api.finance.listEntries(token)]);
+      if(entries.length) { setPage('finance');return; }
+      const existingAccountId=accounts[0]?.id || '';
+      const hasOpening=Boolean(existingAccountId && (await api.cashflow.listMovements(token,{accountId:existingAccountId}))
+        .some(item=>item.type==='OPENING'));
+      setFirstUseContext({existingAccountId,hasOpening});
+      setShowFirstUse(true);
+    } catch(error) {setFirstUseError(error instanceof Error?error.message:String(error));}
+  }
+  function closeFirstUse(){
+    setShowFirstUse(false);
+    setDashboardVersion(v=>v+1);
+  }
   const showUsers = can(session, 'users.view');
   const showSystem = can(session, 'system.manage');
   async function logout() { await window.financeiro!.auth.logout(token); sessionStorage.removeItem('financeiro-token'); setToken(''); setSession(null); }
@@ -77,7 +99,9 @@ export default function App() {
       <div className="sidebar-footer"><div><strong>{session.user.name}</strong><small>{session.user.role}</small></div><button type="button" title="Sair" aria-label="Sair" data-testid="logout" onClick={()=>void logout()}><LogOut size={17}/></button></div>
     </aside>
     <main className="content">
-      {page==='dashboard' && <DashboardPage token={token} onOpenFinance={(kind)=>{setFinanceIntent(kind);setPage('finance');}} onOpenCashflow={()=>setPage('cashflow')}/>} {page==='alerts' && <AlertsPage token={token} session={session}/>} {page==='cashflow' && <CashflowPage token={token} session={session}/>} {page==='finance' && <FinancePage token={token} session={session} intent={financeIntent} onIntentHandled={()=>setFinanceIntent(null)} onOpenPlanning={(entryId)=>{setApprovalEntryIntent(entryId);setPage('planning');}}/>} {page==='statements' && <StatementsPage token={token} session={session} onOpenFinance={()=>setPage('finance')}/>} {page==='dre' && <DrePage token={token}/>} {page==='planning' && <PlanningPage token={token} session={session} focusApprovalEntryId={approvalEntryIntent} onApprovalFocusHandled={()=>setApprovalEntryIntent(null)}/>} {page==='reports' && <ReportsPage token={token}/>} {page==='recurring' && <RecurringPage token={token} session={session}/>} {page==='workspace' && <WorkspacePage token={token} session={session}/>} {page==='registry' && <RegistryPage token={token} session={session}/>} {page==='users' && showUsers && <UsersPage token={token} session={session}/>} {page==='system' && showSystem && <SystemPage token={token}/>} 
+      {firstUseError&&<div role="alert" className="error-box">Não foi possível abrir o guia: {firstUseError} <button type="button" onClick={()=>void openFirstUse()}>Tentar novamente</button></div>}
+      {page==='dashboard' && <DashboardPage key={dashboardVersion} token={token} onOpenGuide={()=>void openFirstUse()} onOpenFinance={(kind)=>{setFinanceIntent(kind);setPage('finance');}} onOpenCashflow={()=>setPage('cashflow')}/>} {page==='alerts' && <AlertsPage token={token} session={session}/>} {page==='cashflow' && <CashflowPage token={token} session={session}/>} {page==='finance' && <FinancePage token={token} session={session} intent={financeIntent} onIntentHandled={()=>setFinanceIntent(null)} onOpenPlanning={(entryId)=>{setApprovalEntryIntent(entryId);setPage('planning');}}/>} {page==='statements' && <StatementsPage token={token} session={session} onOpenFinance={()=>setPage('finance')}/>} {page==='dre' && <DrePage token={token}/>} {page==='planning' && <PlanningPage token={token} session={session} focusApprovalEntryId={approvalEntryIntent} onApprovalFocusHandled={()=>setApprovalEntryIntent(null)}/>} {page==='reports' && <ReportsPage token={token}/>} {page==='recurring' && <RecurringPage token={token} session={session}/>} {page==='workspace' && <WorkspacePage token={token} session={session}/>} {page==='registry' && <RegistryPage token={token} session={session}/>} {page==='users' && showUsers && <UsersPage token={token} session={session}/>} {page==='system' && showSystem && <SystemPage token={token}/>} 
     </main>
+    {showFirstUse&&<FirstUseGuide token={token} userId={session.user.id} existingAccountId={firstUseContext.existingAccountId} hasOpening={firstUseContext.hasOpening} onDone={closeFirstUse} onSkip={closeFirstUse}/>}
   </div>;
 }
