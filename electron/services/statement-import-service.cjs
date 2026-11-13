@@ -162,7 +162,13 @@ function createStatementImportService({ db=null, finance=null, now=()=>new Date(
     if(filters.from){where.push('t.occurred_at>=?');args.push(filters.from);}
     if(filters.to){where.push('t.occurred_at<=?');args.push(filters.to);}
     if(filters.reviewStatus){where.push('t.review_status=?');args.push(filters.reviewStatus);}
-    return db.prepare(`SELECT t.*,a.name AS account_name FROM bank_transactions t JOIN financial_accounts a ON a.id=t.account_id ${where.length?'WHERE '+where.join(' AND '):''} ORDER BY t.occurred_at DESC,t.created_at DESC`).all(...args);
+    return db.prepare(`SELECT t.*,a.name AS account_name,
+      CASE WHEN EXISTS (
+        SELECT 1 FROM bank_reconciliation_links l
+        JOIN financial_settlements fs ON fs.id=l.settlement_id AND fs.reversed_at IS NULL
+        WHERE l.transaction_id=t.id
+      ) THEN 1 ELSE 0 END AS has_registered_payment
+      FROM bank_transactions t JOIN financial_accounts a ON a.id=t.account_id ${where.length?'WHERE '+where.join(' AND '):''} ORDER BY t.occurred_at DESC,t.created_at DESC`).all(...args);
   }
   async function suggestTransfers(filters={}) {
     if(!db)throw new Error('database is required');
