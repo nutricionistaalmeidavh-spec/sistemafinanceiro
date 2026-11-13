@@ -38,7 +38,9 @@ function decodeLicense(code,publicKey){
   if(payload.type==='TRIAL'&&expires-issued>14*DAY_MS)throw new Error('Avaliação não pode exceder 14 dias.');
   if(payload.type==='PERPETUAL'&&payload.expiresAt!==undefined)throw new Error('Licença permanente não deve ter vencimento.');
   let valid=false;
-  try{valid=verify(null,Buffer.from(JSON.stringify(payload)),publicKey,Buffer.from(envelope.signature,'base64url'));}catch{}
+  for(const trustedKey of (Array.isArray(publicKey)?publicKey:[publicKey])){
+    try{if(verify(null,Buffer.from(JSON.stringify(payload)),trustedKey,Buffer.from(envelope.signature,'base64url'))){valid=true;break;}}catch{}
+  }
   if(!valid)throw new Error('Assinatura da licença inválida.');
   return {payload,issued,expires};
 }
@@ -59,15 +61,16 @@ function unlockSealedTrial(shortCode,sealedTrial){
     return Buffer.concat([decipher.update(encrypted),decipher.final()]).toString('utf8');
   }catch{throw fail();}
 }
-function createLicenseService({dataDir,publicKey,now=Date.now,sealedTrial=null,catalogUrl=CATALOG_URL,fetchImpl=globalThis.fetch}){
+function createLicenseService({dataDir,publicKey,legacyPublicKeys=[],now=Date.now,sealedTrial=null,catalogUrl=CATALOG_URL,fetchImpl=globalThis.fetch}){
   if(!dataDir||!publicKey)throw new TypeError('dataDir e publicKey são obrigatórios');
+  const trustedKeys=[publicKey,...legacyPublicKeys];
   const filePath=path.join(dataDir,'artisys-financeiro-license.json');
   const clockPath=path.join(dataDir,'artisys-financeiro-license-clock.json');
   const blocked=(reason,message)=>({active:false,reason,message,mode:'licensed'});
   function status(){
     if(!fs.existsSync(filePath))return blocked('missing','Informe seu código de licença para continuar.');
     let license;
-    try{license=decodeLicense(fs.readFileSync(filePath,'utf8'),publicKey);}
+    try{license=decodeLicense(fs.readFileSync(filePath,'utf8'),trustedKeys);}
     catch(cause){return blocked('invalid',cause.message||'Licença inválida.');}
     const nowMs=Number(now());
     const {payload,issued,expires}=license;
@@ -95,7 +98,7 @@ function createLicenseService({dataDir,publicKey,now=Date.now,sealedTrial=null,c
   function activate(code){
     const input=String(code||'').trim();
     const signed=input.length<=32?unlockSealedTrial(input,sealedTrial):input;
-    const license=decodeLicense(signed,publicKey);
+    const license=decodeLicense(signed,trustedKeys);
     const nowMs=Number(now());
     if(!Number.isFinite(nowMs)||nowMs+CLOCK_TOLERANCE_MS<license.issued)throw new Error('Licença ainda não está válida. Verifique a data do computador.');
     if(nowMs>=license.expires)throw new Error('Licença expirada.');
