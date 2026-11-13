@@ -4,6 +4,7 @@ const { randomUUID } = require('node:crypto');
 const { writeAudit } = require('./audit.cjs');
 const { localDay } = require('./date-utils.cjs');
 const { addMonthsClamped } = require('./recurrence-schedule.cjs');
+const {splitCents}=require('./allocation-service.cjs');
 const { createFinanceService } = require('./finance-service.cjs');
 const { createRecurrenceService } = require('./recurrence-service.cjs');
 
@@ -201,15 +202,17 @@ function createPlanningService({ db, cashflow = null, finance = null, recurrence
       for(const entry of snapshots.get(asOf)){
         if(entry.status==='CANCELLED'||(entry.kind==='RECEIVABLE'?'REVENUE':'EXPENSE')!==budget.nature)continue;
         if(budget.category_id&&entry.categoryId!==budget.category_id)continue;
-        let share=1;
-        if(budget.cost_center_id){
-          const allocation=(allocByEntry.get(entry.id)||[]).find(row=>row.cost_center_id===budget.cost_center_id);
-          if(!allocation)continue;
-          share=Number(allocation.amount_cents)/Number(entry.amountCents);
-        }
+        const weights=allocByEntry.get(entry.id)||[];
+        const selected=budget.cost_center_id?String(budget.cost_center_id):null;
+        if(selected&&!weights.some(row=>row.cost_center_id===selected))continue;
+        const portion=(cents)=>selected?(splitCents(cents,weights).get(selected)||0):cents;
         for(const settlement of entry.settlements)
-          if(monthKey(settlement.occurredAt)===period)actualCents+=Math.round(settlement.amountCents*share);
-        if(monthKey(entry.dueAt)===period&&entry.openCents>0)committedCents+=Math.round(entry.openCents*share);
+          if(monthKey(settlement.occurredAt)===period)actualCents+=portion(settlement.amountCents);
+        if(monthKey(entry.dueAt)===period&&entry.openCents>0){
+          const full=portion(entry.amountCents);
+          const settled=entry.settlements.reduce((sum,s)=>sum+portion(s.amountCents),0);
+          committedCents+=Math.max(0,full-settled);
+        }
       }
       const plannedCents=Number(budget.amount_cents);
       return {budgetId:budget.id,scenarioId:budget.scenario_id,year:budget.year,month:budget.month,
