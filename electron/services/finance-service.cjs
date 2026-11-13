@@ -3,7 +3,7 @@
 const { randomUUID } = require('node:crypto');
 const { writeAudit } = require('./audit.cjs');
 const { assertDateOnly, localDay } = require('./date-utils.cjs');
-const {splitCents}=require('./allocation-service.cjs');
+const {scopedSplitCents}=require('./allocation-service.cjs');
 
 function assertCents(value, name) {
   if (!Number.isSafeInteger(value) || value < 0) throw new Error(`${name} must be a non-negative integer in cents`);
@@ -164,7 +164,9 @@ function createFinanceService({ db, now = () => new Date().toISOString(), idFact
         if(original.length){
           const usePercentages=original.every(part=>Number(part.percentage_basis_points)>0);
           const weights=original.map(part=>({costCenterId:part.cost_center_id,amountCents:usePercentages?Number(part.percentage_basis_points):Number(part.amount_cents)}));
-          const updated=splitCents(amountCents,weights);
+          const originalSum=original.reduce((sum,part)=>sum+Number(part.amount_cents),0);
+          const allocationBasis=usePercentages && originalSum===Number(row.amount_cents)?10000:Number(row.amount_cents);
+          const updated=scopedSplitCents(amountCents,allocationBasis,weights);
           if([...updated.values()].some(value=>value<=0))throw new Error('amount too small to preserve all cost center allocations');
           const statement=db.prepare(`UPDATE entry_allocations SET amount_cents=?,updated_at=? WHERE entry_id=? AND cost_center_id=?`);
           for(const [centerId,share] of updated)statement.run(share,nowIso(),String(entryId),centerId);
