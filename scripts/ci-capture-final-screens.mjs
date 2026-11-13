@@ -247,7 +247,7 @@ try {
     await page.getByRole('button', { name: 'Criar administrador' }).click();
     await page.getByTestId('app-shell').waitFor({ timeout: 20000 });
     await page.getByRole('button', { name: 'Configuração passo a passo' }).click();
-    const guide = page.getByTestId('first-use-guide');
+    const guide = page.getByRole('dialog', { name: 'Preparar o financeiro' });
     await guide.getByLabel('Nome da conta').waitFor({ timeout: 15000 });
     await captureExtra('23-guia-conta-final.png');
     await guide.getByLabel('Nome da conta').fill('Banco Demonstrativo QA');
