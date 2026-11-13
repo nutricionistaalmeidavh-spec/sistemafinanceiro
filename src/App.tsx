@@ -35,6 +35,7 @@ export default function App() {
     api.license.status().then(setLicenseStatus).catch((err) => setLicenseStatus({active:false,mode:'trial',reason:'unavailable',message:String(err?.message||err)}));
   }, [api]);
   const [page, setPage] = useState<Page>('dashboard');
+  const [financeIntent,setFinanceIntent]=useState<FinanceiroKind|null>(null);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   useEffect(() => {
@@ -53,7 +54,7 @@ export default function App() {
   const showUsers = can(session, 'users.view');
   const showSystem = can(session, 'system.manage');
   async function logout() { await window.financeiro!.auth.logout(token); sessionStorage.removeItem('financeiro-token'); setToken(''); setSession(null); }
-  const nav = (target: Page, label: string, icon: ReactNode) => <button type="button" data-testid={`nav-${target}`} aria-current={page===target?'page':undefined} className={page===target?'active':''} onClick={()=>{ setPage(target); setMobileNavOpen(false); }}>{icon}<span>{label}</span></button>;
+  const nav = (target: Page, label: string, icon: ReactNode) => <button type="button" data-testid={`nav-${target}`} aria-current={page===target?'page':undefined} className={page===target?'active':''} onClick={()=>{ setFinanceIntent(null); setPage(target); setMobileNavOpen(false); }}>{icon}<span>{label}</span></button>;
   const group = (label: string, children: ReactNode) => <div className="nav-group"><div className="nav-group-label">{label}</div>{children}</div>;
 
   return <div className="workspace" data-testid="app-shell">
@@ -73,7 +74,7 @@ export default function App() {
       <div className="sidebar-footer"><div><strong>{session.user.name}</strong><small>{session.user.role}</small></div><button type="button" title="Sair" aria-label="Sair" data-testid="logout" onClick={()=>void logout()}><LogOut size={17}/></button></div>
     </aside>
     <main className="content">
-      {page==='dashboard' && <DashboardPage token={token}/>} {page==='alerts' && <AlertsPage token={token} session={session}/>} {page==='cashflow' && <CashflowPage token={token} session={session}/>} {page==='finance' && <FinancePage token={token} session={session}/>} {page==='statements' && <StatementsPage token={token} session={session}/>} {page==='dre' && <DrePage token={token}/>} {page==='planning' && <PlanningPage token={token} session={session}/>} {page==='reports' && <ReportsPage token={token}/>} {page==='recurring' && <RecurringPage token={token} session={session}/>} {page==='workspace' && <WorkspacePage token={token} session={session}/>} {page==='registry' && <RegistryPage token={token} session={session}/>} {page==='users' && showUsers && <UsersPage token={token} session={session}/>} {page==='system' && showSystem && <SystemPage token={token}/>} 
+      {page==='dashboard' && <DashboardPage token={token} onOpenFinance={(kind)=>{setFinanceIntent(kind);setPage('finance');}} onOpenCashflow={()=>setPage('cashflow')}/>} {page==='alerts' && <AlertsPage token={token} session={session}/>} {page==='cashflow' && <CashflowPage token={token} session={session}/>} {page==='finance' && <FinancePage token={token} session={session} intent={financeIntent} onIntentHandled={()=>setFinanceIntent(null)} onOpenPlanning={()=>setPage('planning')}/>} {page==='statements' && <StatementsPage token={token} session={session}/>} {page==='dre' && <DrePage token={token}/>} {page==='planning' && <PlanningPage token={token} session={session}/>} {page==='reports' && <ReportsPage token={token}/>} {page==='recurring' && <RecurringPage token={token} session={session}/>} {page==='workspace' && <WorkspacePage token={token} session={session}/>} {page==='registry' && <RegistryPage token={token} session={session}/>} {page==='users' && showUsers && <UsersPage token={token} session={session}/>} {page==='system' && showSystem && <SystemPage token={token}/>} 
     </main>
   </div>;
 }
