@@ -140,6 +140,7 @@ contextBridge.exposeInMainWorld('financeiro', {
     listOpportunities: (token,filters)=>ipcRenderer.invoke('crm:opportunities:list',token,filters),
     saveOpportunity: (token,input)=>ipcRenderer.invoke('crm:opportunities:save',token,input),
     moveOpportunity: (token,id,stage,options)=>ipcRenderer.invoke('crm:opportunities:move',token,id,stage,options),
+    listStageHistory: (token,id)=>ipcRenderer.invoke('crm:stages:history',token,id),
     listActivities: (token,id)=>ipcRenderer.invoke('crm:activities:list',token,id),
     addActivity: (token,input)=>ipcRenderer.invoke('crm:activities:add',token,input),
     listTasks: (token,filters)=>ipcRenderer.invoke('crm:tasks:list',token,filters),
