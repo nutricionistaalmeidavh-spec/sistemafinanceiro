@@ -35,6 +35,7 @@ function registerIpcHandlers({ ipcMain, app, dialog, database, auth, finance, re
   ipcMain.handle('crm:opportunities:list',(_e,token,filters)=>{auth.require(token,'crm.view');return crm.listOpportunities(filters||{});});
   ipcMain.handle('crm:opportunities:save',(_e,token,input)=>{const actor=auth.require(token,'crm.manage');return crm.saveOpportunity(input||{},actor);});
   ipcMain.handle('crm:opportunities:move',(_e,token,id,stage,options)=>{const actor=auth.require(token,'crm.manage');return crm.moveOpportunity(id,stage,actor,options||{});});
+  ipcMain.handle('crm:stages:history',(_e,token,id)=>{auth.require(token,'crm.view');return crm.listStageHistory(id);});
   ipcMain.handle('crm:activities:list',(_e,token,id)=>{auth.require(token,'crm.view');return crm.listActivities(id);});
   ipcMain.handle('crm:activities:add',(_e,token,input)=>{const actor=auth.require(token,'crm.manage');return crm.addActivity(input||{},actor);});
   ipcMain.handle('crm:tasks:list',(_e,token,filters)=>{auth.require(token,'crm.view');return crm.listTasks(filters||{});});
