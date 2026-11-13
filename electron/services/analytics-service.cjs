@@ -25,12 +25,12 @@ function createAnalyticsService({ db, finance, cashflow, now = () => new Date().
     if (basis === 'accrual') {
       const params = [];
       if (center) params.push(center);
-      params.push(cutoff,start,end);
+      params.push(cutoff,cutoff,start,cutoff);
       if (tag) params.push(tag);
       rows = db.prepare(`SELECT fe.id,COALESCE(fc.dre_group,'UNCLASSIFIED') dre_group,fe.kind,fe.amount_cents entry_amount_cents,${center ? 'ea.amount_cents' : 'fe.amount_cents'} scoped_amount_cents
         FROM financial_entries fe LEFT JOIN financial_categories fc ON fc.id=fe.category_id${centerJoin}
         WHERE (fe.status<>'CANCELLED' OR (fe.cancelled_at IS NOT NULL AND substr(fe.cancelled_at,1,10)>?))
-          AND fe.due_at>=? AND fe.due_at<=?${tagClause}`).all(...params)
+          AND substr(fe.created_at,1,10)<=? AND fe.due_at>=? AND fe.due_at<=?${tagClause}`).all(...params)
         .map((row) => ({ ...row, total: Number(row.scoped_amount_cents || 0) }));
     } else if (basis === 'realized') {
       const params = [];
