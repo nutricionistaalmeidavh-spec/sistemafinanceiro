@@ -68,6 +68,7 @@ test('capturador falha caso alguma tela não seja registrada e preserva screensh
   assert.match(source, /failure\.png/);
   assert.match(source, /run-summary\.json/);
   assert.match(source, /electron\/install\.js/, 'Electron deve ser reinstalado quando o binário estiver ausente');
+  assert.match(source, /delete appEnv\.ELECTRON_RUN_AS_NODE/, 'Electron no Playwright nao pode herdar modo Node');
 });
 
 test('primeiro uso e ativacao trial sao capturados com bancos QA separados', () => {
