@@ -1,8 +1,8 @@
 'use strict';
 
 // O mesmo canal "latest" atende todas as licenças. Download e instalação exigem clique do usuário.
-function createUpdateService({ipcMain,app,BrowserWindow,updater}){
-  const enabled=Boolean(updater&&app.isPackaged&&process.platform==='win32');
+function createUpdateService({ipcMain,app,BrowserWindow,updater,platform=process.platform}){
+  const enabled=Boolean(updater&&app.isPackaged&&platform==='win32');
   let state={state:enabled?'idle':'disabled',currentVersion:app.getVersion()};
   let checking=false;
   let downloading=false;

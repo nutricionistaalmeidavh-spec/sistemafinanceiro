@@ -11,7 +11,7 @@ const type=arg('--type','TRIAL').toUpperCase();
 const days=Number(arg('--days','14'));
 const outCode=arg('--out-code');
 const catalogFile=path.resolve(arg('--catalog','licenses/catalog.json'));
-const knownKey=path.resolve('electron/services/license-public.pem');
+const knownKey=path.resolve(arg('--public-key','electron/services/license-public.pem'));
 const root=process.cwd();
 if(!privatePath||!customer.trim()||customer.trim().length>150||!outCode||!['TRIAL','TERM','PERPETUAL'].includes(type)||
   (type!=='PERPETUAL'&&(!Number.isInteger(days)||days<1||(type==='TRIAL'&&days>14)))){
