@@ -32,7 +32,8 @@ function createCrmService({db,finance,registry,now=()=>new Date().toISOString(),
   return db.prepare("SELECT * FROM crm_leads WHERE (LOWER(name) LIKE ? OR LOWER(COALESCE(email,'')) LIKE ? OR LOWER(COALESCE(phone,'')) LIKE ?) AND (?='' OR status=?) ORDER BY updated_at DESC,id DESC").all(q,q,q,status,status).map(person);
  }
  function saveLead(input={},actor=null){
-  const name=required(input.name,'Nome');const document=optional(input.document,40);
+  const name=required(input.name,'Nome');const rawDocument=optional(input.document,40);const document=rawDocument?rawDocument.replace(/\D/g,''):null;
+  if(rawDocument&&!document)throw new Error('Documento deve conter dígitos');
   const email=optional(input.email,240)?.toLowerCase()||null;
   const phone=optional(input.phone,45),source=required(input.source||'MANUAL','Origem',64),notes=optional(input.notes);
   const ownerId=input.ownerId||null;
@@ -92,6 +93,10 @@ function createCrmService({db,finance,registry,now=()=>new Date().toISOString(),
   audit('crm.opportunity.move','crm-opportunity',id,actor,{from:current.stage,to});
   return getOpportunity(id);
  }
+ function listStageHistory(opportunityId){
+  return db.prepare('SELECT * FROM crm_stage_history WHERE opportunity_id=? ORDER BY changed_at,id').all(String(opportunityId))
+   .map(r=>({id:r.id,opportunityId:r.opportunity_id,fromStage:r.from_stage,toStage:r.to_stage,actorId:r.actor_id,changedAt:r.changed_at}));
+ }
  function addActivity(input={},actor=null){
   const opportunityId=required(input.opportunityId,'Oportunidade'),kind=String(input.kind||'NOTE').toUpperCase();
   lookup('crm_opportunities',opportunityId,'Oportunidade');
@@ -133,10 +138,10 @@ function createCrmService({db,finance,registry,now=()=>new Date().toISOString(),
    if(customerId){
     customer=lookup('customers',customerId,'Cliente');
     if(!customer.active)throw new Error('Cliente inativo');
-    if(lead.document&&customer.document&&lead.document!==customer.document)throw new Error('Documento conflitante, revise o cadastro');
+    if(lead.document&&customer.document&&lead.document!==String(customer.document).replace(/\D/g,''))throw new Error('Documento conflitante, revise o cadastro');
    }else{
     let candidates=[];
-    if(lead.document)candidates=db.prepare('SELECT * FROM customers WHERE document=? AND active=1').all(lead.document);
+    if(lead.document)candidates=db.prepare("SELECT * FROM customers WHERE REPLACE(REPLACE(REPLACE(document,'.',''),'-',''),'/','')=? AND active=1").all(lead.document);
     if(!candidates.length&&lead.email)candidates=db.prepare('SELECT * FROM customers WHERE LOWER(email)=LOWER(?) AND active=1').all(lead.email);
     if(candidates.length>1)throw new Error('Vários clientes compatíveis. Selecione um cliente existente.');
     customer=candidates[0]||null;
@@ -244,7 +249,7 @@ function createCrmService({db,finance,registry,now=()=>new Date().toISOString(),
    const raw=original&&typeof original==='object'?original:{};
    const item={
     name:String(raw.name||'').trim(),email:String(raw.email||'').trim().toLowerCase(),
-    phone:String(raw.phone||'').trim(),document:String(raw.document||'').trim(),
+    phone:String(raw.phone||'').trim(),document:String(raw.document||'').trim().replace(/\D/g,''),
     source:String(raw.source||'CSV').trim()||'CSV',notes:String(raw.notes||'').trim()
    };
    const itemError=!item.name||item.name.length>240||item.email.length>240||item.document.length>40||
@@ -289,7 +294,7 @@ function createCrmService({db,finance,registry,now=()=>new Date().toISOString(),
   return '<!doctype html><html lang="pt-BR"><meta charset="utf-8"><style>body{font-family:Arial,sans-serif;padding:36px;color:#222}h1{color:#4f46e5}table{width:100%;border-collapse:collapse;margin-top:28px}td,th{border-bottom:1px solid #ddd;padding:12px;text-align:left}.total{text-align:right;font-size:22px;font-weight:bold;margin-top:24px}small{color:#777}</style><h1>Proposta comercial</h1><p>ArtiSys Financeiro — Proposta v'+q.version+'</p><p><b>Cliente:</b> '+escape(customer?.name||lead?.name||'Não identificado')+'</p><p><b>Negócio:</b> '+escape(opp.title)+'</p><table><thead><tr><th>Descrição</th><th>Qtd.</th><th>Unitário</th><th>Total</th></tr></thead><tbody>'+trs+'</tbody></table><p class="total">'+money(q.totalCents)+'</p><p>'+escape(q.notes||'')+'</p><small>Documento comercial. Não representa pagamento ou recibo.</small></html>';
  }
  return {listLeads,saveLead,previewLeadImport,commitLeadImport,getLead,listOpportunities,getOpportunity,saveOpportunity,moveOpportunity,
-  addActivity,listActivities,saveTask,setTaskDone,listTasks,convertLead,createQuote,getQuote,listQuotes,
+  listStageHistory,addActivity,listActivities,saveTask,setTaskDone,listTasks,convertLead,createQuote,getQuote,listQuotes,
   setQuoteStatus,previewReceivables,confirmReceivables,listBillingLinks,getMetrics,quoteHtml};
 }
 module.exports={createCrmService};
