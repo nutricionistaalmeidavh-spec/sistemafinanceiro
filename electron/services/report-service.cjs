@@ -5,7 +5,7 @@ try { printing = require('@artisys/printing'); } catch {}
 
 function xmlEscape(value) { return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;'); }
 function htmlEscape(value) { return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
-function csvCell(value) { return `"${String(value ?? '').replace(/"/g, '""')}"`; }
+function csvCell(value) { const raw = String(value ?? ''); const safe = /^[\s\u0000-\u001f]*[=+\-@]/u.test(raw) ? `'${raw}` : raw; return `"${safe.replace(/"/g, '""')}"`; }
 function money(cents) { return (Number(cents || 0) / 100).toFixed(2).replace('.', ','); }
 function columnName(index) { let n = index + 1; let name = ''; while (n > 0) { const rem = (n - 1) % 26; name = String.fromCharCode(65 + rem) + name; n = Math.floor((n - 1) / 26); } return name; }
 function proportionalCents(value, total, share) {
@@ -176,4 +176,4 @@ function createReportService({ db, finance, analytics = null, now = () => new Da
   return { settlementReceipt, financialReport, toCsv, toXlsxBuffer, toPrintableHtml };
 }
 
-module.exports = { createReportService, zipStore, crc32, proportionalCents };
+module.exports = { createReportService, zipStore, crc32, proportionalCents, csvCell };
