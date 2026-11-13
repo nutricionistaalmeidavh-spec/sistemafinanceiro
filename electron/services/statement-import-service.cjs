@@ -29,13 +29,16 @@ function parseAmount(value) {
   return { amountCents: Math.round(Math.abs(number) * 100), negative };
 }
 function parseDelimited(content, delimiter = '') {
-  const parsed = Papa.parse(String(content || '').replace(/^\uFEFF/, ''), {
+  const raw = String(content || '').replace(/^\uFEFF/, '');
+  if (Buffer.byteLength(raw, 'utf8') > 12 * 1024 * 1024) throw new RangeError('CSV maior que 12 MB');
+  const parsed = Papa.parse(raw, {
     delimiter,
     delimitersToGuess: [';', ',', '\t', '|'],
     skipEmptyLines: 'greedy',
     dynamicTyping: false,
   });
   if (parsed.errors.length) throw new TypeError('CSV malformado: ' + parsed.errors[0].message);
+  if (parsed.data.length > 50001) throw new RangeError('CSV excede 50 mil linhas');
   return parsed.data;
 }
 function headerKey(value){return String(value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().replace(/[^A-Z0-9]/g,'');}
