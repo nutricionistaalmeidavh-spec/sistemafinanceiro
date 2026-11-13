@@ -160,7 +160,9 @@ function createFinanceService({ db, now = () => new Date().toISOString(), idFact
       const row = requireEntry(entryId);
       if (row.status === 'CANCELLED') throw new Error('cancelled entry cannot be settled');
       const current = getEntry(entryId);
-      if (current.openCents <= 0) throw new Error('entry has no open balance');
+      const bookedCents=activeSettlements(entryId).reduce((sum,item)=>sum+Number(item.amount_cents),0);
+      const bookOpenCents=Math.max(0,Number(row.amount_cents)-bookedCents);
+      if (bookOpenCents <= 0) throw new Error('entry has no open balance');
       if (row.kind === 'PAYABLE' && hasApprovalSchema) {
         const policy=db.prepare('SELECT id FROM approval_policies WHERE active=1 AND min_amount_cents<=? ORDER BY min_amount_cents DESC,id LIMIT 1').get(row.amount_cents);
         const requests=db.prepare('SELECT status,policy_id FROM approval_requests WHERE entry_id=? ORDER BY created_at DESC,id DESC').all(String(entryId));
@@ -173,8 +175,9 @@ function createFinanceService({ db, now = () => new Date().toISOString(), idFact
       }
       const amountCents = assertCents(input.amountCents, 'amountCents');
       if (amountCents <= 0) throw new Error('settlement must be greater than zero');
-      if (amountCents > current.openCents) throw new Error('settlement exceeds open balance');
+      if (amountCents > bookOpenCents) throw new Error('settlement exceeds open balance');
       const occurredAt = assertDateOnly(input.occurredAt || localDay(nowIso()), 'settlement date');
+      if(occurredAt>localDay(nowIso()))throw new Error('settlement date cannot be in the future');
       const method = String(input.method || 'OTHER').toUpperCase();
       if (!['PIX','CASH','TRANSFER','BOLETO','DEBIT_CARD','CREDIT_CARD','OTHER'].includes(method)) throw new Error('invalid payment method');
       const accountId = String(input.accountId || row.account_id || '').trim();
