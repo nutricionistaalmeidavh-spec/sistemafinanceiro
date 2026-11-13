@@ -121,7 +121,7 @@ function createReportService({ db, finance, analytics = null, now = () => new Da
         const allocation = metadata.allocations.find((item) => item.costCenterId === String(costCenterId));
         if (!allocation) continue;
         amountCents = scopedSplitCents(entry.amountCents,entry.amountCents,metadata.allocations).get(String(costCenterId))||0;
-        settledCents = entry.settlements.reduce((sum,settlement)=>sum+(scopedSplitCents(settlement.amountCents,entry.amountCents,metadata.allocations).get(String(costCenterId))||0),0);
+        settledCents = scopedSplitCents(entry.settledCents,entry.amountCents,metadata.allocations).get(String(costCenterId))||0;
         openCents = Math.max(amountCents-settledCents,0);
       }
       const party = counterparty(entry);
