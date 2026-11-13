@@ -27,12 +27,14 @@ export default function CrmPage({token,session}:Props){
  const [metrics,setMetrics]=useState<CrmMetrics|null>(null);
  const [selectedId,setSelectedId]=useState<string|null>(null);
  const [activities,setActivities]=useState<CrmActivity[]>([]);
+ const [history,setHistory]=useState<CrmStageHistory[]>([]);
  const [quotes,setQuotes]=useState<CrmQuote[]>([]);
  const [billingLinks,setBillingLinks]=useState<CrmBillingLink[]>([]);
  const [selectedQuoteId,setSelectedQuoteId]=useState('');
  const [preview,setPreview]=useState<CrmBillingPreview|null>(null);
  const [query,setQuery]=useState('');
  const [leadForm,setLeadForm]=useState(emptyLead);
+ const [editingLeadId,setEditingLeadId]=useState<string|null>(null);
  const [importRows,setImportRows]=useState<CrmImportRow[]>([]);
  const [importPreview,setImportPreview]=useState<CrmImportPreview|null>(null);
  const [dealForm,setDealForm]=useState({party:'',title:'',amount:'0'});
@@ -56,15 +58,15 @@ export default function CrmPage({token,session}:Props){
   setCategories(cats.filter(x=>x.nature==='REVENUE'));setMetrics(m);
  },[api,token]);
  const loadDetail=useCallback(async(id:string)=>{
-  const [a,q,b]=await Promise.all([
-   api.crm.listActivities(token,id),api.crm.listQuotes(token,id),api.crm.listBillingLinks(token,id)
+  const [a,q,b,h]=await Promise.all([
+   api.crm.listActivities(token,id),api.crm.listQuotes(token,id),api.crm.listBillingLinks(token,id),api.crm.listStageHistory(token,id)
   ]);
-  setActivities(a);setQuotes(q);setBillingLinks(b);
+  setActivities(a);setQuotes(q);setBillingLinks(b);setHistory(h);
  },[api,token]);
  useEffect(()=>{void load().catch(e=>setError(errorMessage(e)));},[load]);
  useEffect(()=>{
   setPreview(null);setSelectedQuoteId('');
-  if(!selectedId){setActivities([]);setQuotes([]);setBillingLinks([]);return;}
+  if(!selectedId){setActivities([]);setQuotes([]);setBillingLinks([]);setHistory([]);return;}
   void loadDetail(selectedId).catch(e=>setError(errorMessage(e)));
  },[selectedId,loadDetail]);
  async function run(fn:()=>Promise<unknown>,success:string){
@@ -101,7 +103,7 @@ export default function CrmPage({token,session}:Props){
 
  async function addLead(e:FormEvent){
   e.preventDefault();
-  await run(async()=>{await api.crm.saveLead(token,leadForm);setLeadForm(emptyLead);},'Lead cadastrado.');
+  await run(async()=>{await api.crm.saveLead(token,{...leadForm,id:editingLeadId||undefined});setLeadForm(emptyLead);setEditingLeadId(null);},'Lead cadastrado.');
  }
  async function addDeal(e:FormEvent){
   e.preventDefault();
@@ -197,17 +199,22 @@ export default function CrmPage({token,session}:Props){
    </div>}
   </div>}
   {tab==='leads'&&<div className="crm-split">
-   {editable&&<form className="panel crm-form" onSubmit={e=>void addLead(e)}><h3><Users size={18}/> Novo lead</h3>
+   {editable&&<form className="panel crm-form" onSubmit={e=>void addLead(e)}><h3><Users size={18}/> {editingLeadId?"Editar lead":"Novo lead"}</h3>
     <label>Nome<input required maxLength={240} value={leadForm.name} onChange={e=>setLeadForm({...leadForm,name:e.target.value})}/></label>
     <label>Telefone<input value={leadForm.phone} onChange={e=>setLeadForm({...leadForm,phone:e.target.value})}/></label>
     <label>E-mail<input type="email" value={leadForm.email} onChange={e=>setLeadForm({...leadForm,email:e.target.value})}/></label>
     <label>CPF/CNPJ<input value={leadForm.document} onChange={e=>setLeadForm({...leadForm,document:e.target.value})}/></label>
     <label>Origem<select value={leadForm.source} onChange={e=>setLeadForm({...leadForm,source:e.target.value})}>{['MANUAL','INDICACAO','SITE','INSTAGRAM','WHATSAPP','OUTROS'].map(x=><option key={x} value={x}>{x}</option>)}</select></label>
     <label>Observações<textarea value={leadForm.notes} onChange={e=>setLeadForm({...leadForm,notes:e.target.value})}/></label>
-    <button disabled={busy} className="primary-button">Cadastrar lead</button>
+    <button disabled={busy} className="primary-button">{editingLeadId?"Salvar alterações":"Cadastrar lead"}</button>
+    {editingLeadId&&<button type="button" className="secondary-button" onClick={()=>{setEditingLeadId(null);setLeadForm(emptyLead);}}>Cancelar edição</button>}
    </form>}
    <div className="panel table-panel table-scroll"><table><thead><tr><th>Lead</th><th>Contato</th><th>Origem</th><th>Situação</th><th>Ações</th></tr></thead><tbody>
-    {leads.filter(l=>[l.name,l.email,l.phone].some(x=>String(x||'').toLowerCase().includes(query.toLowerCase()))).map(l=><tr key={l.id}><td><strong>{l.name}</strong><small>{l.document||'Sem documento'}</small></td><td>{l.phone||l.email||'—'}</td><td>{l.source}</td><td>{l.status==='CONVERTED'?'Cliente convertido':l.status}</td><td>{convertible&&!l.customerId&&<button type="button" className="secondary-button small" disabled={busy} onClick={()=>void run(()=>api.crm.convertLead(token,l.id,{}),'Lead convertido usando o cadastro canônico.')}>Converter</button>}</td></tr>)}
+    {leads.filter(l=>[l.name,l.email,l.phone].some(x=>String(x||'').toLowerCase().includes(query.toLowerCase()))).map(l=><tr key={l.id}><td><strong>{l.name}</strong><small>{l.document||'Sem documento'}</small></td><td>{l.phone||l.email||'—'}</td><td>{l.source}</td><td>{l.status==='CONVERTED'?'Cliente convertido':l.status}</td><td><div className="crm-lead-actions">
+      {editable&&<button type="button" className="secondary-button small" onClick={()=>{setEditingLeadId(l.id);setLeadForm({name:l.name,document:l.document||'',phone:l.phone||'',email:l.email||'',source:l.source,notes:l.notes||''});}}>Editar</button>}
+      {editable&&l.status!=='CONVERTED'&&<select aria-label={'Status de '+l.name} disabled={busy} value={l.status} onChange={e=>void run(()=>api.crm.setLeadStatus(token,l.id,e.target.value as 'NEW'|'QUALIFIED'|'DISCARDED'),'Status do lead atualizado.')}><option value="NEW">Novo</option><option value="QUALIFIED">Qualificado</option><option value="DISCARDED">Descartado</option></select>}
+      {convertible&&!l.customerId&&l.status!=='DISCARDED'&&<button type="button" className="secondary-button small" disabled={busy} onClick={()=>void run(()=>api.crm.convertLead(token,l.id,{}),'Lead convertido usando o cadastro canônico.')}>Converter</button>}
+    </div></td></tr>)}
    </tbody></table>{!leads.length&&<div className="empty-state">Cadastre o primeiro lead para começar a prospecção.</div>}</div>
   </div>}
   {tab==='pipeline'&&<>
@@ -242,6 +249,7 @@ export default function CrmPage({token,session}:Props){
       <h3><Handshake size={18}/> Etapa comercial</h3>
       <label>Mover oportunidade<select value={deal.stage} disabled={!editable||busy} onChange={e=>void changeStage(deal.id,e.target.value as CrmStage)}>{stages.map(s=><option key={s} value={s}>{names[s]}</option>)}</select></label>
       {deal.stage==='WON'&&<p className="success-box">Venda ganha. Nenhum recebível é criado sem sua confirmação.</p>}
+      {history.length>0&&<div className="crm-stage-history"><strong>Histórico do funil</strong>{history.map(h=><p key={h.id}>{h.fromStage?names[h.fromStage]:'Novo'} → {names[h.toStage]} · {niceDate(h.changedAt)}</p>)}</div>}
       {deal.leadId&&!deal.customerId&&convertible&&<button type="button" disabled={busy} className="secondary-button" onClick={()=>void run(()=>api.crm.convertLead(token,deal.leadId!,{}),'Cliente vinculado ao Financeiro.')}>Converter lead em cliente</button>}
      </div>
      <div className="crm-section"><h3><Clock size={18}/> Atividades e retornos</h3>
