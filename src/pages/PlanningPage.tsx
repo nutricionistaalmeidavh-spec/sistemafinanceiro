@@ -52,7 +52,7 @@ export default function PlanningPage({token,session,focusApprovalEntryId,onAppro
   async function updateBudgetRow(budget:PlanningBudget,amountCents:number){
     await planning.saveBudget(token,{scenarioId:budget.scenario_id,year:budget.year,month:budget.month,nature:budget.nature,amountCents,categoryId:budget.category_id||null,costCenterId:budget.cost_center_id||null,notes:budget.notes||null});
     await reload();
-    setNotice('Orçamento atualizado e auditado, sem alterar lançamentos financeiros.');
+    setError('');
   }
   async function saveGoal(event:FormEvent){event.preventDefault();try{await planning.saveGoal(token,{name:goalForm.name,metric:goalForm.metric,targetCents:toCents(goalForm.target),periodStart:goalForm.periodStart,periodEnd:goalForm.periodEnd});setGoalForm({...goalForm,name:'',target:''});await reload();}catch(err){handleError(err);}}
   async function saveScenario(event:FormEvent){event.preventDefault();try{await planning.saveScenario(token,{name:scenarioName,kind:'CUSTOM'});setScenarioName('');await reload();}catch(err){handleError(err);}}
