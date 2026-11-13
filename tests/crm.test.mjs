@@ -141,3 +141,13 @@ test('P1 mid-batch failure rolls back already-created receivables',()=>{
  assert.equal(db.prepare('SELECT COUNT(*) n FROM crm_billing_links').get().n,0);
  db.close();
 });
+
+test('P0 lead qualification and discard are audited without deleting the record',()=>{
+ const {db,crm}=setup();
+ const lead=crm.saveLead({name:'Prospect para qualificar'},actor);
+ assert.equal(crm.setLeadStatus(lead.id,'QUALIFIED',actor).status,'QUALIFIED');
+ assert.equal(crm.setLeadStatus(lead.id,'DISCARDED',actor).status,'DISCARDED');
+ assert.equal(crm.listLeads({status:'DISCARDED'}).length,1);
+ assert.equal(db.prepare("SELECT COUNT(*) n FROM audit_log WHERE action='crm.lead.status'").get().n,2);
+ db.close();
+});
