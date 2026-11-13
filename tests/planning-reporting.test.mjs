@@ -17,7 +17,7 @@ test('reports and DRE honor cost center allocation and tag filters',()=>{
   try {
     database.open();
     const db=database.connection();
-    const now=()=> '2026-09-14T12:00:00.000Z';
+    const now=()=> '2026-09-20T12:00:00.000Z';
     const finance=createFinanceService({db,now});
     const cashflow={getAccountBalances:()=>[],listMovements:()=>[]};
     const analytics=createAnalyticsService({db,finance,cashflow,now});

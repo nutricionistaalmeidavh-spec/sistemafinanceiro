@@ -153,12 +153,12 @@ try {
   await recurringForm.getByLabel('Descrição',{exact:true}).fill('Recorrência E2E');
   await recurringForm.getByLabel('Valor',{exact:true}).fill('89,90');
   await recurringForm.getByRole('button',{name:'Salvar recorrência'}).click();
-  const recurringRow=page.locator('tr').filter({hasText:'Recorrência E2E'});
+  const recurringRow=page.getByTestId('page-recurring').locator('table').first().locator('tbody tr').filter({hasText:'Recorrência E2E'});
   await recurringRow.waitFor({timeout:15000});
   await recurringRow.getByRole('button',{name:'Editar'}).click();
   await recurringForm.getByLabel('Valor',{exact:true}).fill('99,90');
   await recurringForm.getByRole('button',{name:'Salvar alterações'}).click();
-  await recurringRow.getByText('R$ 99,90').waitFor({timeout:15000});
+  await recurringRow.locator('td').nth(2).getByText('R$ 99,90',{exact:true}).waitFor({timeout:15000});
   await recurringRow.getByRole('button',{name:'Ver lançamentos'}).click();
   const history=page.getByTestId('recurring-history');
   await history.getByText('R$ 89,90',{exact:false}).first().waitFor({timeout:15000});

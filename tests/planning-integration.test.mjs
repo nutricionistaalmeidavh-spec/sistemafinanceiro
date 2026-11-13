@@ -21,7 +21,7 @@ test('planning integrates rateio, budget, approvals, bulk and projection on SQLi
     db.prepare("INSERT INTO financial_categories(id,name,nature,dre_group,active,created_at,updated_at) VALUES (?,?,?,?,1,?,?)").run('cat-exp','Operação','EXPENSE','OPERATING',now(),now());
     db.prepare("INSERT INTO financial_entries(id,kind,description,category_id,amount_cents,due_at,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)").run('e1','PAYABLE','Fornecedor A','cat-exp',10001,'2026-09-20','OPEN',now(),now());
     db.prepare("INSERT INTO financial_entries(id,kind,description,category_id,amount_cents,due_at,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)").run('e2','PAYABLE','Fornecedor B','cat-exp',5000,'2026-10-10','OPEN',now(),now());
-    db.prepare("INSERT INTO financial_settlements(id,entry_id,amount_cents,occurred_at,created_at) VALUES (?,?,?,?,?)").run('s1','e1',4000,'2026-09-15',now());
+    db.prepare("INSERT INTO financial_settlements(id,entry_id,amount_cents,occurred_at,created_at) VALUES (?,?,?,?,?)").run('s1','e1',4000,'2026-09-12',now());
     const a=planning.saveCostCenter({code:'A',name:'Obra A'},{id:'admin',role:'ADMIN'});
     const b=planning.saveCostCenter({code:'B',name:'Administrativo'},{id:'admin',role:'ADMIN'});
     const splits=planning.setEntryAllocations('e1',[{costCenterId:a.id,percentage:60},{costCenterId:b.id,percentage:40}],{id:'admin',role:'ADMIN'});
