@@ -19,15 +19,37 @@ function parseDate(value) {
   throw new TypeError(`invalid date: ${raw}`);
 }
 function parseAmount(value) {
-  if (Number.isInteger(value)) return { amountCents: Math.abs(value), negative: value < 0 };
-  let raw = String(value ?? '').trim().replace(/\s/g,'');
-  const negative = raw.startsWith('-') || /D$/i.test(raw);
-  raw = raw.replace(/[A-Za-zR$+\-]/g,'');
-  if (raw.includes(',') && raw.includes('.')) raw = raw.lastIndexOf(',') > raw.lastIndexOf('.') ? raw.replace(/\./g,'').replace(',','.') : raw.replace(/,/g,'');
-  else if (raw.includes(',')) raw = raw.replace(/\./g,'').replace(',','.');
-  const number = Number(raw);
-  if (!Number.isFinite(number)) throw new TypeError(`invalid amount: ${value}`);
-  return { amountCents: Math.round(Math.abs(number) * 100), negative };
+  if(typeof value==='number'){
+    if(!Number.isSafeInteger(value))throw new TypeError('valor em centavos fora do limite seguro');
+    return {amountCents:Math.abs(value),negative:value<0};
+  }
+  let raw=String(value??'').trim().replace(/[\u00a0\s]/g,'');
+  const negative=raw.startsWith('-')||/D$/i.test(raw)||/^\(.+\)$/.test(raw);
+  raw=raw.replace(/^[-+]/,'').replace(/[CD]$/i,'').replace(/^\(/,'').replace(/\)$/,'').replace(/^(?:R\$|BRL)/i,'');
+  if(!raw||!/^[0-9.,]+$/.test(raw))throw new TypeError('valor monetário inválido');
+  const lastComma=raw.lastIndexOf(','),lastDot=raw.lastIndexOf('.');
+  let integer='',decimal='';
+  if(lastComma>=0&&lastDot>=0){
+    const separator=lastComma>lastDot?',':'.';
+    const group=separator===','?'.':',';
+    const parts=raw.split(separator);
+    if(parts.length!==2||!new RegExp('^\\d{1,3}(?:\\'+group+'\\d{3})*$').test(parts[0])||!/^\d{1,2}$/.test(parts[1]))
+      throw new TypeError('separadores ou centavos inválidos');
+    integer=parts[0].split(group).join('');decimal=parts[1];
+  }else if(lastComma>=0||lastDot>=0){
+    const separator=lastComma>=0?',':'.';
+    const parts=raw.split(separator);
+    if(parts.length===2&&/^\d{1,2}$/.test(parts[1])){
+      if(!/^\d+$/.test(parts[0]))throw new TypeError('valor inválido');
+      integer=parts[0];decimal=parts[1];
+    }else if(new RegExp('^\\d{1,3}(?:\\'+separator+'\\d{3})+$').test(raw)){
+      integer=parts.join('');decimal='';
+    }else throw new TypeError('frações de centavo ou separadores inválidos');
+  }else integer=raw;
+  if(!/^\d+$/.test(integer)||!/^\d{0,2}$/.test(decimal))throw new TypeError('valor monetário inválido');
+  const cents=BigInt(integer)*100n+BigInt((decimal+'00').slice(0,2));
+  if(cents>BigInt(Number.MAX_SAFE_INTEGER))throw new RangeError('valor em centavos fora do limite seguro');
+  return {amountCents:Number(cents),negative};
 }
 function parseDelimited(content, delimiter = '') {
   const raw = String(content || '').replace(/^\uFEFF/, '');
@@ -132,7 +154,7 @@ function createStatementImportService({ db=null, finance=null, now=()=>new Date(
     const domain=await domainLoader(); const rules=Array.isArray(input.rules)?input.rules:domain.BASIC_PT_BR_FINANCE_RULES;
     const transactions=rows.map((row,index)=>{
       const parsed=row.amountCents!=null?{amountCents:Math.abs(Number(row.amountCents)),negative:Number(row.amountCents)<0}:parseAmount(row.amount);
-      if(!Number.isInteger(parsed.amountCents)||parsed.amountCents<=0)throw new TypeError('transaction amount must be greater than zero');
+      if(!Number.isSafeInteger(parsed.amountCents)||parsed.amountCents<=0)throw new TypeError('transaction amount must be greater than zero');
       const tx={ id:`preview-${index+1}`, accountId, date:parseDate(row.date), description:String(row.description||'').trim(), amountCents:parsed.amountCents, direction:directionOf(row,parsed), counterparty:String(row.counterparty||row.description||'').trim() };
       if(!tx.description)throw new TypeError('transaction description is required');
       tx.normalized=domain.normalizeText(tx.description);
