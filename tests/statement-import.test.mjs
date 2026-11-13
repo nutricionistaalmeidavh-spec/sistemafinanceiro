@@ -13,6 +13,17 @@ test('decimal parser rejects fractional cents and unsafe integer amounts',async(
   assert.throws(()=>parseAmount('999999999999999,99'),/limite|valor|amount/i);
 });
 
+test('reject impossible imported dates and normalize standard US QIF dates without month/day corruption',async()=>{
+  const {createRequire}=await import('node:module');const req=createRequire(import.meta.url);
+  const {parseDate}=req('../electron/services/statement-import-service.cjs');
+  const {parseQif}=req('../electron/services/open-format-service.cjs');
+  assert.throws(()=>parseDate('31/02/2026'),/invalid date|data inválida/i);
+  assert.throws(()=>parseDate('2026-02-29'),/invalid date|data inválida/i);
+  assert.equal(parseDate('29/02/2024'),'2024-02-29');
+  const us=parseQif('!Type:Bank\\nD11/13/2026\\nT1.25\\nPUS date\\n^\\n');
+  assert.equal(parseDate(us[0].date),'2026-11-13');
+});
+
 test('CSV, OFX, PDF text and manual input converge to the canonical bank transaction model', async () => {
   const ctx = createHarness();
   try {
