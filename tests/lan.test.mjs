@@ -38,3 +38,30 @@ test('LAN stays disabled by default and requires single-use pairing for API acce
     await lan.stop();
   } finally { ctx.cleanup(); }
 });
+
+test('LAN bloqueia acesso mesmo com servidor já iniciado quando a avaliação expira', async () => {
+  const ctx=createHarness();
+  let permitted=true;
+  const alerts=createAlertService({db:ctx.db,finance:ctx.finance,cashflow:ctx.cashflow,now:()=> '2026-11-11T12:00:00.000Z'});
+  const lan=createLanService({
+    db:ctx.db,finance:ctx.finance,cashflow:ctx.cashflow,analytics:ctx.analytics,alerts,
+    now:()=> '2026-11-11T12:00:00.000Z',
+    authorize:()=>{if(!permitted)throw new Error('Licença expirada');}
+  });
+  try {
+    lan.configure({enabled:true,host:'127.0.0.1',port:0},{id:'local-admin',role:'ADMIN'});
+    const address=await lan.startConfigured();
+    const url='http://127.0.0.1:'+address.port;
+    const before=await fetch(url+'/health');
+    assert.equal(before.status,200);
+    permitted=false;
+    for (const route of ['/','/health','/api/dashboard','/api/entries']) {
+      const response=await fetch(url+route);
+      assert.equal(response.status,403,route);
+      assert.match((await response.json()).error,/licença expirada/i);
+    }
+  } finally {
+    await lan.stop();
+    ctx.cleanup();
+  }
+});

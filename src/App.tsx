@@ -1,6 +1,7 @@
 import { type ReactNode, useEffect, useState } from 'react';
 import { ArrowLeftRight, BarChart3, BellRing, Database, FileInput, FileText, Folder, LogOut, Menu, ReceiptText, Repeat2, Settings, Users, WalletCards } from 'lucide-react';
 import AuthScreen from './components/AuthScreen';
+import LicenseScreen from './components/LicenseScreen';
 import AlertsPage from './pages/AlertsPage';
 import CashflowPage from './pages/CashflowPage';
 import DashboardPage from './pages/DashboardPage';
@@ -27,6 +28,12 @@ export default function App() {
   const [token, setToken] = useState('');
   const [session, setSession] = useState<FinanceiroSession | null>(null);
   const [restoring, setRestoring] = useState(Boolean(api));
+  const [licenseStatus,setLicenseStatus] = useState<FinanceiroLicenseStatus | null>(null);
+  useEffect(() => {
+    if (!api) return;
+    if (!api.license) { setLicenseStatus({active:true,mode:'trial',reason:'commercial'}); return; }
+    api.license.status().then(setLicenseStatus).catch((err) => setLicenseStatus({active:false,mode:'trial',reason:'unavailable',message:String(err?.message||err)}));
+  }, [api]);
   const [page, setPage] = useState<Page>('dashboard');
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
@@ -38,6 +45,8 @@ export default function App() {
   }, [api]);
 
   if (!api) return <Preview/>;
+  if (!licenseStatus) return <main className="auth-shell"><div className="auth-card"><h1>Sistema Financeiro</h1><p className="muted">Verificando licença de avaliação…</p></div></main>;
+  if (!licenseStatus.active) return <LicenseScreen status={licenseStatus} onActivated={setLicenseStatus}/>;
   if (restoring) return <main className="auth-shell"><div className="auth-card"><h1>Sistema Financeiro</h1><p className="muted">Restaurando sessão local…</p></div></main>;
   if (!session || !token) return <AuthScreen onAuthenticated={(nextToken, nextSession) => { setToken(nextToken); setSession(nextSession); }}/>
 
