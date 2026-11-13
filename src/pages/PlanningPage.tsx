@@ -11,7 +11,7 @@ function parseNonNegativeCents(value:string){if(!value.trim())return 0;const par
 
 export default function PlanningPage({token,session,focusApprovalEntryId,onApprovalFocusHandled}:Props){
   const api=window.financeiro!; const planning=window.financeiroPlanning!; const editable=can(session,'finance.manage');
-  const [tab,setTab]=useState<Tab>('centers'); const [error,setError]=useState(''); const [loading,setLoading]=useState(true);
+  const [tab,setTab]=useState<Tab>('centers'); const [error,setError]=useState(''); const [loading,setLoading]=useState(true);const [notice,setNotice]=useState('');
   const [centers,setCenters]=useState<PlanningCostCenter[]>([]); const [tags,setTags]=useState<PlanningTag[]>([]); const [entries,setEntries]=useState<FinanceEntry[]>([]); const [categories,setCategories]=useState<FinancialCategory[]>([]);
   const [scenarios,setScenarios]=useState<BudgetScenario[]>([]); const [budgets,setBudgets]=useState<PlanningBudget[]>([]); const [comparisons,setComparisons]=useState<BudgetComparison[]>([]); const [goals,setGoals]=useState<FinancialGoalRecord[]>([]);
   const [policies,setPolicies]=useState<ApprovalPolicyRecord[]>([]); const [approvals,setApprovals]=useState<ApprovalRequestRecord[]>([]); const [projection,setProjection]=useState<PlanningProjectionRow[]>([]);
@@ -27,7 +27,7 @@ export default function PlanningPage({token,session,focusApprovalEntryId,onAppro
   const [projectionForm,setProjectionForm]=useState({months:'12',adjustmentMonth:`${year}-${String(month).padStart(2,'0')}`,adjustmentAmount:''});
 
   const handleError=(err:unknown)=>setError(err instanceof Error?err.message:String(err));
-  const reload=useCallback(async()=>{setLoading(true);try{const [nextCenters,nextTags,nextEntries,nextCategories,nextScenarios,nextBudgets,nextGoals,nextPolicies,nextApprovals,nextProjection,nextComparisons]=await Promise.all([
+  const reload=useCallback(async()=>{try{const [nextCenters,nextTags,nextEntries,nextCategories,nextScenarios,nextBudgets,nextGoals,nextPolicies,nextApprovals,nextProjection,nextComparisons]=await Promise.all([
     planning.listCostCenters(token),planning.listTags(token),api.finance.listEntries(token),api.registry.listCategories(token,{includeInactive:false}),planning.listScenarios(token),planning.listBudgets(token,{year}),planning.listGoals(token),planning.listApprovalPolicies(token),planning.listApprovals(token),planning.projection(token,{months:12}),planning.compareBudget(token,{scenarioId:'base',year})
   ]);setCenters(nextCenters);setTags(nextTags);setEntries(nextEntries);setCategories(nextCategories);setScenarios(nextScenarios);setBudgets(nextBudgets);setGoals(nextGoals);setPolicies(nextPolicies);setApprovals(nextApprovals);setProjection(nextProjection);setComparisons(nextComparisons);if(!selectedEntry&&nextEntries[0])setSelectedEntry(nextEntries[0].id);setError('');}catch(err){handleError(err);}finally{setLoading(false);}},[api,planning,token,year,selectedEntry]);
   useEffect(()=>{void reload();},[reload]);
@@ -46,13 +46,22 @@ export default function PlanningPage({token,session,focusApprovalEntryId,onAppro
   async function saveGoal(event:FormEvent){event.preventDefault();try{await planning.saveGoal(token,{name:goalForm.name,metric:goalForm.metric,targetCents:toCents(goalForm.target),periodStart:goalForm.periodStart,periodEnd:goalForm.periodEnd});setGoalForm({...goalForm,name:'',target:''});await reload();}catch(err){handleError(err);}}
   async function saveScenario(event:FormEvent){event.preventDefault();try{await planning.saveScenario(token,{name:scenarioName,kind:'CUSTOM'});setScenarioName('');await reload();}catch(err){handleError(err);}}
   async function savePolicy(event:FormEvent){event.preventDefault();try{await planning.saveApprovalPolicy(token,{name:policyForm.name,minAmountCents:parseNonNegativeCents(policyForm.minAmount),requiredApprovals:Number(policyForm.requiredApprovals),approverRoles:['ADMIN','FINANCE','MANAGER']});setPolicyForm({name:'',minAmount:'',requiredApprovals:'1'});await reload();}catch(err){handleError(err);}}
-  async function requestApproval(){try{await planning.requestApproval(token,{entryId:selectedEntry});await reload();}catch(err){handleError(err);}}
-  async function decide(id:string,decision:'APPROVED'|'REJECTED'){try{await planning.decideApproval(token,id,{decision});await reload();}catch(err){handleError(err);}}
+  async function requestApproval(){
+    if(!selectedEntry){setError('Selecione um lançamento antes de solicitar aprovação.');return;}
+    try{await planning.requestApproval(token,{entryId:selectedEntry});await reload();setNotice('Aprovação solicitada. O pagamento só será liberado após as aprovações exigidas.');}
+    catch(err){handleError(err);}
+  }
+  async function decide(id:string,decision:'APPROVED'|'REJECTED'){
+    try{const result=await planning.decideApproval(token,id,{decision});await reload();
+      setNotice(result.status==='APPROVED'?'Aprovação concluída. O pagamento pode ser registrado.':
+        result.status==='PENDING'?'Decisão registrada; outras aprovações ainda são necessárias.':'Solicitação rejeitada.');}
+    catch(err){handleError(err);}
+  }
   async function runBulk(){try{const payload:Record<string,unknown>={};if(bulkForm.action==='CATEGORY')payload.categoryId=bulkForm.value;if(bulkForm.action==='TAG')payload.tagId=bulkForm.value;if(bulkForm.action==='COST_CENTER')payload.costCenterId=bulkForm.value;if(bulkForm.action==='APPROVAL'&&bulkForm.value)payload.policyId=bulkForm.value;await planning.runBulk(token,{entryIds:selectedBulk,action:bulkForm.action,payload});setSelectedBulk([]);await reload();}catch(err){handleError(err);}}
   async function recalcProjection(){try{const adjustments=projectionForm.adjustmentAmount?[{month:projectionForm.adjustmentMonth,amountCents:parseSignedCents(projectionForm.adjustmentAmount)}]:[];setProjection(await planning.projection(token,{months:Number(projectionForm.months),adjustments}));}catch(err){handleError(err);}}
 
   if(loading)return <section className="page-stack"><div className="panel"><p className="muted">Carregando planejamento…</p></div></section>;
-  return <section className="page-stack" data-testid="page-planning"><div className="page-header"><div><p className="eyebrow">Planejamento</p><h2>Controle financeiro avançado</h2><p className="muted">Centros de custo, orçamento, cenários, aprovações, lotes e projeções locais.</p></div><button type="button" className="secondary-button" onClick={()=>void reload()}><RefreshCcw size={16}/> Atualizar</button></div>{error&&<div className="error-box">{error}</div>}
+  return <section className="page-stack" data-testid="page-planning"><div className="page-header"><div><p className="eyebrow">Planejamento</p><h2>Controle financeiro avançado</h2><p className="muted">Centros de custo, orçamento, cenários, aprovações, lotes e projeções locais.</p></div><button type="button" className="secondary-button" onClick={()=>void reload()}><RefreshCcw size={16}/> Atualizar</button></div>{error&&<div className="error-box" role="alert">{error}</div>}{notice&&<div className="success-box" role="status">{notice}</div>}
     <div className="segmented planning-tabs">{([['centers','Centros e rateios'],['budget','Orçamento e metas'],['scenarios','Cenários'],['approvals','Aprovações e lote'],['projection','Projeções']] as Array<[Tab,string]>).map(([id,label])=><button key={id} type="button" className={tab===id?'active':''} onClick={()=>setTab(id)}>{label}</button>)}</div>
 
     {tab==='centers'&&<><div className="dashboard-grid two"><form className="panel form-grid" onSubmit={saveCenter}><h3><Layers3 size={18}/> Novo centro de custo</h3><label>Código<input required value={centerForm.code} onChange={(e)=>setCenterForm({...centerForm,code:e.target.value})}/></label><label>Nome<input required value={centerForm.name} onChange={(e)=>setCenterForm({...centerForm,name:e.target.value})}/></label><label>Centro pai<select value={centerForm.parentId} onChange={(e)=>setCenterForm({...centerForm,parentId:e.target.value})}><option value="">Raiz</option>{centers.map((c)=><option key={c.id} value={c.id}>{c.code} · {c.name}</option>)}</select></label>{editable&&<button className="primary-button"><Plus size={16}/> Salvar centro</button>}</form><form className="panel form-grid" onSubmit={saveTag}><h3>Tags financeiras</h3><label className="wide">Nova tag<input required value={tagName} onChange={(e)=>setTagName(e.target.value)} placeholder="Ex.: Impostos, Marketing"/></label>{editable&&<button className="primary-button"><Plus size={16}/> Salvar tag</button>}<div className="chip-row">{tags.map((tag)=><span key={tag.id} className="badge">{tag.name}</span>)}</div></form></div>
