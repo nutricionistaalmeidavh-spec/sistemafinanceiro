@@ -94,3 +94,5 @@ jobs:
           $assets += @(Get-ChildItem release -Filter '*.blockmap' | ForEach-Object { $_.FullName })
           gh release create $tag $assets --repo "${{ github.repository }}" --target "${{ github.sha }}" --title "ArtiSys Financeiro v$v" --notes "Atualizacao Windows v${v}: identidade do instalador de avaliacao anterior preservada para atualizacao sobre a instalacao existente. Nome unificado ArtiSys Financeiro, licenca temporaria e dados SQLite preservados. Atualizacao opcional pelo GitHub." --latest
           if ($LASTEXITCODE -ne 0) { throw 'Falha ao publicar release' }
+
+# Publicacao v0.1.5 autorizada apos QA verde da PR #27; preserva atualizacao por cima e licencas legadas.
