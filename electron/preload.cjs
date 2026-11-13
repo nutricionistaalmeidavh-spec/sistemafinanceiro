@@ -2,6 +2,17 @@ const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('financeiro', {
   system: { health: () => ipcRenderer.invoke('system:health') },
+  license: {
+    status: () => ipcRenderer.invoke('license:status'),
+    activate: (code) => ipcRenderer.invoke('license:activate', code),
+  },
+  updates: {
+    status: () => ipcRenderer.invoke('updates:status'),
+    check: () => ipcRenderer.invoke('updates:check'),
+    download: () => ipcRenderer.invoke('updates:download'),
+    install: () => ipcRenderer.invoke('updates:install'),
+    onStatus: (callback) => { const handler=(_event,status)=>callback(status);ipcRenderer.on('updates:status-changed',handler);return ()=>ipcRenderer.removeListener('updates:status-changed',handler); },
+  },
   auth: {
     needsBootstrap: () => ipcRenderer.invoke('auth:needs-bootstrap'),
     bootstrap: (input) => ipcRenderer.invoke('auth:bootstrap', input),
