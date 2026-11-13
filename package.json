@@ -17,6 +17,8 @@
     "dist:package": "node ./scripts/package-windows.mjs",
     "qa:validate": "artisys-qa validate --config ./artisys-qa.config.json",
     "qa:final": "node ./scripts/qa-final-local.mjs",
+    "qa:perf:smoke": "node ./scripts/qa-performance.mjs",
+    "qa:perf:full": "cross-env PERF_LEVELS=1000,10000,100000 node ./scripts/qa-performance.mjs",
     "ci:bootstrap": "node ./scripts/ci-bootstrap.mjs && node ./scripts/ci-bootstrap-ocr.mjs",
     "ci:qa-final": "node ./scripts/ci-capture-final-screens.mjs",
     "security": "node ./scripts/security.mjs",
