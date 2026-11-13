@@ -104,7 +104,7 @@ function withTransaction(db, fn) {
 }
 function rowTotal(db,sql,...args){return Number(db.prepare(sql).get(...args)?.total||0);}
 
-function createStatementImportService({ db=null, now=()=>new Date().toISOString(), idFactory=(prefix)=>`${prefix}-${crypto.randomUUID()}`, domainLoader=()=>import('@artisys/finance-domain'), pdfTextLoader=defaultPdfTextLoader }={}) {
+function createStatementImportService({ db=null, finance=null, now=()=>new Date().toISOString(), idFactory=(prefix)=>`${prefix}-${crypto.randomUUID()}`, domainLoader=()=>import('@artisys/finance-domain'), pdfTextLoader=defaultPdfTextLoader }={}) {
   async function parseInput(input, sourceType) {
     if(sourceType==='CSV')return parseCsv(input.content);
     if(sourceType==='OFX')return parseOfx(input.content);
@@ -190,10 +190,14 @@ function createStatementImportService({ db=null, now=()=>new Date().toISOString(
     const feedback=db.prepare('SELECT transaction_id,entry_id,accepted,rejected,manual FROM bank_reconciliation_feedback').all(); const pairStats={}; for(const row of feedback)pairStats[`${row.transaction_id}|${row.entry_id}`]={accepted:row.accepted,rejected:row.rejected,manual:row.manual};
     return domain.suggestReconciliation(transactions,obligations,confirmedMatches,{minConfidence:Number(filters.minConfidence??0.65),pairStats});
   }
-  async function recordDecision({transactionId,entryId,decision,amountCents},actor=null) {
+  async function recordDecision({transactionId,entryId,decision,amountCents,registerSettlement=false},actor=null) {
     if(!db)throw new Error('database is required');
-    const domain=await domainLoader(); if(!['accepted','rejected','manual'].includes(decision))throw new TypeError('invalid decision');
-    const tx=db.prepare('SELECT id,amount_cents,direction,account_id FROM bank_transactions WHERE id=?').get(transactionId);
+    const domain=await domainLoader();
+    if(!['accepted','rejected','manual'].includes(decision))throw new TypeError('invalid decision');
+    if(registerSettlement!==true && registerSettlement!==false)throw new TypeError('registerSettlement must be boolean');
+    if(registerSettlement && decision==='rejected')throw new Error('rejected reconciliation cannot register a payment');
+    if(registerSettlement && !finance)throw new Error('finance service is required for payment registration');
+    const tx=db.prepare('SELECT id,amount_cents,direction,account_id,occurred_at FROM bank_transactions WHERE id=?').get(transactionId);
     const entry=db.prepare('SELECT id,amount_cents,kind,status,account_id FROM financial_entries WHERE id=?').get(entryId);
     if(!tx||!entry)throw new Error('transaction or entry not found');
     if(decision!=='rejected') {
@@ -203,26 +207,56 @@ function createStatementImportService({ db=null, now=()=>new Date().toISOString(
       if(entry.account_id && entry.account_id!==tx.account_id)throw new Error('bank transaction account differs from financial entry account');
     }
     const current=db.prepare('SELECT accepted,rejected,manual FROM bank_reconciliation_feedback WHERE transaction_id=? AND entry_id=?').get(transactionId,entryId)||{accepted:0,rejected:0,manual:0};
-    const next=domain.updatePairStats(current,decision); const createdAt=now();
+    const next=domain.updatePairStats(current,decision);
+    const createdAt=now();
     return withTransaction(db,()=>{
+      const linked=db.prepare('SELECT id,amount_cents,settlement_id FROM bank_reconciliation_links WHERE transaction_id=? AND entry_id=?').get(transactionId,entryId);
+      const linkedPayment=linked?.settlement_id
+        ? db.prepare('SELECT id,reversed_at FROM financial_settlements WHERE id=?').get(linked.settlement_id)
+        : null;
+      if(decision==='rejected' && linkedPayment && !linkedPayment.reversed_at)
+        throw new Error('reverse the linked payment before rejecting its reconciliation');
       db.prepare('INSERT INTO bank_reconciliation_feedback(transaction_id,entry_id,accepted,rejected,manual,updated_at) VALUES (?,?,?,?,?,?) ON CONFLICT(transaction_id,entry_id) DO UPDATE SET accepted=excluded.accepted,rejected=excluded.rejected,manual=excluded.manual,updated_at=excluded.updated_at').run(transactionId,entryId,next.accepted,next.rejected,next.manual,createdAt);
-      if(decision==='rejected')db.prepare('DELETE FROM bank_reconciliation_links WHERE transaction_id=? AND entry_id=?').run(transactionId,entryId);
-      else {
+      let settlementId=null;
+      let alreadyRegistered=false;
+      if(decision==='rejected'){
+        db.prepare('DELETE FROM bank_reconciliation_links WHERE transaction_id=? AND entry_id=?').run(transactionId,entryId);
+      } else if(linkedPayment && !linkedPayment.reversed_at) {
+        // Idempotent payment registration: same bank transaction cannot be paid twice.
+        settlementId=linkedPayment.id;
+        alreadyRegistered=true;
+      } else {
         const txUsed=rowTotal(db,'SELECT COALESCE(SUM(amount_cents),0) total FROM bank_reconciliation_links WHERE transaction_id=? AND entry_id<>?',transactionId,entryId);
         const entryUsed=rowTotal(db,'SELECT COALESCE(SUM(amount_cents),0) total FROM bank_reconciliation_links WHERE entry_id=? AND transaction_id<>?',entryId,transactionId);
-                const txAvailable=Math.max(0,Number(tx.amount_cents)-txUsed);
-        // A reconciliation link documents evidence; it never creates or reduces a financial settlement.
-        // Therefore fully-paid entries must remain eligible for evidence linking.
+        const txAvailable=Math.max(0,Number(tx.amount_cents)-txUsed);
+        // Reconciliation evidence can link a previously registered payment;
+        // it must never be interpreted as a second financial payment.
         const entryAvailable=Math.max(0,Number(entry.amount_cents)-entryUsed);
-        const requested=Number(amountCents||tx.amount_cents);
-        const allocated=Math.min(requested,txAvailable,entryAvailable);
+        const requested=Number(amountCents ?? tx.amount_cents);
+        const openCents=registerSettlement ? finance.getEntry(entryId).openCents : Infinity;
+        const allocated=Math.min(requested,txAvailable,entryAvailable,openCents);
         if(!Number.isSafeInteger(allocated)||allocated<=0)throw new Error('no remaining amount available for reconciliation');
-        db.prepare('INSERT INTO bank_reconciliation_links(id,transaction_id,entry_id,amount_cents,decision,created_by,created_at) VALUES (?,?,?,?,?,?,?) ON CONFLICT(transaction_id,entry_id) DO UPDATE SET amount_cents=excluded.amount_cents,decision=excluded.decision,created_by=excluded.created_by,created_at=excluded.created_at').run(idFactory('bank-link'),transactionId,entryId,allocated,decision,actor?.id||null,createdAt);
+        if(registerSettlement) {
+          const result=finance.settleEntry(entryId,{
+            amountCents:allocated,accountId:tx.account_id,occurredAt:tx.occurred_at,
+            method:'OTHER',note:`Baixa confirmada por conciliação bancária (${transactionId})`,
+          },actor,{withinTransaction:true});
+          settlementId=result.settlement.id;
+        }
+        db.prepare(`INSERT INTO bank_reconciliation_links(id,transaction_id,entry_id,amount_cents,decision,created_by,created_at,settlement_id)
+          VALUES (?,?,?,?,?,?,?,?)
+          ON CONFLICT(transaction_id,entry_id) DO UPDATE SET
+          amount_cents=excluded.amount_cents,decision=excluded.decision,
+          created_by=excluded.created_by,created_at=excluded.created_at,
+          settlement_id=COALESCE(excluded.settlement_id,bank_reconciliation_links.settlement_id)`)
+          .run(idFactory('bank-link'),transactionId,entryId,allocated,decision,actor?.id||null,createdAt,settlementId);
       }
       const hasLinks=rowTotal(db,'SELECT COUNT(*) total FROM bank_reconciliation_links WHERE transaction_id=?',transactionId)>0;
       db.prepare('UPDATE bank_transactions SET review_status=? WHERE id=?').run(hasLinks?'MATCHED':'REVIEWED',transactionId);
-      db.prepare('INSERT INTO audit_log(action,entity,entity_id,actor_id,actor_role,context_json,created_at) VALUES (?,?,?,?,?,?,?)').run('bank_reconciliation_decision','bank_transaction',transactionId,actor?.id||null,actor?.role||null,JSON.stringify({entryId,decision,stats:next}),createdAt);
-      return {transactionId,entryId,decision,stats:next};
+      db.prepare('INSERT INTO audit_log(action,entity,entity_id,actor_id,actor_role,context_json,created_at) VALUES (?,?,?,?,?,?,?)')
+        .run('bank_reconciliation_decision','bank_transaction',transactionId,actor?.id||null,actor?.role||null,
+          JSON.stringify({entryId,decision,registerSettlement,settlementId,alreadyRegistered,stats:next}),createdAt);
+      return {transactionId,entryId,decision,registerSettlement,settlementId,alreadyRegistered,stats:next};
     });
   }
   return {preview,commit,listTransactions,suggestTransfers,suggestEntries,recordDecision};
