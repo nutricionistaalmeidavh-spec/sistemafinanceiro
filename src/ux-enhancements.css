@@ -1,0 +1,47 @@
+/* UX de operacao diaria; mantem o design system e a identidade ArtiSys. */
+.dashboard-actions{display:flex;gap:9px;flex-wrap:wrap;align-items:center}
+.dashboard-asof{font-size:12px;color:#59677f;margin:0;background:#f0f1fa;border-radius:9px;padding:10px 13px}
+.first-use-prompt{display:grid;justify-items:start;gap:10px}
+.first-use-prompt p{margin:0}
+.upcoming-list{display:grid;gap:2px;margin-top:12px}
+.upcoming-item{width:100%;display:flex;justify-content:space-between;gap:12px;align-items:center;padding:12px 4px;border:0;border-bottom:1px solid #edf0f4;background:transparent;text-align:left;color:inherit}
+.upcoming-item:hover{background:#f7f7fc}
+.upcoming-item span{display:grid;gap:3px}
+.upcoming-item small{font-size:11px;color:#768299}
+.upcoming-item strong{white-space:nowrap}
+.recurrence-preview{background:#f8f8fe;border:1px solid #e6e6f7;border-radius:10px;padding:14px}
+.recurrence-preview strong{font-size:13px}
+.recurrence-preview p{margin:5px 0 10px;font-size:12px}
+.recurrence-preview .chip-row{display:flex;gap:7px;flex-wrap:wrap}
+.first-use-layer{position:fixed;inset:0;z-index:200;background:rgba(25,29,46,.53);display:grid;place-items:center;padding:20px;overflow:auto}
+.first-use-panel{width:min(640px,100%);max-height:min(92vh,900px);overflow:auto;border-radius:19px;background:#fff;padding:25px;box-shadow:0 26px 65px rgba(20,24,44,.27);display:grid;gap:19px}
+.first-use-header{display:flex;justify-content:space-between;gap:15px;align-items:start}
+.first-use-header h2{font-size:25px}
+.first-use-header p{font-size:13px;margin-top:8px}
+.first-use-header button{flex-shrink:0}
+.first-use-steps{display:flex;list-style:none;gap:6px;margin:0;padding:0}
+.first-use-steps li{display:flex;align-items:center;gap:6px;flex:1;color:#81899c;font-size:11px;font-weight:650}
+.first-use-steps li>span{width:26px;height:26px;display:grid;place-items:center;flex-shrink:0;border-radius:50%;background:#eef0f5;color:#7f889b}
+.first-use-steps li.current{color:#5049ce}.first-use-steps li.current>span{background:#5751dc;color:#fff}
+.first-use-steps li.done>span{background:#e7f5ed;color:#27824a}
+.first-use-form{padding:15px 2px 4px}
+.first-use-form p{line-height:1.5}
+.first-use-complete{display:grid;justify-items:center;gap:15px;text-align:center;padding:22px 15px}
+.first-use-complete svg{color:#338954}
+.first-use-complete p{color:#637089;max-width:400px}
+.finance-drawer textarea{width:100%;min-height:90px;border:1px solid #dce2ec;border-radius:9px;padding:10px;resize:vertical}
+.finance-drawer .drawer-form .inline-account-form{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:end}
+.finance-drawer .drawer-form .inline-account-form button{width:auto;grid-column:auto}
+.finance-drawer .drawer-form .inline-account-form label{display:grid;gap:6px}
+:where(button,input,select,textarea,[tabindex]):focus-visible{outline:3px solid #847cf0;outline-offset:2px}
+@media(max-width:720px){
+  .dashboard-actions>*{flex:1 1 auto}
+  .first-use-panel{max-height:100%;padding:19px;border-radius:14px}
+  .first-use-header{flex-direction:column}
+  .first-use-steps{flex-direction:column;gap:8px}
+  .first-use-steps li{flex:none}
+  .finance-drawer .drawer-form .inline-account-form{grid-template-columns:1fr}
+}
+@media(prefers-reduced-motion:reduce){
+ .first-use-layer *, .finance-drawer {animation:none!important;transition:none!important}
+}
