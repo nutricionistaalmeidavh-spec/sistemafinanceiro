@@ -1,0 +1,92 @@
+name: ArtiSys Financeiro | canal unico Windows e GitHub Releases
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'electron/**'
+      - 'src/**'
+      - 'tests/**'
+      - 'scripts/**'
+      - 'database/**'
+      - 'package.json'
+      - '.github/workflows/financeiro-release.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: financeiro-unificado-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: QA e unico instalador NSIS
+    runs-on: windows-latest
+    timeout-minutes: 70
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Preparar dependencias locais
+        run: npm run ci:bootstrap
+      - name: Instalar dependencias open source
+        run: npm install --no-audit --no-fund
+      - name: Testar dominio, licencas e updater
+        run: npm test
+      - name: Validar TypeScript e compilar interface
+        run: npm run build
+      - name: Preparar Electron para QA
+        shell: pwsh
+        run: |
+          if (-not (Test-Path node_modules/electron/dist/electron.exe)) { node node_modules/electron/install.js }
+          if (-not (Test-Path node_modules/electron/dist/electron.exe)) { throw 'Electron nao encontrado' }
+      - name: QA real com fixtures isoladas
+        run: npm run ci:qa-final
+      - name: Gerar instalador unico e manifesto do updater
+        run: npm run dist:package
+      - name: Validar instalador, latest.yml e SHA-256
+        shell: pwsh
+        run: |
+          $v=(Get-Content package.json -Raw | ConvertFrom-Json).version
+          $exe="release/ArtiSys-Financeiro-Setup-$v.exe"
+          $feed="release/latest.yml"
+          if (-not (Test-Path $exe)) { throw "Instalador ausente: $exe" }
+          if ((Get-Item $exe).Length -lt 50000000) { throw 'Instalador pequeno demais' }
+          if (-not (Test-Path $feed)) { throw 'Manifesto latest.yml ausente' }
+          if (-not (Select-String -Path $feed -Pattern "version: $v" -Quiet)) { throw 'Versao do feed difere do instalador' }
+          if (-not (Select-String -Path $feed -Pattern ([regex]::Escape("ArtiSys-Financeiro-Setup-$v.exe")) -Quiet)) { throw 'Instalador nao referenciado no feed' }
+          (Get-FileHash -Path $exe -Algorithm SHA256).Hash.ToLowerInvariant() | Set-Content "release/ArtiSys-Financeiro-Setup-$v.sha256"
+      - name: Preservar artefatos e evidencias de QA
+        uses: actions/upload-artifact@v4
+        with:
+          name: artisys-financeiro-unificado-${{ github.sha }}
+          path: |
+            release/ArtiSys-Financeiro-Setup-*.exe
+            release/ArtiSys-Financeiro-Setup-*.sha256
+            release/latest.yml
+            release/*.blockmap
+            qa-artifacts/final/screenshots/*.png
+            qa-artifacts/final/metrics/*.json
+          if-no-files-found: error
+          retention-days: 90
+      - name: Publicar uma release somente por comando manual na main
+        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $v=(Get-Content package.json -Raw | ConvertFrom-Json).version
+          $tag="financeiro-v$v"
+          gh release view $tag --repo "${{ github.repository }}" *> $null
+          if ($LASTEXITCODE -eq 0) { throw "Release existente: $tag. Nunca sobrescrever." }
+          $assets=@("release/ArtiSys-Financeiro-Setup-$v.exe","release/ArtiSys-Financeiro-Setup-$v.sha256","release/latest.yml")
+          $assets += @(Get-ChildItem release -Filter '*.blockmap' | ForEach-Object { $_.FullName })
+          gh release create $tag $assets --repo "${{ github.repository }}" --target "${{ github.sha }}" --title "ArtiSys Financeiro v$v" --notes "Instalador Windows unificado com ativacao por codigo obrigatoria e atualizacao opcional via GitHub. SQLite local preservado." --latest
+          if ($LASTEXITCODE -ne 0) { throw 'Falha ao publicar release' }

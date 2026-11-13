@@ -6,7 +6,6 @@ const removedSurfaces = [
   'src/pages/StatementsPage.tsx',
   'src/vite-env.d.ts',
   'electron/preload.cjs',
-  'electron/trial-preload.cjs',
   'electron/ipc-handlers.cjs',
   'electron/services/statement-import-service.cjs',
   'electron/services/open-format-service.cjs',

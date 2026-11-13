@@ -1,55 +1,50 @@
-# ArtiSys Financeiro — licença de avaliação com código curto
-
-## Fluxo para o cliente
-
-1. Baixe o instalador `ArtiSys-Financeiro-Avaliacao-Setup-0.1.0.exe` da pré-release.
-2. Instale e abra o aplicativo.
-3. Digite o código de **12 caracteres** no formato `XXXX-XXXX-XXXX`.
-4. Cadastre o administrador local.
-
-Ativação, uso e validação de prazo funcionam **sem internet**. Não há dependência obrigatória de serviço pago ou hospedagem.
-
-## Arquitetura e segurança
-
-- Emissão local: Node.js `node:crypto` (Ed25519, scrypt, AES-256-GCM).
-- A chave privada do emissor fica exclusivamente com a ArtiSys, fora do repositório.
-- O emissor assina o entitlement com Ed25519.
-- Um código aleatório de 12 caracteres é gerado por CSPRNG.
-- O entitlement assinado é criptografado com AES-256-GCM e uma chave derivada do código via scrypt.
-- **Somente o pacote criptografado** `electron/services/trial-activation.bundle.json` é embutido no instalador. Não armazene o código curto nem a chave privada no GitHub.
-- Ao ativar, o aplicativo decifra o pacote e verifica a assinatura Ed25519; persiste a licença assinada no diretório privado `userData`.
-- O prazo de até 14 dias conta **a partir da emissão**. A UI, os IPCs e as rotas LAN bloqueiam operações após expiração, preservando dados SQLite.
-
-## Emitir uma nova licença e build personalizada
-
-Na máquina segura que guarda `issuer-private.pem`:
-
-```bash
-node scripts/issue-trial-license.mjs \
-  --private-key /seguro/issuer-private.pem \
-  --customer "Nome do cliente" \
-  --days 14 \
-  --out-code /seguro/codigo-do-cliente.txt \
-  --out-bundle electron/services/trial-activation.bundle.json
-```
-
-O arquivo `/seguro/codigo-do-cliente.txt` contém somente o código curto. **Nunca envie o PEM nem o entitlement completo ao cliente.** O comando atualiza o pacote criptografado específico do cliente; execute o workflow Windows para gerar novo instalador.
-
-O instalador de cada cliente precisa conter seu próprio pacote. Não reutilize o mesmo instalador para emitir códigos diferentes; para emissão centralizada de licenças reutilizando uma build, seria necessário um servidor de ativações, que não faz parte do core offline.
+# ArtiSys Financeiro — licença e instalador únicos
 
 ## Distribuição
 
-- appId: `br.com.artisys.sistemafinanceiro.trial`
-- productName: `ArtiSys Financeiro - Avaliacao`
-- Artefato: `ArtiSys-Financeiro-Avaliacao-Setup-0.1.0.exe`
-- GitHub Actions executa `npm test`, `npm run build`, empacotamento Windows NSIS, SHA-256 e publica a pré-release.
-- **Não substituir** o instalador comercial que já está no Google Drive.
+Há somente um instalador Windows NSIS: `ArtiSys-Financeiro-Setup-<versao>.exe` e uma release estável `financeiro-v<versao>`.
+O `appId` é `br.com.artisys.sistemafinanceiro`, sem variante de avaliação.
+A publicação é exclusivamente manual na `main` pelo workflow `.github/workflows/financeiro-release.yml`, após testes, build e QA real. Um código é obrigatório para **qualquer usuário**.
 
-## Limites conhecidos
+## Geração de códigos sem recompilar
 
-- O código pode ser compartilhado com quem tiver **esse instalador**. O acesso não é vinculado a um único dispositivo; não há revogação remota.
-- A lógica de proteção em aplicativos desktop é vulnerável a engenharia reversa por usuários com controle do executável.
-- A prevenção de retrocesso do relógio é local e não é infalível.
-- A data de validade não se estende se o cliente instalar mais tarde. Para outra data, emita e compile novo pacote.
+O emissor usa Node.js 22+, Ed25519, scrypt e AES-256-GCM. A chave privada deve estar fora do repositório e corresponder à chave pública instalada em `electron/services/license-public.pem`.
 
-Tudo é open source e funciona localmente, com custo de software `R$ 0`.
+```bash
+node scripts/issue-license.mjs \
+  --private-key /seguro/issuer-private.pem \
+  --customer "Cliente" \
+  --type TRIAL \
+  --days 14 \
+  --out-code /seguro/codigo-do-cliente.txt
+```
+
+Tipos: `TRIAL` por 1 a 14 dias, `TERM` por N dias (por exemplo `--days 365`) e `PERPETUAL` sem vencimento. Todos usam o mesmo instalador.
+
+O emissor cria um código `XXXX-XXXX-XXXX-XXXX` fora do repositório e acrescenta um registro criptografado, indexado pelo SHA-256 do código, ao arquivo `licenses/catalog.json`. O catálogo não contém códigos nem nomes de clientes em claro.
+
+**Depois de emitir, publique a atualização de `licenses/catalog.json` na branch `main`.** Não é necessário publicar uma nova release ou recompilar o instalador para cada cliente.
+
+A primeira ativação requer internet para consultar o catálogo HTTPS público e decifrar o entitlement com o código informado. A assinatura Ed25519 é verificada localmente. A partir daí, a licença é persistida no diretório privado `userData`, e o financeiro funciona sem internet.
+
+Não copie a chave privada ao GitHub, ao instalador nem ao catálogo. Se a chave privada correspondente à chave pública existente tiver sido perdida, planeje a rotação da chave pública antes de emitir licenças novas.
+
+## Atualização
+
+O aplicativo instalado consulta `latest.yml` das GitHub Releases estáveis ao iniciar. Havendo uma versão superior, mostra **Baixar atualização** e **Agora não**. O usuário pode baixar, validar o pacote pelo SHA-512 e escolher **Instalar e reiniciar**. Nenhuma instalação silenciosa é feita. O núcleo não usa serviços pagos ou SaaS.
+
+A versão 0.1.3 é a primeira com verificador de atualizações. Instalações anteriores precisam atualizar manualmente uma única vez.
+
+## Preservação de dados
+
+O banco SQLite, as configurações, o Workspace e a licença residem em `userData`, não na pasta de instalação NSIS. Ao atualizar, permanecem no mesmo local.
+
+Se o usuário tinha a antiga edição de avaliação e o banco unificado ainda não existe, o aplicativo copia banco, arquivos, backups e licença do diretório `ArtiSys Financeiro - Avaliacao`, sem apagar a origem. Se o banco unificado já existe, ele nunca é sobrescrito automaticamente; faça migração manual caso tenha dados em ambas as edições.
+
+Códigos legados já ativados podem continuar válidos pela licença assinada migrada. Códigos curtos antigos ainda não ativados, criados para instaladores personalizados, talvez precisem ser reemitidos.
+
+## Limites de segurança
+
+Códigos podem ser compartilhados; a validação offline não impõe vínculo rígido a dispositivo ou revogação imediata. Um executável desktop pode sofrer engenharia reversa. Proteção avançada requer assinatura de código e política de distribuição apropriada.
+
+Core local e open source, com custo obrigatório de software de **R$ 0**.

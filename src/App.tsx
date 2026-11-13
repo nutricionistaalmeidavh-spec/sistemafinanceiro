@@ -2,6 +2,7 @@ import { Profiler, type ReactNode, useEffect, useState } from 'react';
 import { ArrowLeftRight, BarChart3, BellRing, Database, FileInput, FileText, Folder, LogOut, Menu, ReceiptText, Repeat2, Settings, Users, WalletCards } from 'lucide-react';
 import AuthScreen from './components/AuthScreen';
 import LicenseScreen from './components/LicenseScreen';
+import UpdateNotice from './components/UpdateNotice';
 import FirstUseGuide from './components/FirstUseGuide';
 import AlertsPage from './pages/AlertsPage';
 import CashflowPage from './pages/CashflowPage';
@@ -47,14 +48,13 @@ export default function App() {
   const [licenseStatus,setLicenseStatus] = useState<FinanceiroLicenseStatus | null>(null);
   useEffect(() => {
     if (!api) return;
-    if (!api.license) { setLicenseStatus({active:true,mode:'trial',reason:'commercial'}); return; }
-    api.license.status().then(setLicenseStatus).catch((err) => setLicenseStatus({active:false,mode:'trial',reason:'unavailable',message:String(err?.message||err)}));
+    api.license.status().then(setLicenseStatus).catch((err) => setLicenseStatus({active:false,mode:'licensed',reason:'unavailable',message:String(err?.message||err)}));
   }, [api]);
   const [page, setPage] = useState<Page>('dashboard');
   const [financeIntent,setFinanceIntent]=useState<FinanceiroKind|null>(null);
   const [browseFinanceKind,setBrowseFinanceKind]=useState<FinanceiroKind|null>(null);
-  const [focusedFinanceEntry,setFocusedFinanceEntry]=useState<FinanceEntry|null>(null);
   const [approvalEntryIntent,setApprovalEntryIntent]=useState<string|null>(null);
+  const [focusedFinanceEntry,setFocusedFinanceEntry]=useState<FinanceEntry|null>(null);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [showFirstUse,setShowFirstUse] = useState(false);
   const [firstUseContext,setFirstUseContext] = useState({existingAccountId:'',hasOpening:false});
@@ -69,10 +69,10 @@ export default function App() {
   }, [api]);
 
   if (!api) return <Preview/>;
-  if (!licenseStatus) return <main className="auth-shell"><div className="auth-card"><h1>Sistema Financeiro</h1><p className="muted">Verificando licença de avaliação…</p></div></main>;
-  if (!licenseStatus.active) return <LicenseScreen status={licenseStatus} onActivated={setLicenseStatus}/>;
-  if (restoring) return <main className="auth-shell"><div className="auth-card"><h1>Sistema Financeiro</h1><p className="muted">Restaurando sessão local…</p></div></main>;
-  if (!session || !token) return <AuthScreen onAuthenticated={(nextToken, nextSession) => { setToken(nextToken); setSession(nextSession); }}/>
+  if (!licenseStatus) return <><UpdateNotice/><main className="auth-shell"><div className="auth-card"><h1>Sistema Financeiro</h1><p className="muted">Verificando ativação…</p></div></main></>;
+  if (!licenseStatus.active) return <><UpdateNotice/><LicenseScreen status={licenseStatus} onActivated={setLicenseStatus}/></>;
+  if (restoring) return <><UpdateNotice/><main className="auth-shell"><div className="auth-card"><h1>Sistema Financeiro</h1><p className="muted">Restaurando sessão local…</p></div></main></>;
+  if (!session || !token) return <><UpdateNotice/><AuthScreen onAuthenticated={(nextToken, nextSession) => { setToken(nextToken); setSession(nextSession); }}/></>;
 
   async function openFirstUse(){
     if(!api||!session||!token||!can(session,'finance.manage'))return;
@@ -94,7 +94,7 @@ export default function App() {
   const nav = (target: Page, label: string, icon: ReactNode) => <button type="button" data-testid={`nav-${target}`} aria-current={page===target?'page':undefined} className={page===target?'active':''} onClick={()=>{ setFinanceIntent(null); setFocusedFinanceEntry(null); setPage(target); setMobileNavOpen(false); }}>{icon}<span>{label}</span></button>;
   const group = (label: string, children: ReactNode) => <div className="nav-group"><div className="nav-group-label">{label}</div>{children}</div>;
 
-  return <div className="workspace" data-testid="app-shell">
+  return <><UpdateNotice/><div className="workspace" data-testid="app-shell">
     <header className="mobile-shellbar">
       <div className="mobile-shell-brand"><div className="brand-mark mini"><WalletCards size={18}/></div><div><strong>ArtiSys</strong><small>Financeiro</small></div></div>
       <button type="button" className="mobile-nav-toggle" data-testid="mobile-nav-toggle" aria-label="Abrir navegação" aria-expanded={mobileNavOpen} onClick={()=>setMobileNavOpen((open)=>!open)}><Menu size={19}/></button>
@@ -117,5 +117,5 @@ export default function App() {
       {page==='dashboard' && qaProfile('dashboard', <DashboardPage key={dashboardVersion} token={token} canManage={can(session,'finance.manage')} onOpenGuide={()=>void openFirstUse()} onViewFinance={(kind)=>{setFinanceIntent(null);setBrowseFinanceKind(kind);setPage('finance');}} onOpenFinance={(kind)=>{setFinanceIntent(kind);setPage('finance');}} onOpenCashflow={()=>setPage('cashflow')}/>)} {page==='alerts' && <AlertsPage token={token} session={session}/>} {page==='cashflow' && <CashflowPage token={token} session={session}/>} {page==='finance' && qaProfile('finance', <FinancePage token={token} session={session} intent={financeIntent} browseKind={browseFinanceKind} onBrowseHandled={()=>setBrowseFinanceKind(null)} onIntentHandled={()=>setFinanceIntent(null)} onOpenPlanning={(entryId)=>{setApprovalEntryIntent(entryId);setPage('planning');}} focusEntry={focusedFinanceEntry}/>)} {page==='statements' && <StatementsPage token={token} session={session} onOpenFinance={()=>setPage('finance')}/>} {page==='dre' && <DrePage token={token}/>} {page==='planning' && qaProfile('planning', <PlanningPage token={token} session={session} focusApprovalEntryId={approvalEntryIntent} onApprovalFocusHandled={()=>setApprovalEntryIntent(null)}/>)} {page==='reports' && <ReportsPage token={token}/>} {page==='recurring' && <RecurringPage token={token} session={session} onOpenEntry={entry=>{setFocusedFinanceEntry(entry);setBrowseFinanceKind(entry.kind);setPage('finance');}}/>} {page==='workspace' && <WorkspacePage token={token} session={session}/>} {page==='registry' && <RegistryPage token={token} session={session}/>} {page==='users' && showUsers && <UsersPage token={token} session={session}/>} {page==='system' && showSystem && <SystemPage token={token}/>} 
     </main>
     {showFirstUse&&<FirstUseGuide token={token} userId={session.user.id} existingAccountId={firstUseContext.existingAccountId} hasOpening={firstUseContext.hasOpening} onDone={closeFirstUse} onSkip={closeFirstUse}/>}
-  </div>;
+  </div></>;
 }

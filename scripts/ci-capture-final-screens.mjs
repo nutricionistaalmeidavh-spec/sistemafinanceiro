@@ -14,7 +14,8 @@ const packagedExecutable = process.platform === 'win32'
 const electronExecutable = process.platform === 'win32'
   ? path.resolve('node_modules/electron/dist/electron.exe')
   : path.resolve('node_modules/electron/dist/electron');
-const usePackagedApp = Boolean(packagedExecutable && fs.existsSync(packagedExecutable));
+// Segurança: somente Electron desempacotado pode habilitar fixture e bypass QA.
+const usePackagedApp = false;
 const executablePath = usePackagedApp ? packagedExecutable : electronExecutable;
 const viteCli = path.resolve('node_modules/vite/bin/vite.js');
 

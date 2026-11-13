@@ -4,6 +4,9 @@ const path = require('node:path');
 const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const { DatabaseService } = require('./services/database.cjs');
 const { createAuthService } = require('./services/auth-service.cjs');
+const { createLicenseService } = require('./services/license-service.cjs');
+const { createUpdateService } = require('./services/update-service.cjs');
+const { migrateLegacyTrialData } = require('./services/migrate-license-data.cjs');
 const { createFinanceService } = require('./services/finance-service.cjs');
 const { createRegistryService } = require('./services/registry-service.cjs');
 const { createCashflowService } = require('./services/cashflow-service.cjs');
@@ -23,7 +26,7 @@ const { localDay } = require('./services/date-utils.cjs');
 const { registerIpcHandlers } = require('./ipc-handlers.cjs');
 const { registerPlanningIpcHandlers } = require('./planning-ipc.cjs');
 
-const qaMode = process.env.ARTISYS_QA === '1';
+const qaMode = process.env.ARTISYS_QA === '1' && !app.isPackaged;
 if (qaMode) {
   const qaUserData = path.join(os.tmpdir(), 'artisys-financeiro-qa');
   if (process.env.ARTISYS_QA_RESET === '1') fs.rmSync(qaUserData, { recursive: true, force: true });
@@ -57,6 +60,7 @@ function createWindow() {
 }
 
 app.whenReady().then(async () => {
+  if (!qaMode && app.isPackaged) migrateLegacyTrialData({ app, fs, path });
   database = new DatabaseService({
     dataDir: app.getPath('userData'),
     migrationsDir: path.join(__dirname, '..', 'database', 'migrations'),
@@ -64,6 +68,10 @@ app.whenReady().then(async () => {
   database.open();
   const db = database.connection();
   const auth = createAuthService({ db });
+  // Apenas o Electron de desenvolvimento com fixture isolada pode dispensar a ativação.
+  const license = qaMode
+    ? { status:() => ({active:true,mode:'licensed',reason:'qa-fixture',type:'PERPETUAL'}), requireActive:() => true, activateFromCatalog:async () => {throw new Error('QA only');} }
+    : createLicenseService({dataDir:app.getPath('userData'),publicKey:fs.readFileSync(path.join(__dirname,'services','license-public.pem'),'utf8')});
   if (qaMode) seedQaFixture({ db, auth });
   const finance = createFinanceService({ db });
   const registry = createRegistryService({ db });
@@ -83,16 +91,33 @@ app.whenReady().then(async () => {
     shell,
   });
   const attachmentOcr = createAttachmentOcrService({ db, workspaceRoot });
-  lanService = createLanService({ db, finance, cashflow, analytics, alerts });
+  lanService = createLanService({ db, finance, cashflow, analytics, alerts, authorize:() => license.requireActive() });
 
   try { backup.runAutomaticBackup(); } catch (error) { console.error('Automatic backup failed:', error); }
-  try { await lanService.startConfigured(); } catch (error) { console.error('LAN server failed to start:', error); }
+  if (license.status().active) {
+    try { await lanService.startConfigured(); } catch (error) { console.error('LAN server failed to start:', error); }
+  }
 
-  registerIpcHandlers({ ipcMain, app, dialog, database, auth, finance, registry, cashflow, analytics, recurrence, alerts, reports, backup, lan: lanService, documents, statements, workspace: workspaceService });
-  registerPlanningIpcHandlers({ ipcMain, auth, planning, attachmentOcr });
+  ipcMain.handle('license:status',() => license.status());
+  ipcMain.handle('license:activate',async (_event,code) => {
+    const state=await license.activateFromCatalog(code);
+    try { recurrence.generateDue({asOf:localDay()}); } catch(error) { console.error('Recurring generation on activation failed:',error); }
+    try { await lanService.startConfigured(); } catch(error) { console.error('LAN server failed to start:',error); }
+    return state;
+  });
+  const licensedIpc={handle(channel,handler){
+    ipcMain.handle(channel,(...args)=>{license.requireActive();return handler(...args);});
+  }};
+  registerIpcHandlers({ ipcMain:licensedIpc, app, dialog, database, auth, finance, registry, cashflow, analytics, recurrence, alerts, reports, backup, lan: lanService, documents, statements, workspace: workspaceService });
+  registerPlanningIpcHandlers({ ipcMain:licensedIpc, auth, planning, attachmentOcr });
+  const updates=createUpdateService({
+    ipcMain,app,BrowserWindow,
+    updater:!qaMode&&app.isPackaged&&process.platform==='win32'?require('electron-updater').autoUpdater:null
+  });
 
   const refreshRecurring = () => {
     try {
+      if (!license.status().active) return;
       const generated = recurrence.generateDue({ asOf: localDay() });
       if (generated.length) BrowserWindow.getAllWindows().forEach((win) => win.webContents.send('finance:data-changed', { generated: generated.length }));
     } catch (error) { console.error('Recurring account generation failed:', error); }
@@ -100,6 +125,7 @@ app.whenReady().then(async () => {
   refreshRecurring();
   recurrenceTimer = setInterval(refreshRecurring, 5 * 60 * 1000);
   createWindow();
+  updates.start();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });

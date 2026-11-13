@@ -1,8 +1,8 @@
 {
   "name": "artisys-sistema-financeiro",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "private": true,
-  "description": "Sistema financeiro desktop local-first da ArtiSys",
+  "description": "ArtiSys Financeiro desktop local-first com ativação por licença e atualização opcional",
   "author": "ArtiSys",
   "main": "electron/main.cjs",
   "type": "module",
@@ -53,7 +53,8 @@
     "pdfjs-dist": "6.3.289",
     "react": "19.2.8",
     "react-dom": "19.2.8",
-    "tesseract.js": "7.0.0"
+    "tesseract.js": "7.0.0",
+    "electron-updater": "6.8.12"
   },
   "devDependencies": {
     "@types/react": "19.2.18",
@@ -81,12 +82,7 @@
       "dist/**/*",
       "electron/**/*",
       "database/**/*",
-      "package.json",
-      "!electron/trial-main.cjs",
-      "!electron/trial-preload.cjs",
-      "!electron/services/trial-public.pem",
-      "!electron/services/trial-activation.bundle.json",
-      "!electron/services/license-service.cjs"
+      "package.json"
     ],
     "win": {
       "target": [
@@ -107,6 +103,14 @@
         "filter": [
           "**/*"
         ]
+      }
+    ],
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "nutricionistaalmeidavh-spec",
+        "repo": "sistemafinanceiro",
+        "releaseType": "release"
       }
     ]
   }
