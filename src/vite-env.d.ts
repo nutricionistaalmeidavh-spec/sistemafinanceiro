@@ -90,6 +90,7 @@ declare global {
         saveLead(token:string,input:{id?:string;name:string;document?:string;phone?:string;email?:string;source?:string;notes?:string}):Promise<CrmLead>;
         previewLeadImport(token:string,rows:CrmImportRow[]):Promise<CrmImportPreview>;
         commitLeadImport(token:string,rows:CrmImportRow[]):Promise<{created:number;skipped:number}>;
+        setLeadStatus(token:string,id:string,status:'NEW'|'QUALIFIED'|'DISCARDED'):Promise<CrmLead>;
         convertLead(token:string,id:string,input?:{customerId?:string}):Promise<PartyRecord>;
         listOpportunities(token:string,filters?:{query?:string;stage?:CrmStage}):Promise<CrmOpportunity[]>;
         saveOpportunity(token:string,input:{id?:string;leadId?:string;customerId?:string;title:string;amountCents:number}):Promise<CrmOpportunity>;
