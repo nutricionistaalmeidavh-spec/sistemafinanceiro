@@ -68,6 +68,7 @@ contextBridge.exposeInMainWorld('financeiro', {
   },
   analytics: {
     dre: (token, filters) => ipcRenderer.invoke('analytics:dre', token, filters),
+    dreXlsx: (token, filters) => ipcRenderer.invoke('analytics:dre-xlsx', token, filters),
     indicators: (token, filters) => ipcRenderer.invoke('analytics:indicators', token, filters),
     dashboard: (token, filters) => ipcRenderer.invoke('analytics:dashboard', token, filters),
   },
@@ -137,6 +138,7 @@ contextBridge.exposeInMainWorld('financeiroPlanning', {
   listBudgets: (token, filters) => ipcRenderer.invoke('planning:budgets:list', token, filters),
   saveBudget: (token, input) => ipcRenderer.invoke('planning:budgets:save', token, input),
   compareBudget: (token, filters) => ipcRenderer.invoke('planning:budgets:compare', token, filters),
+  exportXlsx: (token, filters) => ipcRenderer.invoke('planning:export:xlsx', token, filters),
   listGoals: (token, filters) => ipcRenderer.invoke('planning:goals:list', token, filters),
   saveGoal: (token, input) => ipcRenderer.invoke('planning:goals:save', token, input),
   listAttachments: (token, entryId) => ipcRenderer.invoke('planning:attachments:list', token, entryId),
