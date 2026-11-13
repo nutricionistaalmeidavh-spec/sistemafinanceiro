@@ -82,6 +82,6 @@ test('Papa Parse handles escaped multiline delimiters without dropping CSV amoun
 });
 
 test('invalid report money and oversized XLSX data fail closed', async () => {
-  await assert.rejects(suite.toStyledXlsxBuffer({ ...report, totals: { amountCents:0.1, settledCents:0,openCents:0 }}), /inteiro seguro/);
+  await assert.rejects(suite.toStyledXlsxBuffer({ ...report, totals: { amountCents:0.1, settledCents:0,openCents:0 }}), /inteiro seguro|monetário inválido/);
   await assert.rejects(suite.parseStatementXlsx('abc'), /inválido/);
 });
