@@ -193,9 +193,15 @@ function createStatementImportService({ db=null, now=()=>new Date().toISOString(
   async function recordDecision({transactionId,entryId,decision,amountCents},actor=null) {
     if(!db)throw new Error('database is required');
     const domain=await domainLoader(); if(!['accepted','rejected','manual'].includes(decision))throw new TypeError('invalid decision');
-    const tx=db.prepare('SELECT id,amount_cents FROM bank_transactions WHERE id=?').get(transactionId);
-    const entry=db.prepare('SELECT id,amount_cents FROM financial_entries WHERE id=?').get(entryId);
+    const tx=db.prepare('SELECT id,amount_cents,direction,account_id FROM bank_transactions WHERE id=?').get(transactionId);
+    const entry=db.prepare('SELECT id,amount_cents,kind,status,account_id FROM financial_entries WHERE id=?').get(entryId);
     if(!tx||!entry)throw new Error('transaction or entry not found');
+    if(decision!=='rejected') {
+      if(entry.status==='CANCELLED')throw new Error('cancelled entry cannot be reconciled');
+      const expected=tx.direction==='debit'?'PAYABLE':'RECEIVABLE';
+      if(entry.kind!==expected)throw new Error('bank direction and financial entry kind are incompatible');
+      if(entry.account_id && entry.account_id!==tx.account_id)throw new Error('bank transaction account differs from financial entry account');
+    }
     const current=db.prepare('SELECT accepted,rejected,manual FROM bank_reconciliation_feedback WHERE transaction_id=? AND entry_id=?').get(transactionId,entryId)||{accepted:0,rejected:0,manual:0};
     const next=domain.updatePairStats(current,decision); const createdAt=now();
     return withTransaction(db,()=>{
@@ -204,9 +210,10 @@ function createStatementImportService({ db=null, now=()=>new Date().toISOString(
       else {
         const txUsed=rowTotal(db,'SELECT COALESCE(SUM(amount_cents),0) total FROM bank_reconciliation_links WHERE transaction_id=? AND entry_id<>?',transactionId,entryId);
         const entryUsed=rowTotal(db,'SELECT COALESCE(SUM(amount_cents),0) total FROM bank_reconciliation_links WHERE entry_id=? AND transaction_id<>?',entryId,transactionId);
-        const settled=rowTotal(db,'SELECT COALESCE(SUM(amount_cents),0) total FROM financial_settlements WHERE entry_id=? AND reversed_at IS NULL',entryId);
-        const txAvailable=Math.max(0,Number(tx.amount_cents)-txUsed);
-        const entryAvailable=Math.max(0,Number(entry.amount_cents)-settled-entryUsed);
+                const txAvailable=Math.max(0,Number(tx.amount_cents)-txUsed);
+        // A reconciliation link documents evidence; it never creates or reduces a financial settlement.
+        // Therefore fully-paid entries must remain eligible for evidence linking.
+        const entryAvailable=Math.max(0,Number(entry.amount_cents)-entryUsed);
         const requested=Number(amountCents||tx.amount_cents);
         const allocated=Math.min(requested,txAvailable,entryAvailable);
         if(!Number.isSafeInteger(allocated)||allocated<=0)throw new Error('no remaining amount available for reconciliation');
