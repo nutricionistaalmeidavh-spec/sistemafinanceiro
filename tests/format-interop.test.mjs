@@ -20,7 +20,7 @@ test('QIF import converts transactions into preview-only canonical rows with cen
   const qif='!Type:Bank\nD13/11/2026\nT-123,45\nPFornecedor fictício\nMNota A\n^\nD14/11/2026\nT1.245,67\nPCliente\n^\n';
   const rows=parseQif(qif);
   assert.equal(rows.length,2);
-  assert.equal(rows[0].date,'13/11/2026');
+  assert.equal(rows[0].date,'2026-11-13');
   assert.equal(rows[0].amount,'-123,45');
   assert.equal(rows[1].amount,'1.245,67');
 });
