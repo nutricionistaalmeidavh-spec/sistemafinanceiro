@@ -49,6 +49,15 @@ function createCrmService({db,finance,registry,now=()=>new Date().toISOString(),
   audit(old?'crm.lead.update':'crm.lead.create','crm-lead',id,actor,{name});
   return getLead(id);
  }
+ function setLeadStatus(id,status,actor=null){
+  const old=lookup('crm_leads',id,'Lead'),s=String(status).toUpperCase();
+  if(!['NEW','QUALIFIED','DISCARDED'].includes(s))throw new Error('Status do lead inválido');
+  if(old.status==='CONVERTED')throw new Error('Lead convertido deve manter vínculo ao cliente');
+  if(old.status===s)return person(old);
+  db.prepare('UPDATE crm_leads SET status=?,updated_at=? WHERE id=?').run(s,at(),id);
+  audit('crm.lead.status','crm-lead',id,actor,{from:old.status,to:s});
+  return getLead(id);
+ }
  function getOpportunity(id){return deal(lookup('crm_opportunities',id,'Oportunidade'));}
  function listOpportunities({stage='',query=''}={}){
   const q='%'+String(query).trim().toLowerCase()+'%';
@@ -293,7 +302,7 @@ function createCrmService({db,finance,registry,now=()=>new Date().toISOString(),
   const trs=q.items.map(i=>'<tr><td>'+escape(i.description)+'</td><td>'+i.quantity+'</td><td>'+money(i.unitPriceCents)+'</td><td>'+money(i.totalCents)+'</td></tr>').join('');
   return '<!doctype html><html lang="pt-BR"><meta charset="utf-8"><style>body{font-family:Arial,sans-serif;padding:36px;color:#222}h1{color:#4f46e5}table{width:100%;border-collapse:collapse;margin-top:28px}td,th{border-bottom:1px solid #ddd;padding:12px;text-align:left}.total{text-align:right;font-size:22px;font-weight:bold;margin-top:24px}small{color:#777}</style><h1>Proposta comercial</h1><p>ArtiSys Financeiro — Proposta v'+q.version+'</p><p><b>Cliente:</b> '+escape(customer?.name||lead?.name||'Não identificado')+'</p><p><b>Negócio:</b> '+escape(opp.title)+'</p><table><thead><tr><th>Descrição</th><th>Qtd.</th><th>Unitário</th><th>Total</th></tr></thead><tbody>'+trs+'</tbody></table><p class="total">'+money(q.totalCents)+'</p><p>'+escape(q.notes||'')+'</p><small>Documento comercial. Não representa pagamento ou recibo.</small></html>';
  }
- return {listLeads,saveLead,previewLeadImport,commitLeadImport,getLead,listOpportunities,getOpportunity,saveOpportunity,moveOpportunity,
+ return {listLeads,saveLead,setLeadStatus,previewLeadImport,commitLeadImport,getLead,listOpportunities,getOpportunity,saveOpportunity,moveOpportunity,
   listStageHistory,addActivity,listActivities,saveTask,setTaskDone,listTasks,convertLead,createQuote,getQuote,listQuotes,
   setQuoteStatus,previewReceivables,confirmReceivables,listBillingLinks,getMetrics,quoteHtml};
 }
