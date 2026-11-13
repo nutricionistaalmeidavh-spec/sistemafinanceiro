@@ -122,7 +122,7 @@ function createCrmService({db,finance,registry,now=()=>new Date().toISOString(),
   return task(lookup('crm_tasks',id));
  }
  function listTasks({opportunityId='',pending=false}={}){
-  const sql='SELECT * FROM crm_tasks WHERE (?='' OR opportunity_id=?) AND (?=0 OR done_at IS NULL) ORDER BY CASE WHEN due_at IS NULL THEN 1 ELSE 0 END,due_at,created_at';
+  const sql="SELECT * FROM crm_tasks WHERE (?='' OR opportunity_id=?) AND (?=0 OR done_at IS NULL) ORDER BY CASE WHEN due_at IS NULL THEN 1 ELSE 0 END,due_at,created_at";
   return db.prepare(sql).all(opportunityId,opportunityId,pending?1:0).map(task);
  }
  function convertLead(leadId,{customerId=null}={},actor=null){
