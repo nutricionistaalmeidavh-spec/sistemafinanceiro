@@ -8,7 +8,7 @@ const { writeAudit }=require('./services/audit.cjs');
 const {toOdsBuffer}=require('./services/open-format-service.cjs');
 const { toDreXlsxBuffer } = require('./services/planning-export-service.cjs');
 
-function registerIpcHandlers({ ipcMain, app, dialog, database, auth, finance, registry, cashflow, analytics, recurrence, alerts, reports, backup, lan, documents, statements, workspace }) {
+function registerIpcHandlers({ ipcMain, app, dialog, database, auth, finance, registry, crm, cashflow, analytics, recurrence, alerts, reports, backup, lan, documents, statements, workspace }) {
   if (!ipcMain?.handle) throw new TypeError('ipcMain is required');
   const broadcast = (event, result) => {
     // Notify the renderer only after the canonical SQLite operation succeeds.
@@ -25,6 +25,27 @@ function registerIpcHandlers({ ipcMain, app, dialog, database, auth, finance, re
   ipcMain.handle('auth:users:list', (_event, token) => auth.listUsers(token));
   ipcMain.handle('auth:users:create', (_event, token, input) => auth.createUser(token, input));
   ipcMain.handle('auth:users:set-active', (_event, token, userId, active) => auth.setUserActive(token, userId, active));
+
+  // CRM is an isolated commercial domain; only confirmation calls FinanceService.
+  ipcMain.handle('crm:leads:list',(_e,token,filters)=>{auth.require(token,'crm.view');return crm.listLeads(filters||{});});
+  ipcMain.handle('crm:leads:save',(_e,token,input)=>{const actor=auth.require(token,'crm.manage');return crm.saveLead(input||{},actor);});
+  ipcMain.handle('crm:leads:convert',(_e,token,id,input)=>{const actor=auth.require(token,'crm.convert');return crm.convertLead(id,input||{},actor);});
+  ipcMain.handle('crm:opportunities:list',(_e,token,filters)=>{auth.require(token,'crm.view');return crm.listOpportunities(filters||{});});
+  ipcMain.handle('crm:opportunities:save',(_e,token,input)=>{const actor=auth.require(token,'crm.manage');return crm.saveOpportunity(input||{},actor);});
+  ipcMain.handle('crm:opportunities:move',(_e,token,id,stage,options)=>{const actor=auth.require(token,'crm.manage');return crm.moveOpportunity(id,stage,actor,options||{});});
+  ipcMain.handle('crm:activities:list',(_e,token,id)=>{auth.require(token,'crm.view');return crm.listActivities(id);});
+  ipcMain.handle('crm:activities:add',(_e,token,input)=>{const actor=auth.require(token,'crm.manage');return crm.addActivity(input||{},actor);});
+  ipcMain.handle('crm:tasks:list',(_e,token,filters)=>{auth.require(token,'crm.view');return crm.listTasks(filters||{});});
+  ipcMain.handle('crm:tasks:save',(_e,token,input)=>{const actor=auth.require(token,'crm.manage');return crm.saveTask(input||{},actor);});
+  ipcMain.handle('crm:tasks:done',(_e,token,id,done)=>{const actor=auth.require(token,'crm.manage');return crm.setTaskDone(id,done,actor);});
+  ipcMain.handle('crm:quotes:list',(_e,token,id)=>{auth.require(token,'crm.view');return crm.listQuotes(id);});
+  ipcMain.handle('crm:quotes:create',(_e,token,input)=>{const actor=auth.require(token,'crm.quotes');return crm.createQuote(input||{},actor);});
+  ipcMain.handle('crm:quotes:status',(_e,token,id,status)=>{const actor=auth.require(token,'crm.quotes');return crm.setQuoteStatus(id,status,actor);});
+  ipcMain.handle('crm:quotes:pdf',(_e,token,id)=>{auth.require(token,'crm.view');return documents.savePdf(crm.quoteHtml(id),{defaultName:'Proposta-ArtiSys-'+String(id).replace(/[^A-Za-z0-9_-]/g,'')+'.pdf'});});
+  ipcMain.handle('crm:billing:preview',(_e,token,input)=>{auth.require(token,'crm.view');return crm.previewReceivables(input||{});});
+  ipcMain.handle('crm:billing:confirm',(event,token,input)=>{const actor=auth.require(token,'crm.billing.confirm');const result=crm.confirmReceivables(input||{},actor);if(!result.alreadyConfirmed)broadcast(event,null);return result;});
+  ipcMain.handle('crm:billing:links',(_e,token,id)=>{auth.require(token,'crm.view');return crm.listBillingLinks(id);});
+  ipcMain.handle('crm:metrics',(_e,token)=>{auth.require(token,'crm.view');return crm.getMetrics();});
 
   ipcMain.handle('finance:accounts:list', (_event, token, filters) => { auth.require(token, 'finance.view'); return finance.listAccounts(filters || {}); });
   ipcMain.handle('finance:accounts:create', (event, token, input) => { const actor = auth.require(token, 'finance.manage'); return broadcast(event, finance.createAccount(input, actor)); });
