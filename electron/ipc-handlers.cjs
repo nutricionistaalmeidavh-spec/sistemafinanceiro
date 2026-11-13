@@ -31,6 +31,7 @@ function registerIpcHandlers({ ipcMain, app, dialog, database, auth, finance, re
   ipcMain.handle('crm:leads:import-preview',(_e,token,rows)=>{auth.require(token,'crm.view');return crm.previewLeadImport(rows);});
   ipcMain.handle('crm:leads:import-commit',(_e,token,rows)=>{const actor=auth.require(token,'crm.manage');return crm.commitLeadImport(rows,actor);});
   ipcMain.handle('crm:leads:save',(_e,token,input)=>{const actor=auth.require(token,'crm.manage');return crm.saveLead(input||{},actor);});
+  ipcMain.handle('crm:leads:status',(_e,token,id,status)=>{const actor=auth.require(token,'crm.manage');return crm.setLeadStatus(id,status,actor);});
   ipcMain.handle('crm:leads:convert',(_e,token,id,input)=>{const actor=auth.require(token,'crm.convert');return crm.convertLead(id,input||{},actor);});
   ipcMain.handle('crm:opportunities:list',(_e,token,filters)=>{auth.require(token,'crm.view');return crm.listOpportunities(filters||{});});
   ipcMain.handle('crm:opportunities:save',(_e,token,input)=>{const actor=auth.require(token,'crm.manage');return crm.saveOpportunity(input||{},actor);});
