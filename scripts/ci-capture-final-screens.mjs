@@ -90,6 +90,7 @@ try {
     ARTISYS_QA_RESET: '1',
     ARTISYS_QA_PASSWORD: qaPassword,
   };
+  delete appEnv.ELECTRON_RUN_AS_NODE;
   if (!usePackagedApp) appEnv.VITE_DEV_SERVER_URL = 'http://127.0.0.1:5173';
 
   app = await electron.launch({
