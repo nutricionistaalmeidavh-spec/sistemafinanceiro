@@ -1,6 +1,6 @@
 'use strict';
 const { localDay } = require('./date-utils.cjs');
-const {splitCents}=require('./allocation-service.cjs');
+const {scopedSplitCents}=require('./allocation-service.cjs');
 
 function monthKey(value) { return String(value).slice(0, 7); }
 function yearRange(year) { const y = Number(year); if (!Number.isInteger(y) || y < 2000 || y > 2200) throw new Error('invalid year'); return { from: `${y}-01-01`, to: `${y}-12-31` }; }
@@ -70,8 +70,8 @@ function createAnalyticsService({ db, finance, cashflow, now = () => new Date().
       rows=rows.map(row=>{
         const allocations=byEntry.get(row.id)||[];
         const total=basis==='realized'
-          ? (paymentsByEntry.get(row.id)||[]).reduce((sum,payment)=>sum+(splitCents(Number(payment.amount_cents),allocations).get(center)||0),0)
-          : (splitCents(Number(row.entry_amount_cents),allocations).get(center)||0);
+          ? (paymentsByEntry.get(row.id)||[]).reduce((sum,payment)=>sum+(scopedSplitCents(Number(payment.amount_cents),Number(row.entry_amount_cents),allocations).get(center)||0),0)
+          : (scopedSplitCents(Number(row.entry_amount_cents),Number(row.entry_amount_cents),allocations).get(center)||0);
         return {...row,total};
       });
     }
