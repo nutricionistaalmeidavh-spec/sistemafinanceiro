@@ -74,7 +74,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: artisys-financeiro-qa-${{ github.sha }}
-          path: |\n            qa-artifacts/final/screenshots/*.png\n            qa-artifacts/final/metrics/*.json
+          path: |
+            qa-artifacts/final/screenshots/*.png
+            qa-artifacts/final/metrics/*.json
           if-no-files-found: ignore
           retention-days: 14
       - name: Preservar instalador como artefato privado do Actions
