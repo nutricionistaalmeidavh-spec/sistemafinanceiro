@@ -71,6 +71,17 @@ let page = null;
 const diagnostics = { startedAt: new Date().toISOString(), status: 'running', screenshots: [], errors: [] };
 try {
   if (!usePackagedApp) await waitForServer('http://127.0.0.1:5173', 60000);
+  if (!fs.existsSync(executablePath) && !usePackagedApp) {
+    const installScript = path.resolve('node_modules/electron/install.js');
+    if (!fs.existsSync(installScript)) throw new Error(`Electron installer missing: ${installScript}`);
+    const install = spawnSync(process.execPath, [installScript], {
+      cwd: path.dirname(installScript),
+      env: process.env,
+      stdio: 'inherit',
+      timeout: 180000,
+    });
+    if (install.error || install.status !== 0) throw new Error(`Electron binary install failed: ${install.error?.message || install.status}`);
+  }
   if (!fs.existsSync(executablePath)) throw new Error(`Electron executable not found: ${executablePath}`);
 
   const appEnv = {
