@@ -1,6 +1,6 @@
 import {useEffect,useState} from 'react';
 import {Download,RefreshCcw,RotateCcw,X} from 'lucide-react';
-import './update-notice.css';
+import '../update-notice.css';
 
 export default function UpdateNotice(){
   const api=window.financeiro?.updates;
