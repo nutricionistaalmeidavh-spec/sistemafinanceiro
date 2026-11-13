@@ -60,7 +60,7 @@ export default function RecurringPage({token,session}:Props){
   const [history,setHistory]=useState<FinanceEntry[]>([]);
   const [historyBusy,setHistoryBusy]=useState(false);
   const draftDates=useMemo(()=>previewDraft(
-    editingRule?.nextDueAt||form.startDate,Number(form.dueDay),Number(form.intervalMonths),
+    editingRule?`${editingRule.nextDueAt.slice(0,7)}-01`:form.startDate,Number(form.dueDay),Number(form.intervalMonths),
     form.maxOccurrences?Number(form.maxOccurrences):null,form.endDate||null,editingRule?.generatedCount||0
   ),[editingRule,form.startDate,form.dueDay,form.intervalMonths,form.maxOccurrences,form.endDate]);
   const reload=useCallback(async()=>{
@@ -114,12 +114,20 @@ export default function RecurringPage({token,session}:Props){
     finally{setHistoryBusy(false);}
   }
   async function toggle(rule:RecurringRule){
-    try{await api.recurrence.setActive(token,rule.id,!rule.active);await reload();}
-    catch(err){setError(err instanceof Error?err.message:String(err));}
+    if(busy||rule.lifecycleStatus==='COMPLETED')return;
+    setBusy(true);setError('');
+    try{await api.recurrence.setActive(token,rule.id,!rule.active);await reload();
+      setNotice(rule.active?'Recorrência pausada.':'Recorrência reativada.');
+    }catch(err){setError(err instanceof Error?err.message:String(err));}
+    finally{setBusy(false);}
   }
   async function generate(){
-    try{await api.recurrence.generate(token,today());await reload();}
-    catch(err){setError(err instanceof Error?err.message:String(err));}
+    if(busy)return;
+    setBusy(true);setError('');
+    try{const generated=await api.recurrence.generate(token,today());await reload();
+      setNotice(generated.length?String(generated.length)+' lançamento(s) gerado(s).':'Nenhuma parcela nova: lançamentos existentes preservados.');
+    }catch(err){setError(err instanceof Error?err.message:String(err));}
+    finally{setBusy(false);}
   }
   const filtered=useMemo(()=>{
     const term=search.trim().toLocaleLowerCase('pt-BR');
@@ -128,7 +136,7 @@ export default function RecurringPage({token,session}:Props){
   return <section className="page-stack" data-testid="page-recurring">
     <div className="page-header"><div><p className="eyebrow">Recorrências</p>
       <h2>Contas automáticas</h2><p className="muted">Vencimentos gerados automaticamente na abertura e durante o uso do aplicativo.</p>
-    </div>{editable&&<button type="button" className="secondary-button" onClick={()=>void generate()}><RefreshCcw size={16}/> Atualizar vencimentos</button>}</div>
+    </div>{editable&&<button type="button" className="secondary-button" disabled={busy} onClick={()=>void generate()}><RefreshCcw size={16}/> Atualizar vencimentos</button>}</div>
     {error&&<div className="error-box" role="alert">{error}</div>}
     {notice&&<div className="success-box" role="status">{notice}</div>}
     <div className="page-toolbar"><p className="section-caption">{rules.filter(rule=>rule.active).length} regras ativas</p>
