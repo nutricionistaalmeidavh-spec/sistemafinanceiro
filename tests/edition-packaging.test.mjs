@@ -1,39 +1,31 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtempSync,readFileSync,writeFileSync,rmSync} from 'node:fs';
-import {tmpdir} from 'node:os';
-import path from 'node:path';
-import {execFileSync} from 'node:child_process';
-import {fileURLToPath} from 'node:url';
-const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
-const pkg=JSON.parse(readFileSync(path.join(root,'package.json'),'utf8'));
-test('instalador comercial continua com identidade historica e ponto de entrada comercial',()=>{
- assert.equal(pkg.build.appId,'br.com.artisys.sistemafinanceiro');
- assert.equal(pkg.main,'electron/main.cjs');
- assert.equal(pkg.build.productName,'ArtiSys Financeiro');
- assert.match(pkg.build.win.artifactName,/ArtiSys-Financeiro-Setup/);
+import fs from 'node:fs';
+const pkg=JSON.parse(fs.readFileSync('package.json','utf8'));
+test('identidade e instalador sao unicos e o ponto de entrada exige licença',()=>{
+  assert.equal(pkg.main,'electron/main.cjs');
+  assert.equal(pkg.build.appId,'br.com.artisys.sistemafinanceiro');
+  assert.equal(pkg.build.productName,'ArtiSys Financeiro');
+  assert.ok(pkg.build.win.artifactName.startsWith('ArtiSys-Financeiro-Setup-'));
+  assert.equal(pkg.build.publish[0].provider,'github');
+  assert.ok(pkg.build.files.every(item=>!String(item).includes('trial')));
+  const main=fs.readFileSync('electron/main.cjs','utf8');
+  assert.match(main,/createLicenseService/);
+  assert.match(main,/license\.requireActive\(\)/);
+  assert.match(main,/ipcMain:licensedIpc/);
+  assert.match(main,/createUpdateService/);
+  assert.match(fs.readFileSync('electron/preload.cjs','utf8'),/license:activate/);
 });
-test('pacote trial usa identidade e ponto de entrada isolados sem modificar pacote comercial',()=>{
- const dir=mkdtempSync(path.join(tmpdir(),'artisys-edition-'));
- try{
-  const file=path.join(dir,'package.json');
-  writeFileSync(file,JSON.stringify(pkg,null,2));
-  execFileSync(process.execPath,[path.join(root,'scripts/prepare-trial-package.mjs'),'--package',file],{cwd:root});
-  const result=JSON.parse(readFileSync(file,'utf8'));
-  assert.equal(result.main,'electron/trial-main.cjs');
-  assert.equal(result.build.appId,'br.com.artisys.sistemafinanceiro.trial');
-  assert.equal(result.build.productName,'ArtiSys Financeiro - Avaliacao');
-  assert.match(result.build.win.artifactName,/Avaliacao/);
-  assert.equal(JSON.parse(readFileSync(path.join(root,'package.json'),'utf8')).main,'electron/main.cjs');
- }finally{rmSync(dir,{force:true,recursive:true})}
+test('um unico workflow de publicacao e apenas manual',()=>{
+  const files=fs.readdirSync('.github/workflows').filter(name=>name.endsWith('.yml'));
+  const publishing=files.filter(name=>fs.readFileSync('.github/workflows/'+name,'utf8').includes('gh release create'));
+  assert.deepEqual(publishing,['financeiro-release.yml']);
+  const wf=fs.readFileSync('.github/workflows/financeiro-release.yml','utf8');
+  assert.match(wf,/workflow_dispatch:/);
+  assert.match(wf,/github\.event_name == 'workflow_dispatch'/);
+  assert.match(wf,/latest\.yml/);
 });
-test('workflow trial prepara pacote de avaliacao sem publicar release em push',()=>{
- const yml=readFileSync(path.join(root,'.github/workflows/trial-installer.yml'),'utf8');
- assert.match(yml,/prepare-trial-package\.mjs/);
- assert.match(yml,/if: github\.event_name == 'workflow_dispatch'/);
- const trial=readFileSync(path.join(root,'electron/trial-main.cjs'),'utf8');
- assert.match(trial,/trial-preload\.cjs/);
- assert.match(trial,/createLicenseService/);
- const commercial=readFileSync(path.join(root,'electron/main.cjs'),'utf8');
- assert.doesNotMatch(commercial,/requireActive\(/);
+test('QA nao abre bypass num aplicativo instalado',()=>{
+  assert.match(fs.readFileSync('electron/main.cjs','utf8'),/ARTISYS_QA === '1' && !app\.isPackaged/);
+  assert.match(fs.readFileSync('scripts/ci-capture-final-screens.mjs','utf8'),/usePackagedApp = false/);
 });
