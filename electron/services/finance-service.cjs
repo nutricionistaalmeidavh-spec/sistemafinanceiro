@@ -121,6 +121,13 @@ function createFinanceService({ db, now = () => new Date().toISOString(), idFact
       assertRelation('creditors', creditorId, 'creditor');
       validateCategory(row.kind, categoryId);
       const notes = input.notes === undefined ? row.notes : input.notes || null;
+      // Historical settlements may predate their own account_id column. Freeze their
+      // original account before changing the entry's suggested/default account.
+      if (accountId !== row.account_id) {
+        const legacy = db.prepare('SELECT COUNT(*) AS total FROM financial_settlements WHERE entry_id=? AND account_id IS NULL AND reversed_at IS NULL').get(String(entryId));
+        if (legacy.total > 0 && !row.account_id) throw new Error('legacy payments have no original account; choose an account before editing');
+        if (legacy.total > 0) db.prepare('UPDATE financial_settlements SET account_id=? WHERE entry_id=? AND account_id IS NULL').run(row.account_id, String(entryId));
+      }
       db.prepare(`UPDATE financial_entries SET description=?,amount_cents=?,due_at=?,account_id=?,category_id=?,customer_id=?,creditor_id=?,notes=?,updated_at=? WHERE id=?`)
         .run(description,amountCents,dueAt,accountId,categoryId,customerId,creditorId,notes,nowIso(),String(entryId));
       recalculateStatus(entryId);
