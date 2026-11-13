@@ -12,7 +12,7 @@ function previewDates(start:string,day:number,interval:number,max:number|null,en
   const result:string[]=[];
   let d=new Date(`${start}T00:00:00Z`);
   if(Number.isNaN(d.valueOf()))return [];
-  for(let i=0;i<3&&i<120;i++){
+  for(let i=0;result.length<3&&i<120;i++){
     const year=d.getUTCFullYear(),month=d.getUTCMonth();
     const last=new Date(Date.UTC(year,month+1,0)).getUTCDate();
     const due=`${year}-${String(month+1).padStart(2,'0')}-${String(Math.min(day,last)).padStart(2,'0')}`;
