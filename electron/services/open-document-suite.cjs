@@ -1,9 +1,12 @@
 'use strict';
 
 const crypto = require('node:crypto');
+const fs=require('node:fs');
+const path=require('node:path');
+const fontkit=require('@pdf-lib/fontkit');
 const ExcelJS = require('exceljs');
 const Docx = require('docx');
-const { PDFDocument } = require('pdf-lib');
+const { PDFDocument, PDFTextField, PDFCheckBox, PDFDropdown, PDFRadioGroup, PDFOptionList } = require('pdf-lib');
 const { unzipSync } = require('fflate');
 
 const HEADERS = Object.freeze(['Vencimento','Tipo','Descrição','Status','Valor','Baixado','Em aberto','Conta','Categoria','Contraparte','Centros de custo','Tags']);
@@ -119,6 +122,90 @@ function verifyReportPackageBuffer(buffer) {
   }
   return { valid:true, fileCount:manifest.files.length, generatedAt:manifest.generatedAt };
 }
+function verifyAndPreviewPackage(bytes) {
+  const raw=Buffer.from(bytes||[]);
+  const verified=verifyReportPackageBuffer(raw);
+  const files=unzipSync(new Uint8Array(raw));
+  if (!Object.prototype.hasOwnProperty.call(files,'relatorio.json')) throw new TypeError('relatório JSON não encontrado');
+  const document=JSON.parse(Buffer.from(files['relatorio.json']).toString('utf8'));
+  if (document.schema!=='br.com.artisys.financeiro.report'||document.version!==1||
+      !Array.isArray(document.rows)||document.rows.length>MAX_REPORT_ROWS||!document.totals) {
+    throw new TypeError('arquivo financeiro JSON inválido');
+  }
+  const totals=document.totals;
+  for(const n of ['amountCents','settledCents','openCents']) if(!Number.isSafeInteger(totals[n]))throw new TypeError('total financeiro não é inteiro seguro');
+  for(const row of document.rows) {
+    for(const field of ['amountCents','settledCents','openCents'])if(!Number.isSafeInteger(row[field]))throw new TypeError('lançamento JSON inválido');
+  }
+  if(document.rows.reduce((sum,row)=>sum+row.amountCents,0)!==totals.amountCents ||
+    document.rows.reduce((sum,row)=>sum+row.settledCents,0)!==totals.settledCents ||
+    document.rows.reduce((sum,row)=>sum+row.openCents,0)!==totals.openCents)throw new TypeError('pacote possui totais divergentes');
+  return Object.freeze({valid:verified.valid,sha256:sha256(raw),fileCount:verified.fileCount,
+    generatedAt:verified.generatedAt,summary:{rows:document.rows.length,...totals},
+    filters:document.filters||{},rows:document.rows.slice(0,100)});
+}
+function pdfFields(form) {
+  return form.getFields().map(field => {
+    const type=field instanceof PDFTextField?'text':field instanceof PDFCheckBox?'checkbox':
+      field instanceof PDFDropdown?'select':field instanceof PDFRadioGroup?'radio':
+      field instanceof PDFOptionList?'select':'unsupported';
+    const options=type==='select'||type==='radio'?field.getOptions():[];
+    return {name:field.getName(),type,options};
+  });
+}
+async function inspectPdfFormBuffer(source) {
+  const bytes=Buffer.from(source||[]);
+  if(!bytes.length||bytes.length>20*1024*1024)throw new RangeError('PDF vazio ou maior que 20 MB');
+  const pdf=await PDFDocument.load(bytes,{ignoreEncryption:false});
+  return pdfFields(pdf.getForm());
+}
+function findUnicodeFont() {
+  const candidates = process.platform==='win32' ? [
+    path.join(process.env.WINDIR||'C:\\Windows','Fonts','arial.ttf'),
+    path.join(process.env.WINDIR||'C:\\Windows','Fonts','segoeui.ttf'),
+  ] : [
+    '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
+    '/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf',
+    '/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf',
+    '/System/Library/Fonts/Supplemental/Arial.ttf',
+    '/Library/Fonts/Arial.ttf'
+  ];
+  return candidates.find(file=>fs.existsSync(file))||null;
+}
+async function fillPdfFormBuffer(source,values) {
+  const bytes=Buffer.from(source||[]);
+  if(!bytes.length||bytes.length>20*1024*1024)throw new RangeError('PDF vazio ou maior que 20 MB');
+  if(!values||typeof values!=='object'||Array.isArray(values)||Object.keys(values).length>100)throw new TypeError('valores de PDF inválidos');
+  const pdf=await PDFDocument.load(bytes,{ignoreEncryption:false});
+  const form=pdf.getForm();
+  const fields=new Map(pdfFields(form).map(item=>[item.name,item]));
+  for(const [name,value] of Object.entries(values)){
+    if(!fields.has(name))throw new TypeError('campo PDF inexistente: '+name);
+    const entry=fields.get(name);
+    if(entry.type==='unsupported')throw new TypeError('tipo de campo PDF não editável');
+    if(entry.type==='checkbox') {
+      if(typeof value!=='boolean')throw new TypeError('checkbox deve receber booleano');
+      const field=form.getCheckBox(name);value?field.check():field.uncheck();
+    }else{
+      if(typeof value!=='string'||value.length>4000)throw new TypeError('texto PDF inválido ou longo demais');
+      if(entry.type==='text')form.getTextField(name).setText(value);
+      else if(entry.type==='select'){if(!entry.options.includes(value))throw new TypeError('opção PDF inválida');form.getDropdown(name).select(value);}
+      else if(entry.type==='radio'){if(!entry.options.includes(value))throw new TypeError('opção PDF inválida');form.getRadioGroup(name).select(value);}
+    }
+  }
+  // Core offline: use a font already shipped with the local operating system.
+  const fontPath=findUnicodeFont();
+  if(fontPath){
+    pdf.registerFontkit(fontkit);
+    const embedded=await pdf.embedFont(fs.readFileSync(fontPath),{subset:true});
+    form.updateFieldAppearances(embedded);
+  }else if(Object.values(values).some(v=>typeof v==='string'&&/[^\x00-\x7f]/.test(v))){
+    throw new Error('Fonte Unicode local não encontrada para preencher caracteres acentuados no PDF');
+  }
+  pdf.setAuthor('ArtiSys Financeiro');
+  pdf.setProducer('ArtiSys Financeiro / pdf-lib');
+  return Buffer.from(await pdf.save());
+}
 async function annotatePdfBuffer(source, title = 'ArtiSys Financeiro') {
   const pdf = await PDFDocument.load(source, { updateMetadata: false });
   pdf.setTitle(title);
@@ -156,37 +243,60 @@ function normalizedHeader(value) {
 function getIndex(headers, aliases) {
   return headers.findIndex(value => aliases.includes(normalizedHeader(value)));
 }
-async function parseStatementXlsx(dataBase64) {
-  if (typeof dataBase64 !== 'string' || !dataBase64.trim()) throw new TypeError('XLSX é obrigatório');
-  const raw = Buffer.from(dataBase64, 'base64');
-  if (!raw.length || raw.length > MAX_IMPORT_BYTES || !raw.subarray(0,2).equals(Buffer.from('PK'))) throw new RangeError('arquivo XLSX inválido ou maior que 12 MB');
-  const workbook = new ExcelJS.Workbook();
+async function openStatementSheet(dataBase64) {
+  if (typeof dataBase64 !== 'string'||!dataBase64.trim())throw new TypeError('XLSX é obrigatório');
+  const raw=Buffer.from(dataBase64,'base64');
+  if(!raw.length||raw.length>MAX_IMPORT_BYTES||raw.subarray(0,2).toString()!=='PK')throw new RangeError('XLSX inválido ou maior que 12 MB');
+  const workbook=new ExcelJS.Workbook();
   await workbook.xlsx.load(raw);
-  const sheet = workbook.worksheets[0];
-  if (!sheet || sheet.rowCount < 2 || sheet.rowCount > MAX_IMPORT_ROWS + 1) throw new RangeError('planilha deve conter de 1 a 50 mil linhas');
-  const headers = Array.from({ length: Math.min(40, sheet.columnCount) }, (_, i) => cellText(sheet.getRow(1).getCell(i + 1)));
-  const dateCol = getIndex(headers, ['DATA','DATE','DTPOSTED','VENCIMENTO']);
-  const descCol = getIndex(headers, ['DESCRICAO','DESCRICAOOPERACAO','HISTORICO','MEMO','DESCRIPTION','NAME']);
-  const amountCol = getIndex(headers, ['VALOR','AMOUNT','TRNAMT']);
-  const debitCol = getIndex(headers, ['DEBITO','DEBIT']);
-  const creditCol = getIndex(headers, ['CREDITO','CREDIT']);
-  const typeCol = getIndex(headers, ['TIPO','NATUREZA','DIRECAO','DIRECTION']);
-  if (dateCol < 0 || descCol < 0 || (amountCol < 0 && debitCol < 0 && creditCol < 0)) throw new TypeError('XLSX requer Data, Descrição e Valor (ou Débito/Crédito)');
-  const rows = [];
-  for (let n = 2; n <= sheet.rowCount; n++) {
-    const cells = Array.from({ length: headers.length }, (_, i) => cellText(sheet.getRow(n).getCell(i + 1)));
-    if (cells.every(value => !value.trim())) continue;
-    const debit = debitCol >= 0 ? cells[debitCol] : '';
-    const credit = creditCol >= 0 ? cells[creditCol] : '';
-    const amount = amountCol >= 0 ? cells[amountCol] : debit ? '-' + debit : credit;
-    rows.push({ date: cells[dateCol], description: cells[descCol], amount,
-      direction: amountCol >= 0 ? cells[typeCol] : debit ? 'debit' : 'credit',
-      externalId: 'row-' + (n - 1) });
+  const sheet=workbook.worksheets[0];
+  if(!sheet||sheet.rowCount<2||sheet.rowCount>MAX_IMPORT_ROWS+1||sheet.columnCount>80)throw new RangeError('XLSX exige 1–50 mil linhas e até 80 colunas');
+  const headers=Array.from({length:sheet.columnCount},(_,i)=>cellText(sheet.getRow(1).getCell(i+1)));
+  return {sheet,headers};
+}
+async function inspectStatementXlsx(dataBase64) {
+  const {sheet,headers}=await openStatementSheet(dataBase64);
+  return {headers,rowCount:sheet.rowCount-1,previewRows:Array.from({length:Math.min(5,sheet.rowCount-1)},(_,n)=>
+    headers.map((_,i)=>cellText(sheet.getRow(n+2).getCell(i+1))))};
+}
+function mappedIndex(headers,mapping,key,aliases){
+  const explicit=mapping?.[key];
+  if(explicit===undefined || explicit===null||explicit==='')return getIndex(headers,aliases);
+  if(typeof explicit!=='string'||explicit.length>160)throw new TypeError('coluna mapeada inválida: '+key);
+  const direct=headers.indexOf(explicit);
+  if(direct<0)throw new TypeError('coluna não encontrada: '+explicit);
+  return direct;
+}
+async function parseStatementXlsx(dataBase64,columnMapping={}) {
+  const {sheet,headers}=await openStatementSheet(dataBase64);
+  if(!columnMapping||typeof columnMapping!=='object'||Array.isArray(columnMapping))throw new TypeError('mapeamento XLSX inválido');
+  const validKeys=new Set(['date','description','amount','debit','credit','direction']);
+  if(Object.keys(columnMapping).some(k=>!validKeys.has(k)))throw new TypeError('chave de mapeamento XLSX desconhecida');
+  const dateCol=mappedIndex(headers,columnMapping,'date',['DATA','DATE','DTPOSTED','VENCIMENTO']);
+  const descCol=mappedIndex(headers,columnMapping,'description',['DESCRICAO','DESCRICAOOPERACAO','HISTORICO','MEMO','DESCRIPTION','NAME']);
+  const amountCol=mappedIndex(headers,columnMapping,'amount',['VALOR','AMOUNT','TRNAMT']);
+  const debitCol=mappedIndex(headers,columnMapping,'debit',['DEBITO','DEBIT']);
+  const creditCol=mappedIndex(headers,columnMapping,'credit',['CREDITO','CREDIT']);
+  const typeCol=mappedIndex(headers,columnMapping,'direction',['TIPO','NATUREZA','DIRECAO','DIRECTION']);
+  if(dateCol<0||descCol<0||(amountCol<0&&debitCol<0&&creditCol<0))throw new TypeError('XLSX exige colunas Data, Descrição e Valor ou Débito/Crédito');
+  const selected=[dateCol,descCol,amountCol>=0?amountCol:debitCol];
+  if(new Set(selected).size!==selected.length)throw new TypeError('colunas XLSX não podem mapear para o mesmo campo');
+  const rows=[];
+  for(let n=2;n<=sheet.rowCount;n++){
+    const cells=headers.map((_,i)=>cellText(sheet.getRow(n).getCell(i+1)));
+    if(cells.every(value=>!value.trim()))continue;
+    const debit=debitCol>=0?cells[debitCol]:'';
+    const credit=creditCol>=0?cells[creditCol]:'';
+    const amount=amountCol>=0?cells[amountCol]:debit?'-'+debit:credit;
+    rows.push({date:cells[dateCol],description:cells[descCol],amount,
+      direction:amountCol>=0&&typeCol>=0?cells[typeCol]:debit?'debit':'credit',
+      externalId:'row-'+(n-1)});
   }
   return rows;
 }
 
 module.exports = {
   HEADERS, toStyledXlsxBuffer, toDocxBuffer, toJsonBuffer, toPackageBuffer,
-  annotatePdfBuffer, mergePdfBuffers, parseStatementXlsx, verifyReportPackageBuffer
+  annotatePdfBuffer, mergePdfBuffers, parseStatementXlsx, inspectStatementXlsx, verifyReportPackageBuffer,
+  verifyAndPreviewPackage, inspectPdfFormBuffer, fillPdfFormBuffer
 };

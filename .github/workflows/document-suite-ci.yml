@@ -2,7 +2,7 @@ name: Financeiro · Documentos Open Source CI
 
 on:
   push:
-    branches: [feat/open-source-document-suite]
+    branches: [feat/open-source-document-suite, fix/financeiro-p0-p3-completeness]
   pull_request:
     branches: [main]
   workflow_dispatch:

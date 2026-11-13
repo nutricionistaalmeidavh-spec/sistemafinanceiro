@@ -2,6 +2,29 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createHarness } from './helpers/test-harness.mjs';
 
+test('decimal parser rejects fractional cents and unsafe integer amounts',async()=>{
+  const {createRequire}=await import('node:module'); const localRequire=createRequire(import.meta.url);
+  const {parseAmount}=localRequire('../electron/services/statement-import-service.cjs');
+  assert.equal(parseAmount('1.234,56').amountCents,123456);
+  assert.equal(parseAmount('-1,234.56').amountCents,123456);
+  assert.equal(parseAmount('0,01').amountCents,1);
+  assert.equal(parseAmount('1.000').amountCents,100000);
+  assert.throws(()=>parseAmount('12,3456'),/decimal|centavo|valor|amount/i);
+  assert.throws(()=>parseAmount('999999999999999,99'),/limite|valor|amount/i);
+});
+
+test('reject impossible imported dates and normalize standard US QIF dates without month/day corruption',async()=>{
+  const {createRequire}=await import('node:module');const req=createRequire(import.meta.url);
+  const {parseDate}=req('../electron/services/statement-import-service.cjs');
+  const {parseQif}=req('../electron/services/open-format-service.cjs');
+  assert.throws(()=>parseDate('31/02/2026'),/invalid date|data inválida/i);
+  assert.throws(()=>parseDate('2026-02-29'),/invalid date|data inválida/i);
+  assert.equal(parseDate('29/02/2024'),'2024-02-29');
+  assert.equal(parseDate('20261113120000[-3:BRT]'),'2026-11-13');
+  const us=parseQif('!Type:Bank\nD11/13/2026\nT1.25\nPUS date\n^\n');
+  assert.equal(parseDate(us[0].date),'2026-11-13');
+});
+
 test('CSV, OFX, PDF text and manual input converge to the canonical bank transaction model', async () => {
   const ctx = createHarness();
   try {
@@ -28,6 +51,33 @@ test('CSV, OFX, PDF text and manual input converge to the canonical bank transac
       assert.equal(tx.classification.matched, true);
     }
   } finally { ctx.cleanup(); }
+});
+
+test('ODS and QIF preview/commit preserve real source type and do not create finance entries', async () => {
+  const {createRequire}=await import('node:module');const localRequire=createRequire(import.meta.url);
+  const {toOdsBuffer}=localRequire('../electron/services/open-format-service.cjs');
+  const ctx=createHarness();
+  try {
+    ctx.finance.createAccount({id:'bank-ods',name:'Banco ODS',type:'BANK'},{id:'admin',role:'ADMIN'});
+    const ods=toOdsBuffer({headers:['Data','Descrição','Valor','Direção'],
+      rows:[['13/11/2026','PIX ODS fictício',-23.45,'debit']]});
+    const qif='!Type:Bank\nD13/11/2026\nT15,30\nPCliente QIF fictício\n^\n';
+    const sources=[
+      {sourceType:'ODS',accountId:'bank-ods',dataBase64:ods.toString('base64')},
+      {sourceType:'QIF',accountId:'bank-ods',content:qif}
+    ];
+    for(const input of sources){
+      const preview=await ctx.statements.preview(input);
+      assert.equal(preview.transactions.length,1);
+      assert.equal(preview.transactions[0].amountCents,input.sourceType==='ODS'?2345:1530);
+      const saved=await ctx.statements.commit(input,{id:'admin',role:'ADMIN'});
+      assert.equal(saved.inserted,1);
+      const repeated=await ctx.statements.commit(input,{id:'admin',role:'ADMIN'});
+      assert.equal(repeated.inserted,0);
+    }
+    assert.deepEqual(ctx.db.prepare('SELECT original_source_type FROM bank_import_batches WHERE accepted_count=1 ORDER BY created_at, rowid').all().map(row=>row.original_source_type),['ODS','QIF']);
+    assert.equal(ctx.db.prepare('SELECT COUNT(*) AS total FROM financial_entries').get().total,0);
+  }finally{ctx.cleanup();}
 });
 
 test('re-importing identical file content is idempotent while a distinct source may preserve a business-similar payment', async () => {

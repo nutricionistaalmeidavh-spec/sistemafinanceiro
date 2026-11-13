@@ -71,6 +71,25 @@ async function defaultExecuteOcr(request) {
   return contract.executeOcr(providers, request);
 }
 
+function updateAttachmentExtractedText(db, id, value, actor = null, now = () => new Date().toISOString()) {
+  if(!db)throw new TypeError('database is required');
+  const attachmentId=String(id||'').trim();
+  if(!attachmentId)throw new TypeError('attachmentId is required');
+  if(typeof value!=='string'||!value.trim()||value.length>50000)throw new TypeError('texto corrigido inválido ou maior que 50 mil caracteres');
+  const attachment=db.prepare('SELECT id,extracted_text,review_status FROM entry_attachments WHERE id=?').get(attachmentId);
+  if(!attachment)throw new Error('attachment not found');
+  const timestamp=now();
+  const oldHash=require('node:crypto').createHash('sha256').update(attachment.extracted_text||'').digest('hex');
+  const newHash=require('node:crypto').createHash('sha256').update(value).digest('hex');
+  db.exec('BEGIN IMMEDIATE');
+  try{
+    db.prepare("UPDATE entry_attachments SET extracted_text=?,review_status='PENDING',updated_at=? WHERE id=?").run(value,timestamp,attachmentId);
+    writeAudit(db,{action:'planning.attachment.ocr.correct',entity:'entry-attachment',entityId:attachmentId,actor,context:{oldHash,newHash,changed:oldHash!==newHash}},now);
+    db.exec('COMMIT');
+  }catch(error){try{db.exec('ROLLBACK');}catch{}throw error;}
+  return db.prepare('SELECT * FROM entry_attachments WHERE id=?').get(attachmentId);
+}
+
 function createAttachmentOcrService({ db, workspaceRoot, executeOcr = defaultExecuteOcr, now = () => new Date().toISOString() } = {}) {
   if (!db) throw new TypeError('Database is required.');
   if (!workspaceRoot) throw new TypeError('workspaceRoot is required.');
@@ -93,7 +112,7 @@ function createAttachmentOcrService({ db, workspaceRoot, executeOcr = defaultExe
     const result = await executeOcr({ source, language: 'por', mode: 'text', environment: 'native', prefer: 'tesseract', preprocess: true });
     const extractedText = String(result?.text || '').trim();
     const timestamp = nowIso();
-    const updated = db.prepare('UPDATE entry_attachments SET extracted_text=?,review_status=\'PENDING\',updated_at=? WHERE id=?').run(extractedText || null, timestamp, id);
+    const updated = db.prepare('UPDATE entry_attachments SET extracted_text=?,review_status=\'PENDING\',updated_at=?,ocr_confidence=?,ocr_provider=? WHERE id=?').run(extractedText || null, timestamp, result?.confidence == null ? null : Math.max(0,Math.min(1,Number(result.confidence))), String(result?.provider||'local'), id);
     if (!updated.changes) throw new Error('attachment not found');
     writeAudit(db, {
       action: 'planning.attachment.ocr', entity: 'entry-attachment', entityId: id, actor,
@@ -109,7 +128,7 @@ function createAttachmentOcrService({ db, workspaceRoot, executeOcr = defaultExe
     };
   }
 
-  return { extract };
+  return { extract, correct: (id,text,actor)=>updateAttachmentExtractedText(db,id,text,actor,nowIso) };
 }
 
-module.exports = { createAttachmentOcrService, resolveWorkspaceFile, recognizeLocal };
+module.exports = { createAttachmentOcrService, resolveWorkspaceFile, recognizeLocal, updateAttachmentExtractedText };

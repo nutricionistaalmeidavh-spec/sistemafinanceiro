@@ -1,32 +1,65 @@
 'use strict';
 const crypto = require('node:crypto');
 const Papa = require('papaparse');
-const { parseStatementXlsx } = require('./open-document-suite.cjs');
+const { parseStatementXlsx, inspectStatementXlsx } = require('./open-document-suite.cjs');
+const { parseStatementOds, inspectStatementOds,parseQif,inspectCnab }=require('./open-format-service.cjs');
 
 function normalizeSourceType(value) {
   const type = String(value || '').trim().toUpperCase();
-  if (!['CSV','OFX','PDF','MANUAL','XLSX'].includes(type)) throw new TypeError('unsupported sourceType');
+  if (!['CSV','OFX','PDF','MANUAL','XLSX','ODS','QIF'].includes(type)) throw new TypeError('unsupported sourceType');
   return type;
 }
 function parseDate(value) {
-  const raw = String(value || '').trim();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
-  let m = raw.match(/^(\d{2})[\/-](\d{2})[\/-](\d{4})$/);
-  if (m) return `${m[3]}-${m[2]}-${m[1]}`;
-  m = raw.match(/^(\d{4})(\d{2})(\d{2})/);
-  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
-  throw new TypeError(`invalid date: ${raw}`);
+  const raw=String(value||'').trim();
+  let parts=raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  let year,month,day;
+  if(parts){year=Number(parts[1]);month=Number(parts[2]);day=Number(parts[3]);}
+  else {
+    parts=raw.match(/^(\d{2})[\/-](\d{2})[\/-](\d{4})$/);
+    if(parts){day=Number(parts[1]);month=Number(parts[2]);year=Number(parts[3]);}
+    else {
+      parts=raw.match(/^(\d{4})(\d{2})(\d{2})(?:\d{6}(?:\.\d+)?)?(?:\[[^\]\r\n]{1,30}\])?$/);
+      if(!parts)throw new TypeError('invalid date: '+raw);
+      year=Number(parts[1]);month=Number(parts[2]);day=Number(parts[3]);
+    }
+  }
+  const iso=`${String(year).padStart(4,'0')}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+  const date=new Date(Date.UTC(year,month-1,day));
+  if(year<1900||year>2200||date.getUTCFullYear()!==year||date.getUTCMonth()!==month-1||date.getUTCDate()!==day)throw new TypeError('invalid date: '+raw);
+  return iso;
 }
 function parseAmount(value) {
-  if (Number.isInteger(value)) return { amountCents: Math.abs(value), negative: value < 0 };
-  let raw = String(value ?? '').trim().replace(/\s/g,'');
-  const negative = raw.startsWith('-') || /D$/i.test(raw);
-  raw = raw.replace(/[A-Za-zR$+\-]/g,'');
-  if (raw.includes(',') && raw.includes('.')) raw = raw.lastIndexOf(',') > raw.lastIndexOf('.') ? raw.replace(/\./g,'').replace(',','.') : raw.replace(/,/g,'');
-  else if (raw.includes(',')) raw = raw.replace(/\./g,'').replace(',','.');
-  const number = Number(raw);
-  if (!Number.isFinite(number)) throw new TypeError(`invalid amount: ${value}`);
-  return { amountCents: Math.round(Math.abs(number) * 100), negative };
+  if(typeof value==='number'){
+    if(!Number.isSafeInteger(value))throw new TypeError('valor em centavos fora do limite seguro');
+    return {amountCents:Math.abs(value),negative:value<0};
+  }
+  let raw=String(value??'').trim().replace(/[\u00a0\s]/g,'');
+  const negative=raw.startsWith('-')||/D$/i.test(raw)||/^\(.+\)$/.test(raw);
+  raw=raw.replace(/^[-+]/,'').replace(/[CD]$/i,'').replace(/^\(/,'').replace(/\)$/,'').replace(/^(?:R\$|BRL)/i,'');
+  if(!raw||!/^[0-9.,]+$/.test(raw))throw new TypeError('valor monetário inválido');
+  const lastComma=raw.lastIndexOf(','),lastDot=raw.lastIndexOf('.');
+  let integer='',decimal='';
+  if(lastComma>=0&&lastDot>=0){
+    const separator=lastComma>lastDot?',':'.';
+    const group=separator===','?'.':',';
+    const parts=raw.split(separator);
+    if(parts.length!==2||!new RegExp('^\\d{1,3}(?:\\'+group+'\\d{3})*$').test(parts[0])||!/^\d{1,2}$/.test(parts[1]))
+      throw new TypeError('separadores ou centavos inválidos');
+    integer=parts[0].split(group).join('');decimal=parts[1];
+  }else if(lastComma>=0||lastDot>=0){
+    const separator=lastComma>=0?',':'.';
+    const parts=raw.split(separator);
+    if(parts.length===2&&/^\d{1,2}$/.test(parts[1])){
+      if(!/^\d+$/.test(parts[0]))throw new TypeError('valor inválido');
+      integer=parts[0];decimal=parts[1];
+    }else if(new RegExp('^\\d{1,3}(?:\\'+separator+'\\d{3})+$').test(raw)){
+      integer=parts.join('');decimal='';
+    }else throw new TypeError('frações de centavo ou separadores inválidos');
+  }else integer=raw;
+  if(!/^\d+$/.test(integer)||!/^\d{0,2}$/.test(decimal))throw new TypeError('valor monetário inválido');
+  const cents=BigInt(integer)*100n+BigInt((decimal+'00').slice(0,2));
+  if(cents>BigInt(Number.MAX_SAFE_INTEGER))throw new RangeError('valor em centavos fora do limite seguro');
+  return {amountCents:Number(cents),negative};
 }
 function parseDelimited(content, delimiter = '') {
   const raw = String(content || '').replace(/^\uFEFF/, '');
@@ -108,7 +141,9 @@ function rowTotal(db,sql,...args){return Number(db.prepare(sql).get(...args)?.to
 function createStatementImportService({ db=null, finance=null, now=()=>new Date().toISOString(), idFactory=(prefix)=>`${prefix}-${crypto.randomUUID()}`, domainLoader=()=>import('@artisys/finance-domain'), pdfTextLoader=defaultPdfTextLoader }={}) {
   async function parseInput(input, sourceType) {
     if(sourceType==='CSV')return parseCsv(input.content);
-    if(sourceType==='XLSX')return parseStatementXlsx(input.dataBase64);
+    if(sourceType==='XLSX')return parseStatementXlsx(input.dataBase64,input.columnMapping || {});
+    if(sourceType==='ODS')return parseStatementOds(input.dataBase64,input.columnMapping || {});
+    if(sourceType==='QIF')return parseQif(input.content,{dateOrder:input.qifDateOrder||'AUTO'});
     if(sourceType==='OFX')return parseOfx(input.content);
     if(sourceType==='PDF'){
       const text=input.text || (input.dataBase64 ? await pdfTextLoader(input.dataBase64) : input.content);
@@ -129,7 +164,7 @@ function createStatementImportService({ db=null, finance=null, now=()=>new Date(
     const domain=await domainLoader(); const rules=Array.isArray(input.rules)?input.rules:domain.BASIC_PT_BR_FINANCE_RULES;
     const transactions=rows.map((row,index)=>{
       const parsed=row.amountCents!=null?{amountCents:Math.abs(Number(row.amountCents)),negative:Number(row.amountCents)<0}:parseAmount(row.amount);
-      if(!Number.isInteger(parsed.amountCents)||parsed.amountCents<=0)throw new TypeError('transaction amount must be greater than zero');
+      if(!Number.isSafeInteger(parsed.amountCents)||parsed.amountCents<=0)throw new TypeError('transaction amount must be greater than zero');
       const tx={ id:`preview-${index+1}`, accountId, date:parseDate(row.date), description:String(row.description||'').trim(), amountCents:parsed.amountCents, direction:directionOf(row,parsed), counterparty:String(row.counterparty||row.description||'').trim() };
       if(!tx.description)throw new TypeError('transaction description is required');
       tx.normalized=domain.normalizeText(tx.description);
@@ -149,7 +184,7 @@ function createStatementImportService({ db=null, finance=null, now=()=>new Date(
     if(!db)throw new Error('database is required to commit imports');
     const result=await preview(input); const createdAt=now(); const batchId=idFactory('bank-batch');
     return withTransaction(db,()=>{
-      db.prepare('INSERT INTO bank_import_batches(id,source_type,document_id,filename,account_id,parsed_count,accepted_count,duplicate_count,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)').run(batchId,result.sourceType==='XLSX'?'MANUAL':result.sourceType,result.documentId,input.filename||null,input.accountId,result.summary.parsed,result.summary.accepted,result.summary.duplicates,actor?.id||null,createdAt);
+      db.prepare('INSERT INTO bank_import_batches(id,source_type,document_id,filename,account_id,parsed_count,accepted_count,duplicate_count,created_by,created_at,original_source_type) VALUES (?,?,?,?,?,?,?,?,?,?,?)').run(batchId,['XLSX','ODS','QIF'].includes(result.sourceType)?'MANUAL':result.sourceType,result.documentId,input.filename||null,input.accountId,result.summary.parsed,result.summary.accepted,result.summary.duplicates,actor?.id||null,createdAt,result.sourceType);
       const insert=db.prepare('INSERT OR IGNORE INTO bank_transactions(id,batch_id,account_id,occurred_at,description,normalized_description,counterparty,amount_cents,direction,category_label,source_fingerprint,business_fingerprint,rule_id,rule_reason,rule_confidence,review_status,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
       let inserted=0;
       for(const tx of result.transactions){const info=insert.run(idFactory('bank-tx'),batchId,tx.accountId,tx.date,tx.description,tx.normalized,tx.counterparty||null,tx.amountCents,tx.direction,tx.category||null,tx.sourceFingerprint,tx.businessFingerprint,tx.classification?.ruleId||null,tx.classification?.reason||null,Number(tx.classification?.confidence||0),tx.classification?.matched?'AUTO_CLASSIFIED':'PENDING',createdAt); inserted+=Number(info.changes||0);}
@@ -267,6 +302,6 @@ function createStatementImportService({ db=null, finance=null, now=()=>new Date(
       return {transactionId,entryId,decision,registerSettlement,settlementId,alreadyRegistered,stats:next};
     });
   }
-  return {preview,commit,listTransactions,suggestTransfers,suggestEntries,recordDecision};
+  return {preview,commit,listTransactions,suggestTransfers,suggestEntries,recordDecision,inspectXlsx:inspectStatementXlsx, inspectOds:inspectStatementOds, inspectCnab};
 }
 module.exports={createStatementImportService,parseCsv,parseOfx,parsePdfText,parseDate,parseAmount,defaultPdfTextLoader,documentIdentity};

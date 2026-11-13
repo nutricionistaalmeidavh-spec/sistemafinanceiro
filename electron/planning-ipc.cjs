@@ -37,6 +37,11 @@ function registerPlanningIpcHandlers({ ipcMain, auth, planning, attachmentOcr = 
   ipcMain.handle('planning:attachments:list', (_event, token, entryId) => { view(token); return planning.listAttachments(entryId); });
   ipcMain.handle('planning:attachments:add', (_event, token, entryId, input) => planning.addAttachment(entryId, input || {}, manage(token)));
   ipcMain.handle('planning:attachments:review', (_event, token, id) => planning.reviewAttachment(id, manage(token)));
+  ipcMain.handle('planning:attachments:correct', (_event,token,id,text)=>{
+    const actor=manage(token);
+    if(!attachmentOcr)throw new Error('OCR local não configurado');
+    return attachmentOcr.correct(id,text,actor);
+  });
   ipcMain.handle('planning:attachments:ocr', async (_event, token, id) => {
     const actor = manage(token);
     if (!attachmentOcr) throw new Error('OCR local não configurado');
