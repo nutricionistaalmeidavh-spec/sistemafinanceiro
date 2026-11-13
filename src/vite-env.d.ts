@@ -11,6 +11,8 @@ declare global {
 
   type CrmStage = 'NEW'|'QUALIFIED'|'PROPOSAL'|'WON'|'LOST';
   type CrmQuoteStatus = 'DRAFT'|'SENT'|'ACCEPTED'|'REJECTED';
+  interface CrmImportRow {name:string;email?:string;phone?:string;document?:string;source?:string;notes?:string}
+  interface CrmImportPreview {rows:Array<CrmImportRow&{index:number;status:'INVALID'|'DUPLICATE'|'READY';reason:string}>;ready:number;duplicates:number;invalid:number}
   interface CrmLead {id:string;name:string;document:string|null;phone:string|null;email:string|null;source:string;status:'NEW'|'QUALIFIED'|'CONVERTED'|'DISCARDED';customerId:string|null;notes:string|null;ownerId:string|null;createdAt:string;updatedAt:string}
   interface CrmOpportunity {id:string;leadId:string|null;customerId:string|null;title:string;amountCents:number;stage:CrmStage;ownerId:string|null;lossReason:string|null;closedAt:string|null;createdAt:string;updatedAt:string}
   interface CrmActivity {id:string;opportunityId:string;kind:'CALL'|'EMAIL'|'WHATSAPP'|'MEETING'|'NOTE';note:string;occurredAt:string;createdAt:string}
@@ -85,6 +87,8 @@ declare global {
       crm:{
         listLeads(token:string,filters?:{query?:string;status?:string}):Promise<CrmLead[]>;
         saveLead(token:string,input:{id?:string;name:string;document?:string;phone?:string;email?:string;source?:string;notes?:string}):Promise<CrmLead>;
+        previewLeadImport(token:string,rows:CrmImportRow[]):Promise<CrmImportPreview>;
+        commitLeadImport(token:string,rows:CrmImportRow[]):Promise<{created:number;skipped:number}>;
         convertLead(token:string,id:string,input?:{customerId?:string}):Promise<PartyRecord>;
         listOpportunities(token:string,filters?:{query?:string;stage?:CrmStage}):Promise<CrmOpportunity[]>;
         saveOpportunity(token:string,input:{id?:string;leadId?:string;customerId?:string;title:string;amountCents:number}):Promise<CrmOpportunity>;
