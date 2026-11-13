@@ -10,7 +10,7 @@ type StatementTransaction = {
   classification:{matched:boolean;ruleId:string|null;confidence:number;reason:string};
 };
 type Preview = { sourceType:SourceType; documentId:string; transactions:StatementTransaction[]; duplicates:StatementTransaction[]; summary:{parsed:number;accepted:number;duplicates:number;classified:number;needsReview:number} };
-type StoredTransaction = { id:string; account_id:string; account_name:string; occurred_at:string; description:string; amount_cents:number; direction:'credit'|'debit'; category_label?:string|null; review_status:string; rule_reason?:string|null };
+type StoredTransaction = { id:string; account_id:string; account_name:string; occurred_at:string; description:string; amount_cents:number; direction:'credit'|'debit'; category_label?:string|null; review_status:string; has_registered_payment?:number; rule_reason?:string|null };
 type EntrySuggestion = { transactionId:string; allocations:Array<{obligationId:string;amountCents:number}>; confidence:number; kind:string; reason:string };
 type StatementInput = { sourceType:SourceType; accountId:string; documentId:string; filename?:string; content?:string; dataBase64?:string; rows?:Array<Record<string,unknown>> };
 type StatementApi = {
@@ -19,7 +19,7 @@ type StatementApi = {
   list(token:string,filters?:Record<string,unknown>):Promise<StoredTransaction[]>;
   suggestEntries(token:string,filters?:Record<string,unknown>):Promise<EntrySuggestion[]>;
   suggestTransfers(token:string,filters?:Record<string,unknown>):Promise<{internalTransfers:unknown[];withdrawals:unknown[];returns:unknown[]}>;
-  decision(token:string,input:{transactionId:string;entryId:string;decision:'accepted'|'rejected'|'manual';amountCents?:number}):Promise<unknown>;
+  decision(token:string,input:{transactionId:string;entryId:string;decision:'accepted'|'rejected'|'manual';amountCents?:number;registerSettlement?:boolean}):Promise<{settlementId?:string|null;alreadyRegistered?:boolean}>;
 };
 type FinanceBridge = NonNullable<Window['financeiro']> & { statements:StatementApi };
 
@@ -85,12 +85,24 @@ export default function StatementsPage({ token, session, onOpenFinance }: Props)
     catch(err){setError(err instanceof Error?err.message:String(err));}
     finally{setBusy(false);}
   }
-  async function decide(item:EntrySuggestion,decision:'accepted'|'rejected'){
+  async function decide(item:EntrySuggestion,decision:'accepted'|'rejected',registerSettlement=false){
     if(!canManage)return;
     const allocation=item.allocations[0]; if(!allocation)return;
-    setBusy(true); setError('');
-    try{await api.decision(token,{transactionId:item.transactionId,entryId:allocation.obligationId,amountCents:allocation.amountCents,decision}); await loadSuggestions(); await reload();}
-    catch(err){setError(err instanceof Error?err.message:String(err)); setBusy(false);}
+    if(registerSettlement&&!window.confirm(
+      `Confirmar baixa de ${brl(allocation.amountCents)} e vincular ao extrato? A operação altera caixa e DRE, sujeita às aprovações financeiras.`
+    ))return;
+    setBusy(true);setError('');
+    try{
+      const result=await api.decision(token,{
+        transactionId:item.transactionId,entryId:allocation.obligationId,
+        amountCents:allocation.amountCents,decision,registerSettlement
+      });
+      setNotice(decision==='rejected'?'Vínculo rejeitado sem gerar baixa.':
+        registerSettlement?(result.alreadyRegistered?'Baixa já existente; nenhum pagamento duplicado.':'Conciliação e baixa registradas.'):
+        'Extrato vinculado ao lançamento, sem registrar baixa.');
+      await loadSuggestions();await reload();
+    }catch(err){setError(err instanceof Error?err.message:String(err));}
+    finally{setBusy(false);}
   }
   function onSource(next:SourceType){setSourceType(next);setPreview(null);setPendingInput(null);setFile(null);setError('');setNotice('');}
   function onFile(event:ChangeEvent<HTMLInputElement>){setFile(event.target.files?.[0]||null);setPreview(null);setPendingInput(null);}
@@ -116,9 +128,9 @@ export default function StatementsPage({ token, session, onOpenFinance }: Props)
 
     <div className="panel table-panel table-scroll">
       <div className="panel-title"><div><strong>Transações importadas</strong><small>Últimas {visible.length} movimentações do extrato.</small></div><button type="button" className="secondary-button" onClick={()=>void loadSuggestions()} disabled={busy}><Link2 size={16}/>Buscar conciliações</button></div>
-      <table><thead><tr><th>Data</th><th>Conta</th><th>Descrição</th><th>Categoria</th><th>Status</th><th>Valor</th></tr></thead><tbody>{visible.map(tx=><tr key={tx.id}><td>{tx.occurred_at}</td><td>{tx.account_name}</td><td>{tx.description}</td><td>{tx.category_label||'—'}</td><td>{({PENDING:'Pendente',AUTO_CLASSIFIED:'Classificada automaticamente',REVIEWED:'Revisada',MATCHED:'Conciliada'} as Record<string,string>)[tx.review_status]||tx.review_status}</td><td>{tx.direction==='debit'?'-':''}{brl(tx.amount_cents)}</td></tr>)}{!visible.length&&<tr><td colSpan={6} className="muted">Nenhum extrato importado.</td></tr>}</tbody></table>
+      <table><thead><tr><th>Data</th><th>Conta</th><th>Descrição</th><th>Categoria</th><th>Status</th><th>Valor</th></tr></thead><tbody>{visible.map(tx=><tr key={tx.id}><td>{tx.occurred_at}</td><td>{tx.account_name}</td><td>{tx.description}</td><td>{tx.category_label||'—'}</td><td>{(tx.review_status==='MATCHED'?(tx.has_registered_payment?'Conciliado e baixado':'Vinculado, sem baixa'):({PENDING:'Pendente',AUTO_CLASSIFIED:'Classificada automaticamente',REVIEWED:'Revisada'} as Record<string,string>)[tx.review_status]||tx.review_status)}</td><td>{tx.direction==='debit'?'-':''}{brl(tx.amount_cents)}</td></tr>)}{!visible.length&&<tr><td colSpan={6} className="muted">Nenhum extrato importado.</td></tr>}</tbody></table>
     </div>
 
-    {suggestions.length>0&&<div className="panel table-panel table-scroll"><div className="panel-title"><div><strong>Sugestões de conciliação</strong><small>Aceitar apenas vincula o extrato ao lançamento; não registra pagamento. Revise data, beneficiário e valor antes de confirmar.</small></div><button type="button" className="secondary-button small" onClick={()=>onOpenFinance?.()}>Abrir lançamentos</button></div><table><thead><tr><th>Transação</th><th>Lançamento sugerido</th><th>Valor</th><th>Confiança</th><th>Motivo</th><th></th></tr></thead><tbody>{suggestions.map(item=>{const allocation=item.allocations[0];return <tr key={`${item.transactionId}-${allocation?.obligationId}`}><td>{stored.find(tx=>tx.id===item.transactionId)?.description||'Transação bancária'}<small className="muted">{stored.find(tx=>tx.id===item.transactionId)?.occurred_at||''}</small></td><td>{entries.find(entry=>entry.id===allocation?.obligationId)?.description||'Lançamento não localizado'}<small className="muted">{entries.find(entry=>entry.id===allocation?.obligationId)?.status==='SETTLED'?'Já quitado':'Verifique o saldo antes de vincular'}</small></td><td>{brl(allocation?.amountCents||0)}</td><td>{confidence(item.confidence)}</td><td>{item.reason}</td><td>{canManage&&<div className="row-actions"><button type="button" className="secondary-button small" onClick={()=>void decide(item,'rejected')} disabled={busy}><X size={15}/>Rejeitar</button><button className="primary-button" type="button" onClick={()=>void decide(item,'accepted')} disabled={busy}><Check size={15}/>Aceitar</button></div>}</td></tr>})}</tbody></table></div>}
+    {suggestions.length>0&&<div className="panel table-panel table-scroll"><div className="panel-title"><div><strong>Sugestões de conciliação</strong><small>Vincular apenas associa a evidência; Vincular e baixar registra o pagamento confirmado após autorização. Revise data, beneficiário e valor.</small></div><button type="button" className="secondary-button small" onClick={()=>onOpenFinance?.()}>Abrir lançamentos</button></div><table><thead><tr><th>Transação</th><th>Lançamento sugerido</th><th>Valor</th><th>Confiança</th><th>Motivo</th><th></th></tr></thead><tbody>{suggestions.map(item=>{const allocation=item.allocations[0];return <tr key={`${item.transactionId}-${allocation?.obligationId}`}><td>{stored.find(tx=>tx.id===item.transactionId)?.description||'Transação bancária'}<small className="muted">{stored.find(tx=>tx.id===item.transactionId)?.occurred_at||''}</small></td><td>{entries.find(entry=>entry.id===allocation?.obligationId)?.description||'Lançamento não localizado'}<small className="muted">{entries.find(entry=>entry.id===allocation?.obligationId)?.status==='SETTLED'?'Já quitado':'Verifique o saldo antes de vincular'}</small></td><td>{brl(allocation?.amountCents||0)}</td><td>{confidence(item.confidence)}</td><td>{item.reason}</td><td>{canManage&&<div className="row-actions"><button type="button" className="secondary-button small" onClick={()=>void decide(item,'rejected')} disabled={busy}><X size={15}/>Rejeitar</button><button className="primary-button" type="button" onClick={()=>void decide(item,'accepted')} disabled={busy}><Check size={15}/>Vincular</button><button className="primary-button" type="button" onClick={()=>void decide(item,'accepted',true)} disabled={busy}><Check size={15}/>Vincular e baixar</button></div>}</td></tr>})}</tbody></table></div>}
   </section>;
 }
