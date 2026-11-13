@@ -64,16 +64,8 @@ async function defaultExecuteOcr(request) {
   const contract = await import('@artisys/ocr');
   const providers = {
     tesseract: {
-      recognize: async (normalizedRequest) => {
-        try {
-          return await recognizeLocal(String(normalizedRequest.source), String(normalizedRequest.language || 'por'));
-        } catch (error) {
-          throw error;
-        } catch (error) {
-          if (error?.code === 'ENOENT') throw new Error('OCR local indisponível: instale o Tesseract OCR para usar esta opção.');
-          throw error;
-        }
-      },
+      recognize: async (normalizedRequest) =>
+        recognizeLocal(String(normalizedRequest.source), String(normalizedRequest.language || 'por')),
     },
   };
   return contract.executeOcr(providers, request);
