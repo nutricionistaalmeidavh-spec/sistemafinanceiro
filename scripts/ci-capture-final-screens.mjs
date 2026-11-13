@@ -67,6 +67,8 @@ if (!usePackagedApp) {
 }
 
 let app = null;
+let page = null;
+const diagnostics = { startedAt: new Date().toISOString(), status: 'running', screenshots: [], errors: [] };
 try {
   if (!usePackagedApp) await waitForServer('http://127.0.0.1:5173', 60000);
   if (!fs.existsSync(executablePath)) throw new Error(`Electron executable not found: ${executablePath}`);
@@ -86,7 +88,8 @@ try {
     env: appEnv,
     timeout: 60000,
   });
-  const page = await app.firstWindow();
+  page = await app.firstWindow();
+  page.on('pageerror', (error) => diagnostics.errors.push(String(error?.message || error)));
   await page.setViewportSize({ width: 1440, height: 900 }).catch(() => {});
 
   for (const step of flow.steps) {
@@ -113,6 +116,7 @@ try {
       case 'screenshot': {
         const target = path.join(output, `${step.name}.png`);
         await page.screenshot({ path: target, fullPage: false });
+        diagnostics.screenshots.push(path.basename(target));
         console.log(`[evidence] ${target}`);
         break;
       }
@@ -130,6 +134,8 @@ try {
   // Usa apenas o banco isolado ARTISYS_QA; nunca toca os dados do cliente.
   await page.getByTestId('nav-finance').click();
   await page.getByTestId('finance-new-entry').click();
+  await page.screenshot({ path: path.join(output, '18-novo-lancamento-final.png') });
+  diagnostics.screenshots.push('18-novo-lancamento-final.png');
   const entryForm=page.getByTestId('finance-entry-drawer');
   await entryForm.getByLabel('Descrição',{exact:true}).fill('Conta E2E de regressão');
   await entryForm.getByLabel('Valor',{exact:true}).fill('100,00');
@@ -137,6 +143,9 @@ try {
   const entryRow=page.locator('tr').filter({hasText:'Conta E2E de regressão'});
   await entryRow.waitFor();
   await entryRow.getByRole('button',{name:'Registrar pagamento'}).click();
+  await page.getByTestId('finance-payment-form').waitFor();
+  await page.screenshot({ path: path.join(output, '19-registrar-pagamento-final.png') });
+  diagnostics.screenshots.push('19-registrar-pagamento-final.png');
   const payForm=page.getByTestId('finance-payment-form');
   await payForm.getByLabel('Valor pago/recebido').fill('40,00');
   await payForm.getByRole('button',{name:'Confirmar registro'}).click();
@@ -159,6 +168,9 @@ try {
   await recurringForm.getByRole('button',{name:'Salvar alterações'}).click();
   await recurringRow.getByText('R$ 99,90').waitFor({timeout:15000});
   await recurringRow.getByRole('button',{name:'Ver lançamentos'}).click();
+  await page.getByTestId('recurring-history').waitFor();
+  await page.screenshot({ path: path.join(output, '20-historico-recorrencia-final.png') });
+  diagnostics.screenshots.push('20-historico-recorrencia-final.png');
   const history=page.getByTestId('recurring-history');
   await history.getByText('R$ 89,90',{exact:false}).first().waitFor({timeout:15000});
   await history.getByRole('button',{name:'Fechar',exact:true}).click();
@@ -171,6 +183,9 @@ try {
   const cancelledRow=page.locator('tr').filter({hasText:'Conta cancelamento E2E'});
   await cancelledRow.waitFor({timeout:15000});
   await cancelledRow.getByRole('button',{name:'Cancelar',exact:true}).click();
+  await page.getByTestId('finance-decision-form').waitFor();
+  await page.screenshot({ path: path.join(output, '21-confirmar-cancelamento-final.png') });
+  diagnostics.screenshots.push('21-confirmar-cancelamento-final.png');
   const decisionForm=page.getByTestId('finance-decision-form');
   await decisionForm.getByLabel('Motivo obrigatório').fill('Lançamento duplicado em QA');
   await decisionForm.getByRole('button',{name:'Confirmar cancelamento'}).click();
@@ -190,13 +205,28 @@ try {
   }
 
   const files = fs.readdirSync(output).filter((file) => file.endsWith('.png')).sort();
-  if (files.length !== 12) throw new Error(`Expected 12 final screenshots, found ${files.length}`);
+  const expected = flow.steps.filter(step => step.action === 'screenshot').length + 4;
+  if (files.length !== expected) throw new Error(`Expected ${expected} final screenshots, found ${files.length}`);
+  diagnostics.status = 'passed';
   console.log(`FINAL_SCREENSHOTS_OK ${files.length}`);
 } catch (error) {
+  diagnostics.status = 'failed';
+  diagnostics.failure = String(error?.stack || error?.message || error);
+  if (page) {
+    try {
+      await page.screenshot({ path: path.join(output, 'failure.png') });
+      diagnostics.screenshots.push('failure.png');
+    } catch (screenshotError) {
+      diagnostics.errors.push('Failure screenshot unavailable: ' + String(screenshotError?.message || screenshotError));
+    }
+  }
   console.error(error.stack || error.message || error);
   if (viteLogs.length) console.error(viteLogs.slice(-30).join(''));
   process.exitCode = 1;
 } finally {
+  diagnostics.finishedAt = new Date().toISOString();
+  diagnostics.screenshots = fs.readdirSync(output).filter(filename => filename.endsWith('.png')).sort();
+  fs.writeFileSync(path.resolve('qa-artifacts/final/run-summary.json'), JSON.stringify(diagnostics, null, 2));
   if (app) await app.close().catch(() => {});
   stopTree(vite);
 }
