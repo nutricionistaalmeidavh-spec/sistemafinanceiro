@@ -2,6 +2,7 @@ import { type ReactNode, useEffect, useState } from 'react';
 import { ArrowLeftRight, BarChart3, BellRing, Database, FileInput, FileText, Folder, LogOut, Menu, ReceiptText, Repeat2, Settings, Users, WalletCards } from 'lucide-react';
 import AuthScreen from './components/AuthScreen';
 import LicenseScreen from './components/LicenseScreen';
+import FirstUseGuide, {guideKey} from './components/FirstUseGuide';
 import AlertsPage from './pages/AlertsPage';
 import CashflowPage from './pages/CashflowPage';
 import DashboardPage from './pages/DashboardPage';
@@ -36,6 +37,8 @@ export default function App() {
   }, [api]);
   const [page, setPage] = useState<Page>('dashboard');
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [showGuide,setShowGuide] = useState(false);
+  const [dashboardVersion,setDashboardVersion] = useState(0);
 
   useEffect(() => {
     if (!api) return;
@@ -44,6 +47,20 @@ export default function App() {
     api.auth.session(saved).then((current) => { setToken(saved); setSession(current); }).catch(() => sessionStorage.removeItem('financeiro-token')).finally(() => setRestoring(false));
   }, [api]);
 
+  useEffect(() => {
+    if (!api || !session || !token || !can(session,'finance.manage')) return;
+    const key=guideKey(session.user.id);
+    if (localStorage.getItem(key)==='done')return;
+    let active=true;
+    Promise.all([api.finance.listAccounts(token),api.finance.listEntries(token)]).then(([accounts,entries])=>{
+      if(active && accounts.length===0 && entries.length===0)setShowGuide(true);
+    }).catch(()=>{ /* Problema de rede local ou sessao: o usuario ainda pode navegar normalmente. */ });
+    return ()=>{active=false;};
+  },[api,session,token]);
+  function closeGuide(){
+    if(session)localStorage.setItem(guideKey(session.user.id),'done');
+    setShowGuide(false);setDashboardVersion(v=>v+1);
+  }
   if (!api) return <Preview/>;
   if (!licenseStatus) return <main className="auth-shell"><div className="auth-card"><h1>Sistema Financeiro</h1><p className="muted">Verificando licença de avaliação…</p></div></main>;
   if (!licenseStatus.active) return <LicenseScreen status={licenseStatus} onActivated={setLicenseStatus}/>;
@@ -73,7 +90,8 @@ export default function App() {
       <div className="sidebar-footer"><div><strong>{session.user.name}</strong><small>{session.user.role}</small></div><button type="button" title="Sair" aria-label="Sair" data-testid="logout" onClick={()=>void logout()}><LogOut size={17}/></button></div>
     </aside>
     <main className="content">
-      {page==='dashboard' && <DashboardPage token={token}/>} {page==='alerts' && <AlertsPage token={token} session={session}/>} {page==='cashflow' && <CashflowPage token={token} session={session}/>} {page==='finance' && <FinancePage token={token} session={session}/>} {page==='statements' && <StatementsPage token={token} session={session}/>} {page==='dre' && <DrePage token={token}/>} {page==='planning' && <PlanningPage token={token} session={session}/>} {page==='reports' && <ReportsPage token={token}/>} {page==='recurring' && <RecurringPage token={token} session={session}/>} {page==='workspace' && <WorkspacePage token={token} session={session}/>} {page==='registry' && <RegistryPage token={token} session={session}/>} {page==='users' && showUsers && <UsersPage token={token} session={session}/>} {page==='system' && showSystem && <SystemPage token={token}/>} 
+      {page==='dashboard' && <DashboardPage key={dashboardVersion} token={token} onNavigate={(target)=>setPage(target)} onOpenGuide={()=>setShowGuide(true)}/>} {page==='alerts' && <AlertsPage token={token} session={session}/>} {page==='cashflow' && <CashflowPage token={token} session={session}/>} {page==='finance' && <FinancePage token={token} session={session}/>} {page==='statements' && <StatementsPage token={token} session={session}/>} {page==='dre' && <DrePage token={token}/>} {page==='planning' && <PlanningPage token={token} session={session}/>} {page==='reports' && <ReportsPage token={token}/>} {page==='recurring' && <RecurringPage token={token} session={session}/>} {page==='workspace' && <WorkspacePage token={token} session={session}/>} {page==='registry' && <RegistryPage token={token} session={session}/>} {page==='users' && showUsers && <UsersPage token={token} session={session}/>} {page==='system' && showSystem && <SystemPage token={token}/>} 
     </main>
+    {showGuide && <FirstUseGuide token={token} userId={session.user.id} onDone={closeGuide} onSkip={closeGuide}/>}
   </div>;
 }
