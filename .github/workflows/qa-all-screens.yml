@@ -29,7 +29,6 @@ jobs:
     timeout-minutes: 40
     env:
       CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-      ELECTRON_RUN_AS_NODE: ''
     steps:
       - name: Checkout do codigo sem submodulos privados
         uses: actions/checkout@v4
