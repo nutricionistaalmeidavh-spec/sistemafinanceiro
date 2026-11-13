@@ -2,12 +2,10 @@ import { useCallback, useEffect, useState } from 'react';
 import { Download, FileDown, FileSpreadsheet, Printer } from 'lucide-react';
 import { brl, today } from '../lib/format';
 import ReportsCharts from '../components/ReportsCharts';
+import { saveBlob, fromBase64 } from '../lib/export-files';
 
 type Props={token:string};
 function firstDay(){return `${today().slice(0,7)}-01`;}
-function saveBlob(filename:string,blob:Blob){const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=filename;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);}
-function fromBase64(value:string){const raw=atob(value);const bytes=new Uint8Array(raw.length);for(let i=0;i<raw.length;i+=1)bytes[i]=raw.charCodeAt(i);return bytes;}
-
 export default function ReportsPage({token}:Props){
   const api=window.financeiro!; const planning=window.financeiroPlanning!;
   const [filters,setFilters]=useState({from:firstDay(),to:today(),kind:'' as ''|FinanceiroKind,status:'',costCenterId:'',tagId:''});
