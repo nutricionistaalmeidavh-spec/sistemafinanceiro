@@ -1,6 +1,7 @@
 import { Profiler, type ReactNode, useEffect, useState } from 'react';
 import { ArrowLeftRight, BarChart3, BellRing, Database, FileInput, FileText, Folder, LogOut, Menu, ReceiptText, Repeat2, Settings, Users, WalletCards } from 'lucide-react';
 import AuthScreen from './components/AuthScreen';
+import LicenseScreen from './components/LicenseScreen';
 import AlertsPage from './pages/AlertsPage';
 import CashflowPage from './pages/CashflowPage';
 import DashboardPage from './pages/DashboardPage';
@@ -42,7 +43,15 @@ export default function App() {
   const [token, setToken] = useState('');
   const [session, setSession] = useState<FinanceiroSession | null>(null);
   const [restoring, setRestoring] = useState(Boolean(api));
+  const [licenseStatus,setLicenseStatus] = useState<FinanceiroLicenseStatus | null>(null);
+  useEffect(() => {
+    if (!api) return;
+    if (!api.license) { setLicenseStatus({active:true,mode:'trial',reason:'commercial'}); return; }
+    api.license.status().then(setLicenseStatus).catch((err) => setLicenseStatus({active:false,mode:'trial',reason:'unavailable',message:String(err?.message||err)}));
+  }, [api]);
   const [page, setPage] = useState<Page>('dashboard');
+  const [financeIntent,setFinanceIntent]=useState<FinanceiroKind|null>(null);
+  const [approvalEntryIntent,setApprovalEntryIntent]=useState<string|null>(null);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   useEffect(() => {
@@ -53,13 +62,15 @@ export default function App() {
   }, [api]);
 
   if (!api) return <Preview/>;
+  if (!licenseStatus) return <main className="auth-shell"><div className="auth-card"><h1>Sistema Financeiro</h1><p className="muted">Verificando licença de avaliação…</p></div></main>;
+  if (!licenseStatus.active) return <LicenseScreen status={licenseStatus} onActivated={setLicenseStatus}/>;
   if (restoring) return <main className="auth-shell"><div className="auth-card"><h1>Sistema Financeiro</h1><p className="muted">Restaurando sessão local…</p></div></main>;
   if (!session || !token) return <AuthScreen onAuthenticated={(nextToken, nextSession) => { setToken(nextToken); setSession(nextSession); }}/>
 
   const showUsers = can(session, 'users.view');
   const showSystem = can(session, 'system.manage');
   async function logout() { await window.financeiro!.auth.logout(token); sessionStorage.removeItem('financeiro-token'); setToken(''); setSession(null); }
-  const nav = (target: Page, label: string, icon: ReactNode) => <button type="button" data-testid={`nav-${target}`} aria-current={page===target?'page':undefined} className={page===target?'active':''} onClick={()=>{ setPage(target); setMobileNavOpen(false); }}>{icon}<span>{label}</span></button>;
+  const nav = (target: Page, label: string, icon: ReactNode) => <button type="button" data-testid={`nav-${target}`} aria-current={page===target?'page':undefined} className={page===target?'active':''} onClick={()=>{ setFinanceIntent(null); setPage(target); setMobileNavOpen(false); }}>{icon}<span>{label}</span></button>;
   const group = (label: string, children: ReactNode) => <div className="nav-group"><div className="nav-group-label">{label}</div>{children}</div>;
 
   return <div className="workspace" data-testid="app-shell">
@@ -72,14 +83,16 @@ export default function App() {
       <div className="sidebar-brand"><div className="brand-mark mini"><WalletCards size={20}/></div><div><strong>ArtiSys</strong><small>Financeiro</small></div></div>
       <nav aria-label="Navegação principal">
         {group('Visão geral', <>{nav('dashboard','Dashboard',<Database size={18}/>)}{nav('alerts','Alertas',<BellRing size={18}/>)}</>)}
-        {group('Financeiro', <>{nav('cashflow','Fluxo de Caixa',<ArrowLeftRight size={18}/>)}{nav('finance','Pagar / Receber',<ReceiptText size={18}/>)}{nav('statements','Extratos',<FileInput size={18}/>)}{nav('dre','DRE',<BarChart3 size={18}/>)}{nav('planning','Planejamento',<BarChart3 size={18}/>)}{nav('reports','Relatórios',<FileText size={18}/>)}{nav('recurring','Recorrências',<Repeat2 size={18}/>)}</>)}
-        {group('Dados', <>{nav('workspace','Workspace',<Folder size={18}/>)}{nav('registry','Cadastros',<Users size={18}/>)}</>)}
+        {group('Lançamentos', <>{nav('finance','Pagar / Receber',<ReceiptText size={18}/>)}{nav('recurring','Recorrências',<Repeat2 size={18}/>)}</>)}
+        {group('Contas e caixa', <>{nav('cashflow','Contas e saldos',<ArrowLeftRight size={18}/>)}{nav('statements','Extratos',<FileInput size={18}/>)}</>)}
+        {group('Análises', <>{nav('dre','DRE',<BarChart3 size={18}/>)}{nav('reports','Relatórios',<FileText size={18}/>)}</>)}
+        {group('Configuração e avançado', <>{nav('registry','Cadastros',<Users size={18}/>)}{nav('planning','Planejamento',<BarChart3 size={18}/>)}{nav('workspace','Workspace',<Folder size={18}/>)}</>)}
         {(showUsers || showSystem) && group('Administração', <>{showUsers && nav('users','Acessos',<Users size={18}/>)}{showSystem && nav('system','Sistema',<Settings size={18}/>)}</>)}
       </nav>
       <div className="sidebar-footer"><div><strong>{session.user.name}</strong><small>{session.user.role}</small></div><button type="button" title="Sair" aria-label="Sair" data-testid="logout" onClick={()=>void logout()}><LogOut size={17}/></button></div>
     </aside>
     <main className="content">
-      {page==='dashboard' && qaProfile('dashboard', <DashboardPage token={token}/>)} {page==='alerts' && <AlertsPage token={token} session={session}/>} {page==='cashflow' && <CashflowPage token={token} session={session}/>} {page==='finance' && qaProfile('finance', <FinancePage token={token} session={session}/>)} {page==='statements' && <StatementsPage token={token} session={session}/>} {page==='dre' && <DrePage token={token}/>} {page==='planning' && qaProfile('planning', <PlanningPage token={token} session={session}/>)} {page==='reports' && <ReportsPage token={token}/>} {page==='recurring' && <RecurringPage token={token} session={session}/>} {page==='workspace' && <WorkspacePage token={token} session={session}/>} {page==='registry' && <RegistryPage token={token} session={session}/>} {page==='users' && showUsers && <UsersPage token={token} session={session}/>} {page==='system' && showSystem && <SystemPage token={token}/>} 
+      {page==='dashboard' && qaProfile('dashboard', <DashboardPage token={token} onOpenFinance={(kind)=>{setFinanceIntent(kind);setPage('finance');}} onOpenCashflow={()=>setPage('cashflow')}/>)} {page==='alerts' && <AlertsPage token={token} session={session}/>} {page==='cashflow' && <CashflowPage token={token} session={session}/>} {page==='finance' && qaProfile('finance', <FinancePage token={token} session={session} intent={financeIntent} onIntentHandled={()=>setFinanceIntent(null)} onOpenPlanning={(entryId)=>{setApprovalEntryIntent(entryId);setPage('planning');}}/>)} {page==='statements' && <StatementsPage token={token} session={session} onOpenFinance={()=>setPage('finance')}/>} {page==='dre' && <DrePage token={token}/>} {page==='planning' && qaProfile('planning', <PlanningPage token={token} session={session} focusApprovalEntryId={approvalEntryIntent} onApprovalFocusHandled={()=>setApprovalEntryIntent(null)}/>)} {page==='reports' && <ReportsPage token={token}/>} {page==='recurring' && <RecurringPage token={token} session={session}/>} {page==='workspace' && <WorkspacePage token={token} session={session}/>} {page==='registry' && <RegistryPage token={token} session={session}/>} {page==='users' && showUsers && <UsersPage token={token} session={session}/>} {page==='system' && showSystem && <SystemPage token={token}/>} 
     </main>
   </div>;
 }

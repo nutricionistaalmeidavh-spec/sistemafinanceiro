@@ -43,19 +43,37 @@ function createFinanceService({ db, now = () => new Date().toISOString(), idFact
   function mapSettlement(row) {
     return row && { id: row.id, entryId: row.entry_id, accountId: row.account_id || null, amountCents: row.amount_cents, method: row.method, note: row.note, occurredAt: row.occurred_at, createdAt: row.created_at, reversedAt: row.reversed_at };
   }
+  const approvalSchemaAvailable=Boolean(db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='approval_policies'").get());
+  function paymentApproval(row) {
+    if (!approvalSchemaAvailable || row.kind !== 'PAYABLE' || row.status === 'CANCELLED') return { status:'NOT_REQUIRED', policyId:null };
+    const policy = db.prepare('SELECT id FROM approval_policies WHERE active=1 AND min_amount_cents<=? ORDER BY min_amount_cents DESC,id LIMIT 1').get(row.amount_cents);
+    if (!policy) return { status:'NOT_REQUIRED', policyId:null };
+    const request = db.prepare(`SELECT status FROM approval_requests
+      WHERE entry_id=? AND policy_id=? AND entry_amount_cents_at_request=? AND status IN ('APPROVED','PENDING')
+      ORDER BY CASE status WHEN 'APPROVED' THEN 0 ELSE 1 END, updated_at DESC LIMIT 1`)
+      .get(row.id,policy.id,row.amount_cents);
+    return { status:request?.status || 'REQUIRED',policyId:policy.id };
+  }
   function mapEntry(row, asOf = localDay(nowIso()), prefetchedSettlements = null) {
     if (!row) return null;
-    const settlements = prefetchedSettlements ?? activeSettlements(row.id).map(mapSettlement);
+    const day=assertDateOnly(String(asOf).slice(0,10),'asOf');
+    // Reuse a batch when listing entries while keeping point lookups historically correct.
+    const settlements=prefetchedSettlements ?? db.prepare(`SELECT * FROM financial_settlements WHERE entry_id=? AND occurred_at<=?
+      AND (reversed_at IS NULL OR substr(reversed_at,1,10)>?) ORDER BY occurred_at,created_at,id`)
+      .all(String(row.id),day,day).map(mapSettlement);
     const settledCents = settlements.reduce((sum, item) => sum + Number(item.amountCents || 0), 0);
     const openCents = Math.max(Number(row.amount_cents) - settledCents, 0);
-    const isOverdue = ['OPEN', 'PARTIAL'].includes(row.status) && row.due_at < assertDateOnly(String(asOf).slice(0, 10), 'asOf');
+    const cancelledAt=row.cancelled_at?localDay(row.cancelled_at):null;
+    const isCancelled=row.status==='CANCELLED'&&(!cancelledAt||cancelledAt<=day);
+    const status=isCancelled?'CANCELLED':openCents===0?'SETTLED':settledCents>0?'PARTIAL':'OPEN';
+    const isOverdue = ['OPEN', 'PARTIAL'].includes(status) && row.due_at < day;
     return {
       id: row.id, kind: row.kind, description: row.description, categoryId: row.category_id, accountId: row.account_id,
       customerId: row.customer_id, creditorId: row.creditor_id, amountCents: row.amount_cents, issueAt: row.issue_at,
-      dueAt: row.due_at, status: row.status, sourceType: row.source_type, sourceId: row.source_id, notes: row.notes,
+      dueAt: row.due_at, status, sourceType: row.source_type, sourceId: row.source_id, notes: row.notes,
       recurrenceRuleId: row.recurrence_rule_id || null, recurrenceKey: row.recurrence_key || null,
       createdAt: row.created_at, updatedAt: row.updated_at, cancelledAt: row.cancelled_at,
-      settledCents, openCents, isOverdue, settlements,
+      settledCents, openCents, isOverdue, settlements, approval: paymentApproval(row),
     };
   }
   function getEntry(id, { asOf } = {}) { return mapEntry(db.prepare('SELECT * FROM financial_entries WHERE id=?').get(String(id)), asOf || localDay(nowIso())); }
@@ -121,8 +139,7 @@ function createFinanceService({ db, now = () => new Date().toISOString(), idFact
       assertRelation('creditors', creditorId, 'creditor');
       validateCategory(row.kind, categoryId);
       const notes = input.notes === undefined ? row.notes : input.notes || null;
-      // Historical settlements may predate their own account_id column. Freeze their
-      // original account before changing the entry's suggested/default account.
+      // Preserve historical account attribution for pre-v3 settlements on entry edits.
       if (accountId !== row.account_id) {
         const legacy = db.prepare('SELECT COUNT(*) AS total FROM financial_settlements WHERE entry_id=? AND account_id IS NULL AND reversed_at IS NULL').get(String(entryId));
         if (legacy.total > 0 && !row.account_id) throw new Error('legacy payments have no original account; choose an account before editing');
@@ -146,16 +163,22 @@ function createFinanceService({ db, now = () => new Date().toISOString(), idFact
     return status;
   }
   function settleEntry(entryId, input = {}, actor = null, { withinTransaction = false } = {}) {
-    // Used internally by atomic bank reconciliation; regular callers still own a transaction.
     const execute = () => {
       const row = requireEntry(entryId);
       if (row.status === 'CANCELLED') throw new Error('cancelled entry cannot be settled');
       const current = getEntry(entryId);
-      if (current.openCents <= 0) throw new Error('entry has no open balance');
+      const settledBooked=activeSettlements(entryId).reduce((sum,item)=>sum+Number(item.amount_cents),0);
+      const bookOpen=Math.max(0,Number(row.amount_cents)-settledBooked);
+      if (bookOpen <= 0) throw new Error('entry has no open balance');
       const amountCents = assertCents(input.amountCents, 'amountCents');
       if (amountCents <= 0) throw new Error('settlement must be greater than zero');
-      if (amountCents > current.openCents) throw new Error('settlement exceeds open balance');
+      if (amountCents > bookOpen) throw new Error('settlement exceeds open balance');
+      const approval = paymentApproval(row);
+      if (approval.status !== 'NOT_REQUIRED' && approval.status !== 'APPROVED') {
+        throw new Error('Pagamento exige aprovação. Solicite ou conclua a aprovação em Planejamento > Aprovações antes de registrar a baixa.');
+      }
       const occurredAt = assertDateOnly(input.occurredAt || localDay(nowIso()), 'settlement date');
+      if(occurredAt>localDay(nowIso()))throw new Error('settlement date cannot be in the future');
       const method = String(input.method || 'OTHER').toUpperCase();
       if (!['PIX','CASH','TRANSFER','BOLETO','DEBIT_CARD','CREDIT_CARD','OTHER'].includes(method)) throw new Error('invalid payment method');
       const accountId = String(input.accountId || row.account_id || '').trim();
@@ -214,43 +237,55 @@ function createFinanceService({ db, now = () => new Date().toISOString(), idFact
     if (filters.categoryId) { clauses.push('category_id=?'); params.push(String(filters.categoryId)); }
     if (filters.recurrenceRuleId) { clauses.push('recurrence_rule_id=?'); params.push(String(filters.recurrenceRuleId)); }
     if (filters.query) { clauses.push('LOWER(description) LIKE ?'); params.push(`%${String(filters.query).trim().toLowerCase()}%`); }
+    const day = assertDateOnly(String(filters.asOf || localDay(nowIso())).slice(0,10),'asOf');
+    clauses.push('substr(created_at,1,10)<=?');
+    params.push(day);
     const rows = db.prepare(`SELECT * FROM financial_entries${clauses.length ? ` WHERE ${clauses.join(' AND ')}` : ''} ORDER BY due_at,id`).all(...params);
-    // Batch settlement retrieval prevents a query per row (N+1) on larger ledgers.
     const byEntry = new Map();
     for (let offset = 0; offset < rows.length; offset += 400) {
-      const ids = rows.slice(offset, offset + 400).map((row) => row.id);
-      const placeholders = ids.map(() => '?').join(',');
-      const payments = db.prepare(`SELECT * FROM financial_settlements WHERE reversed_at IS NULL AND entry_id IN (${placeholders}) ORDER BY occurred_at,created_at,id`).all(...ids);
+      const ids = rows.slice(offset,offset+400).map(row=>row.id);
+      const placeholders = ids.map(()=>'?').join(',');
+      const payments = db.prepare(`SELECT * FROM financial_settlements
+        WHERE entry_id IN (${placeholders}) AND occurred_at<=?
+          AND (reversed_at IS NULL OR substr(reversed_at,1,10)>?)
+        ORDER BY occurred_at,created_at,id`).all(...ids,day,day);
       for (const payment of payments) {
-        if (!byEntry.has(payment.entry_id)) byEntry.set(payment.entry_id, []);
+        if (!byEntry.has(payment.entry_id)) byEntry.set(payment.entry_id,[]);
         byEntry.get(payment.entry_id).push(mapSettlement(payment));
       }
     }
-    const asOf = filters.asOf || localDay(nowIso());
-    return rows.map((row) => mapEntry(row, asOf, byEntry.get(row.id) || []))
-      .filter((entry) => filters.overdue === true ? entry.isOverdue : true);
+    return rows.map(row=>mapEntry(row,day,byEntry.get(row.id)||[]))
+      .filter(entry=>filters.overdue===true?entry.isOverdue:true);
   }
   function getSummary({ from = null, to = null, asOf = localDay(nowIso()) } = {}) {
-    const day = assertDateOnly(String(asOf).slice(0, 10), 'asOf');
-    const where = ["fe.status<>'CANCELLED'"];
-    const params = [];
-    if (from) { where.push('fe.due_at>=?'); params.push(String(from)); }
-    if (to) { where.push('fe.due_at<=?'); params.push(String(to)); }
-    const rows = db.prepare(`SELECT fe.kind,
-      SUM(fe.amount_cents) total_cents,
+    const day=assertDateOnly(String(asOf).slice(0,10),'asOf');
+    const where=["substr(fe.created_at,1,10)<=?", "(fe.status<>'CANCELLED' OR substr(fe.cancelled_at,1,10)>?)"];
+    const params=[day,day];
+    if (from) {where.push('fe.due_at>=?');params.push(String(from));}
+    if (to) {where.push('fe.due_at<=?');params.push(String(to));}
+    // A snapshot is derived from payments effective as of the cut-off, not
+    // the current status or payments reversed after that historical date.
+    const rows=db.prepare(`WITH paid AS (
+      SELECT entry_id,SUM(amount_cents) paid_cents FROM financial_settlements
+      WHERE occurred_at<=? AND (reversed_at IS NULL OR substr(reversed_at,1,10)>?)
+      GROUP BY entry_id
+    )
+    SELECT fe.kind, SUM(fe.amount_cents) total_cents,
       SUM(COALESCE(p.paid_cents,0)) settled_cents,
       SUM(MAX(0,fe.amount_cents-COALESCE(p.paid_cents,0))) open_cents,
-      SUM(CASE WHEN fe.status IN ('OPEN','PARTIAL') AND fe.due_at<? THEN MAX(0,fe.amount_cents-COALESCE(p.paid_cents,0)) ELSE 0 END) overdue_cents
-      FROM financial_entries fe
-      LEFT JOIN (SELECT entry_id,SUM(amount_cents) paid_cents FROM financial_settlements WHERE reversed_at IS NULL GROUP BY entry_id) p ON p.entry_id=fe.id
-      WHERE ${where.join(' AND ')} GROUP BY fe.kind`).all(day,...params);
-    const summary = { payableTotalCents: 0, payableSettledCents: 0, payableOpenCents: 0, receivableTotalCents: 0, receivableSettledCents: 0, receivableOpenCents: 0, overduePayableCents: 0, overdueReceivableCents: 0 };
-    for (const row of rows) {
-      const prefix = row.kind === 'PAYABLE' ? 'payable' : 'receivable';
-      summary[`${prefix}TotalCents`] = Number(row.total_cents || 0);
-      summary[`${prefix}SettledCents`] = Number(row.settled_cents || 0);
-      summary[`${prefix}OpenCents`] = Number(row.open_cents || 0);
-      summary[row.kind === 'PAYABLE' ? 'overduePayableCents' : 'overdueReceivableCents'] = Number(row.overdue_cents || 0);
+      SUM(CASE WHEN fe.due_at<? AND fe.amount_cents>COALESCE(p.paid_cents,0)
+        THEN MAX(0,fe.amount_cents-COALESCE(p.paid_cents,0)) ELSE 0 END) overdue_cents
+    FROM financial_entries fe LEFT JOIN paid p ON p.entry_id=fe.id
+    WHERE ${where.join(' AND ')} GROUP BY fe.kind`).all(day,day,day,...params);
+    const summary={payableTotalCents:0,payableSettledCents:0,payableOpenCents:0,
+      receivableTotalCents:0,receivableSettledCents:0,receivableOpenCents:0,
+      overduePayableCents:0,overdueReceivableCents:0};
+    for(const row of rows){
+      const prefix=row.kind==='PAYABLE'?'payable':'receivable';
+      summary[`${prefix}TotalCents`]=Number(row.total_cents||0);
+      summary[`${prefix}SettledCents`]=Number(row.settled_cents||0);
+      summary[`${prefix}OpenCents`]=Number(row.open_cents||0);
+      summary[row.kind==='PAYABLE'?'overduePayableCents':'overdueReceivableCents']=Number(row.overdue_cents||0);
     }
     return summary;
   }

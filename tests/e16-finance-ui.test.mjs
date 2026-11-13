@@ -19,7 +19,7 @@ test('E16 exposes the finance UI kit, grouped shell, actionable dashboard and en
     assert.match(kit, new RegExp(`export function ${exported}`));
   }
 
-  for (const group of ['Visão geral', 'Financeiro', 'Dados', 'Administração']) {
+  for (const group of ['Visão geral', 'Lançamentos', 'Contas e caixa', 'Análises', 'Configuração e avançado', 'Administração']) {
     assert.match(app, new RegExp(group));
   }
   assert.match(app, /data-testid="mobile-nav-toggle"/);

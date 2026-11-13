@@ -9,7 +9,7 @@ test('dashboard uses the reporting cut-off date and never counts future installm
     const snapshot = h.analytics.getDashboardSnapshot({ year:2026 });
     assert.equal(snapshot.cards.overduePayableCents, 0);
     assert.equal(snapshot.cards.payableOpenCents, 5000);
-    assert.equal(snapshot.asOf, '2026-09-12');
+    assert.equal(snapshot.balanceAsOf, '2026-09-12');
   } finally { h.cleanup(); }
 });
 
@@ -116,17 +116,18 @@ test('failed reconcile-and-pay rolls back both the bank link and the payment fee
   } finally {h.cleanup();}
 });
 
-test('dashboard does not mix future-dated payments into today\'s realized DRE and bank balance', () => {
-  const h=createHarness();
+test('historical as-of reports exclude payments after the cut-off without allowing future payment dates', () => {
+  const h=createHarness({now:()=> '2026-09-30T12:00:00.000Z'});
   try {
     const bank=h.finance.createAccount({name:'Banco',type:'BANK'});
-    const entry=h.finance.createEntry({kind:'PAYABLE',description:'Pagamento agendado',amountCents:10000,dueAt:'2026-09-20',accountId:bank.id});
+    const entry=h.finance.createEntry({kind:'PAYABLE',description:'Pagamento antigo',amountCents:10000,dueAt:'2026-09-20',accountId:bank.id});
     h.finance.settleEntry(entry.id,{amountCents:10000,accountId:bank.id,occurredAt:'2026-09-25'});
-    const dashboard=h.analytics.getDashboardSnapshot({year:2026});
-    assert.equal(dashboard.asOf,'2026-09-12');
-    assert.equal(dashboard.cards.paidCents,0);
-    assert.equal(dashboard.cards.totalBalanceCents,0);
-    assert.equal(dashboard.dre.totals.expenseCents,0);
-    assert.equal(dashboard.monthly[8].outCents,0);
+    const asOf='2026-09-12';
+    const indicators=h.analytics.getIndicators({from:'2026-01-01',to:asOf,asOf});
+    assert.equal(indicators.paidCents,0);
+    assert.equal(indicators.totalBalanceCents,0);
+    assert.equal(h.cashflow.getAccountBalances({asOf}).find(item=>item.id===bank.id).balanceCents,0);
+    assert.equal(h.analytics.getDre({from:'2026-01-01',to:asOf,basis:'realized'}).totals.expenseCents,0);
+    assert.equal(h.analytics.getDashboardSnapshot({year:2026}).cards.paidCents,10000);
   } finally {h.cleanup();}
 });

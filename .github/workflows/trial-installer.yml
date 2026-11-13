@@ -1,0 +1,111 @@
+name: ArtiSys Financeiro - Trial Windows
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/trial-installer.yml'
+      - 'electron/**'
+      - 'src/**'
+      - 'scripts/**'
+      - 'tests/**'
+      - 'package.json'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'electron/**'
+      - 'src/**'
+      - 'tests/**'
+      - 'scripts/**'
+      - 'database/**'
+      - 'package.json'
+      - '.github/workflows/trial-installer.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: financeiro-trial-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  windows-installer:
+    name: Testar e empacotar avaliação Windows
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Preparar dependências ArtiSys fixadas
+        run: npm run ci:bootstrap
+      - name: Instalar dependências
+        run: npm install --no-audit --no-fund
+      - name: Testes, incluindo licenciamento
+        run: npm test
+      - name: Compilar interface e validar TypeScript
+        run: npm run build
+      - name: Preparar pacote de avaliacao isolado
+        run: node scripts/prepare-trial-package.mjs
+      - name: Preparar Electron para QA
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "node_modules/electron/dist/electron.exe")) {
+            node node_modules/electron/install.js
+          }
+          if (-not (Test-Path "node_modules/electron/dist/electron.exe")) { throw "Electron nao instalado" }
+      - name: Fluxo real de primeiro uso, pagamentos e recorrencias
+        run: npm run ci:qa-final
+      - name: Gerar instalador NSIS de avaliação
+        run: npm run dist:package
+      - name: Conferir e gerar SHA-256
+        shell: pwsh
+        run: |
+          $v=(Get-Content package.json | ConvertFrom-Json).version
+          $file="release/ArtiSys-Financeiro-Avaliacao-Setup-$v.exe"
+          if(-not (Test-Path $file)){throw "Instalador ausente: $file"}
+          $size=(Get-Item $file).Length
+          if($size -lt 50000000){throw "Arquivo pequeno demais: $size"}
+          (Get-FileHash -Path $file -Algorithm SHA256).Hash.ToLowerInvariant() | Set-Content -Path "release/ArtiSys-Financeiro-Avaliacao-Setup-$v.sha256"
+      - name: Preservar capturas do Electron
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: artisys-financeiro-trial-qa-${{ github.sha }}
+          path: qa-artifacts/final/screenshots/*.png
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Preservar instalador de teste e checksum
+        uses: actions/upload-artifact@v4
+        with:
+          name: artisys-financeiro-trial-${{ github.sha }}
+          path: |
+            release/ArtiSys-Financeiro-Avaliacao-Setup-*.exe
+            release/ArtiSys-Financeiro-Avaliacao-Setup-*.sha256
+          if-no-files-found: error
+          retention-days: 60
+
+      - name: Publicar prerelease somente sob comando manual (imutavel)
+        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $v=(Get-Content package.json | ConvertFrom-Json).version
+          $short="${{ github.sha }}".Substring(0,7)
+          $tag="financeiro-avaliacao-v$v-$short"
+          $exe="release/ArtiSys-Financeiro-Avaliacao-Setup-$v.exe"
+          $sum="release/ArtiSys-Financeiro-Avaliacao-Setup-$v.sha256"
+          if(-not (Test-Path $exe)){throw "Instalador ausente: $exe"}
+          $notes="Instalador Windows de avaliacao do ArtiSys Financeiro. Exige uma licenca de teste assinada emitida separadamente. Nao substitui o instalador comercial."
+          gh release view $tag --repo "${{ github.repository }}" *> $null
+          if($LASTEXITCODE -eq 0){throw "Tag existente: nao sobrescrever release publicada"}
+          gh release create $tag $exe $sum --repo "${{ github.repository }}" --target "${{ github.sha }}" --title "ArtiSys Financeiro Avaliacao v$v ($short)" --notes $notes --prerelease --latest=false
+          if($LASTEXITCODE -ne 0){throw "Falha ao publicar prerelease"}

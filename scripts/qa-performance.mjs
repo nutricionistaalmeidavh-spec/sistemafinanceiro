@@ -68,7 +68,7 @@ for (const count of levels) {
     const dashboard = timed(() => h.analytics.getDashboardSnapshot({year:2026}),2);
     assert.equal(dashboard.result.cards.totalBalanceCents,expectedPaid);
     assert.equal(dashboard.result.cards.payableOpenCents,expectedOpenPayable);
-    assert.equal(dashboard.result.asOf,'2026-09-12');
+    assert.equal(dashboard.result.balanceAsOf,'2026-09-12');
 
     const report = { count, synthetic:true, persistedEntries:count, insertedMs:insertsMs,
       summary:summary.durationMs, listPayables:list.durationMs,
