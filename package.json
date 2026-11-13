@@ -16,7 +16,7 @@
     "build": "tsc --noEmit && vite build",
     "check": "npm test && npm run build",
     "dist": "npm run build && npm run dist:package",
-    "dist:package": "node ./scripts/package-windows.mjs",
+    "dist:package": "npm run ocr:stage && node ./scripts/package-windows.mjs",
     "qa:validate": "artisys-qa validate --config ./artisys-qa.config.json",
     "qa:final": "node ./scripts/qa-final-local.mjs",
     "ci:bootstrap": "node ./scripts/ci-bootstrap.mjs && node ./scripts/ci-bootstrap-ocr.mjs",
@@ -25,7 +25,8 @@
     "release:check": "node ./scripts/release-check.mjs",
     "artifacts:local": "npm test && npm run build && npm run dist:package && npm run qa:final",
     "final:prepare": "node ./scripts/final-gates.mjs",
-    "final:release": "npm run final:prepare && npm run qa:final && npm run dist:package"
+    "final:release": "npm run final:prepare && npm run qa:final && npm run dist:package",
+    "ocr:stage": "node ./scripts/stage-ocr-assets.mjs"
   },
   "dependencies": {
     "@artisys/dashboard": "file:vendor/utilidades/modules/artisys-dashboard",
@@ -36,6 +37,7 @@
     "@artisys/pdf": "file:vendor/utilidades/modules/artisys-pdf",
     "@artisys/printing": "file:vendor/utilidades/modules/artisys-printing",
     "@artisys/storage": "file:vendor/utilidades/modules/artisys-storage",
+    "@napi-rs/canvas": "1.0.9",
     "@tesseract.js-data/por": "1.0.0",
     "docx": "9.15.3",
     "echarts": "6.1.0",
@@ -92,6 +94,15 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true
-    }
+    },
+    "extraResources": [
+      {
+        "from": "resources/ocr-data",
+        "to": "ocr-data",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ]
   }
 }
