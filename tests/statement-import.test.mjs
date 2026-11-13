@@ -41,6 +41,33 @@ test('CSV, OFX, PDF text and manual input converge to the canonical bank transac
   } finally { ctx.cleanup(); }
 });
 
+test('ODS and QIF preview/commit preserve real source type and do not create finance entries', async () => {
+  const {createRequire}=await import('node:module');const localRequire=createRequire(import.meta.url);
+  const {toOdsBuffer}=localRequire('../electron/services/open-format-service.cjs');
+  const ctx=createHarness();
+  try {
+    ctx.finance.createAccount({id:'bank-ods',name:'Banco ODS',type:'BANK'},{id:'admin',role:'ADMIN'});
+    const ods=toOdsBuffer({headers:['Data','Descrição','Valor','Direção'],
+      rows:[['13/11/2026','PIX ODS fictício',-23.45,'debit']]});
+    const qif='!Type:Bank\nD13/11/2026\nT15,30\nPCliente QIF fictício\n^\n';
+    const sources=[
+      {sourceType:'ODS',accountId:'bank-ods',dataBase64:ods.toString('base64')},
+      {sourceType:'QIF',accountId:'bank-ods',content:qif}
+    ];
+    for(const input of sources){
+      const preview=await ctx.statements.preview(input);
+      assert.equal(preview.transactions.length,1);
+      assert.equal(preview.transactions[0].amountCents,input.sourceType==='ODS'?2345:1530);
+      const saved=await ctx.statements.commit(input,{id:'admin',role:'ADMIN'});
+      assert.equal(saved.inserted,1);
+      const repeated=await ctx.statements.commit(input,{id:'admin',role:'ADMIN'});
+      assert.equal(repeated.inserted,0);
+    }
+    assert.deepEqual(ctx.db.prepare('SELECT original_source_type FROM bank_import_batches WHERE accepted_count=1 ORDER BY created_at, rowid').all().map(row=>row.original_source_type),['ODS','QIF']);
+    assert.equal(ctx.db.prepare('SELECT COUNT(*) AS total FROM financial_entries').get().total,0);
+  }finally{ctx.cleanup();}
+});
+
 test('re-importing identical file content is idempotent while a distinct source may preserve a business-similar payment', async () => {
   const ctx = createHarness();
   try {
