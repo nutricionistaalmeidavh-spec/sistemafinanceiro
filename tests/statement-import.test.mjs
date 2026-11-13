@@ -20,6 +20,7 @@ test('reject impossible imported dates and normalize standard US QIF dates witho
   assert.throws(()=>parseDate('31/02/2026'),/invalid date|data inválida/i);
   assert.throws(()=>parseDate('2026-02-29'),/invalid date|data inválida/i);
   assert.equal(parseDate('29/02/2024'),'2024-02-29');
+  assert.equal(parseDate('20261113120000[-3:BRT]'),'2026-11-13');
   const us=parseQif('!Type:Bank\nD11/13/2026\nT1.25\nPUS date\n^\n');
   assert.equal(parseDate(us[0].date),'2026-11-13');
 });
