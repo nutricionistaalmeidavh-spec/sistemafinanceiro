@@ -12,9 +12,10 @@ type StatementTransaction = {
 type Preview = { sourceType:SourceType; documentId:string; transactions:StatementTransaction[]; duplicates:StatementTransaction[]; summary:{parsed:number;accepted:number;duplicates:number;classified:number;needsReview:number} };
 type StoredTransaction = { id:string; account_id:string; account_name:string; occurred_at:string; description:string; amount_cents:number; direction:'credit'|'debit'; category_label?:string|null; review_status:string; has_registered_payment?:number; rule_reason?:string|null };
 type EntrySuggestion = { transactionId:string; allocations:Array<{obligationId:string;amountCents:number}>; confidence:number; kind:string; reason:string };
-type StatementInput = { sourceType:SourceType; accountId:string; documentId:string; filename?:string; content?:string; dataBase64?:string; rows?:Array<Record<string,unknown>> };
+type StatementInput = { sourceType:SourceType; accountId:string; documentId:string; filename?:string; content?:string; dataBase64?:string; rows?:Array<Record<string,unknown>>; columnMapping?:Record<string,string> };
 type StatementApi = {
   preview(token:string,input:StatementInput):Promise<Preview>;
+  inspectXlsx(token:string,dataBase64:string):Promise<{headers:string[];rowCount:number;previewRows:string[][]}>;
   commit(token:string,input:StatementInput):Promise<{batchId:string;inserted:number;duplicates:number;summary:Preview['summary']}>;
   list(token:string,filters?:Record<string,unknown>):Promise<StoredTransaction[]>;
   suggestEntries(token:string,filters?:Record<string,unknown>):Promise<EntrySuggestion[]>;
@@ -44,6 +45,8 @@ export default function StatementsPage({ token, session, onOpenFinance }: Props)
   const [sourceType,setSourceType] = useState<SourceType>('CSV');
   const [accountId,setAccountId] = useState('');
   const [file,setFile] = useState<File|null>(null);
+  const [xlsxInfo,setXlsxInfo] = useState<{headers:string[];rowCount:number;previewRows:string[][]}|null>(null);
+  const [columnMapping,setColumnMapping] = useState<Record<string,string>>({});
   const [manual,setManual] = useState({date:today(),description:'',amount:'',direction:'debit' as 'debit'|'credit'});
   const [preview,setPreview] = useState<Preview|null>(null);
   const [pendingInput,setPendingInput] = useState<StatementInput|null>(null);
@@ -64,7 +67,7 @@ export default function StatementsPage({ token, session, onOpenFinance }: Props)
     if(sourceType==='MANUAL') return {sourceType,accountId,documentId:`manual-${Date.now()}`,rows:[{date:manual.date,description:manual.description,amountCents:toCents(manual.amount),direction:manual.direction}]};
     if(!file) throw new Error('Selecione um arquivo para analisar.');
     const base = {sourceType,accountId,documentId:`${file.name}:${file.size}:${file.lastModified}`,filename:file.name};
-    if(sourceType==='PDF'||sourceType==='XLSX') { if(file.size>12*1024*1024)throw new Error('Arquivo maior que 12 MB.'); return {...base,dataBase64:await fileToBase64(file)}; }
+    if(sourceType==='PDF'||sourceType==='XLSX') { if(file.size>12*1024*1024)throw new Error('Arquivo maior que 12 MB.'); return {...base,dataBase64:await fileToBase64(file),...(sourceType==='XLSX'?{columnMapping}:{})}; }
     return {...base,content:await file.text()};
   }
   async function runPreview(event?:FormEvent){
@@ -106,8 +109,15 @@ export default function StatementsPage({ token, session, onOpenFinance }: Props)
     }catch(err){setError(err instanceof Error?err.message:String(err));}
     finally{setBusy(false);}
   }
-  function onSource(next:SourceType){setSourceType(next);setPreview(null);setPendingInput(null);setFile(null);setError('');setNotice('');}
-  function onFile(event:ChangeEvent<HTMLInputElement>){setFile(event.target.files?.[0]||null);setPreview(null);setPendingInput(null);}
+  function onSource(next:SourceType){setSourceType(next);setPreview(null);setPendingInput(null);setFile(null);setXlsxInfo(null);setColumnMapping({});setError('');setNotice('');}
+  async function onFile(event:ChangeEvent<HTMLInputElement>){
+    const selected=event.target.files?.[0]||null;
+    setFile(selected);setPreview(null);setPendingInput(null);setXlsxInfo(null);setColumnMapping({});
+    if(sourceType==='XLSX'&&selected){try{
+      if(selected.size>12*1024*1024)throw new Error('XLSX maior que 12 MB');
+      setXlsxInfo(await api.inspectXlsx(token,await fileToBase64(selected)));
+    }catch(error){setError(error instanceof Error?error.message:String(error));}}
+  }
 
   return <section className="page-stack" data-testid="page-statements">
     <div className="page-header"><div><p className="eyebrow">Extratos</p><h2>Importação e conciliação bancária</h2><p className="muted">CSV, XLSX, OFX, PDF e lançamento manual entram no mesmo modelo canônico e passam por revisão antes de afetar o financeiro.</p></div><button type="button" className="secondary-button" onClick={()=>void reload()}><RefreshCw size={16}/>Atualizar</button></div>
@@ -117,7 +127,20 @@ export default function StatementsPage({ token, session, onOpenFinance }: Props)
       <div className="wide panel-title"><div><strong>Analisar extrato</strong><small>O arquivo é analisado localmente. Nada é lançado antes da confirmação.</small></div></div>
       <div className="wide segmented">{(['CSV','XLSX','OFX','PDF','MANUAL'] as SourceType[]).map(type=><button key={type} type="button" className={sourceType===type?'active':''} onClick={()=>onSource(type)}>{type==='MANUAL'?'Manual':type}</button>)}</div>
       <label><span>Conta</span><select value={accountId} onChange={(e)=>setAccountId(e.target.value)} required><option value="">Selecione</option>{accounts.map(account=><option key={account.id} value={account.id}>{account.name}</option>)}</select></label>
-      {sourceType!=='MANUAL'&&<label><span>Arquivo {sourceType}</span><input type="file" accept={sourceType==='CSV'?'.csv,text/csv':sourceType==='OFX'?'.ofx,.qfx,application/x-ofx':sourceType==='XLSX'?'.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':'.pdf,application/pdf'} onChange={onFile}/></label>}
+      {sourceType!=='MANUAL'&&<label><span>Arquivo {sourceType}</span><input type="file" accept={sourceType==='CSV'?'.csv,text/csv':sourceType==='OFX'?'.ofx,.qfx,application/x-ofx':sourceType==='XLSX'?'.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':'.pdf,application/pdf'} onChange={(event)=>void onFile(event)}/></label>}
+      {sourceType==='XLSX'&&xlsxInfo&&<div className="wide panel nested-form">
+        <strong>Mapeamento das colunas do extrato</strong>
+        <p className="muted">Escolha as colunas reais do banco. Quando o cabeçalho for padrão, mantenha detecção automática. Nenhuma transação será criada antes da prévia e confirmação.</p>
+        <div className="form-grid">{([
+          ['date','Data *'],['description','Descrição *'],['amount','Valor'],['direction','Entrada/saída'],['debit','Débito'],['credit','Crédito']
+        ] as Array<[string,string]>).map(([key,label])=><label key={key}><span>{label}</span>
+          <select value={columnMapping[key]||''} onChange={event=>{setColumnMapping(current=>({...current,[key]:event.target.value}));setPreview(null);setPendingInput(null);}}>
+            <option value="">Detectar automaticamente</option>
+            {xlsxInfo.headers.map((name,i)=><option key={i} value={name}>{name||'Coluna '+(i+1)}</option>)}
+          </select>
+        </label>)}</div>
+        <small className="muted">{xlsxInfo.rowCount} linhas detectadas. Amostra: {xlsxInfo.previewRows[0]?.join(' | ')||'Sem amostra'}</small>
+      </div>}
       {sourceType==='MANUAL'&&<><label><span>Data</span><input type="date" value={manual.date} onChange={(e)=>setManual({...manual,date:e.target.value})} required/></label><label><span>Descrição</span><input value={manual.description} onChange={(e)=>setManual({...manual,description:e.target.value})} required/></label><label><span>Valor</span><input inputMode="decimal" placeholder="0,00" value={manual.amount} onChange={(e)=>setManual({...manual,amount:e.target.value})} required/></label><label><span>Tipo</span><select value={manual.direction} onChange={(e)=>setManual({...manual,direction:e.target.value as 'debit'|'credit'})}><option value="debit">Saída</option><option value="credit">Entrada</option></select></label></>}
       {file&&<p className="wide muted"><FileUp size={15}/> {file.name} — {(file.size/1024).toFixed(1)} KB</p>}
       <button className="primary-button" type="submit" disabled={busy}><UploadCloud size={16}/>{busy?'Analisando…':'Gerar prévia'}</button>
