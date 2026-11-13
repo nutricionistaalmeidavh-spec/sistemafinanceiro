@@ -2,6 +2,15 @@
 
 Aplicativo desktop **local-first** para gestão financeira pessoal. O núcleo funciona no computador do usuário, com SQLite local, sem SaaS, cloud ou serviço pago obrigatório. O produto pode ser usado por alguém que também possua empresa/CNPJ, mas não depende de estrutura multiempresa, tenant ou `companyId`.
 
+## Instalação, ativação e atualizações (v0.1.3)
+
+Existe **uma única edição e um único instalador**: `ArtiSys-Financeiro-Setup-<versao>.exe`.
+O acesso exige código de licença para todos, podendo ser de teste, por prazo ou permanente.
+Códigos novos de 16 caracteres são emitidos com `scripts/issue-license.mjs` sem recompilar o instalador; a primeira ativação consulta um catálogo cifrado no GitHub, e o uso posterior é offline.
+Ao abrir, o sistema verifica a release estável e permite baixar e instalar voluntariamente pelo próprio app.
+O único workflow de publicação é `.github/workflows/financeiro-release.yml`, acionado manualmente na `main`.
+Consulte `docs/licenciamento-avaliacao.md` para emissão, segurança e migração.
+
 ## Estado do roadmap
 
 ### 01 — Base do produto ✅
@@ -124,7 +133,7 @@ npm install
 npm run electron:dev
 ```
 
-No primeiro acesso ao aplicativo desktop, defina a senha do administrador local. O login inicial é `admin`.
+No primeiro acesso ao aplicativo desktop, ative o código de licença e depois defina a senha do administrador local. O login inicial é `admin`.
 
 ## Comandos
 

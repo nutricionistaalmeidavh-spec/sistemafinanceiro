@@ -9,7 +9,7 @@ test('GitHub Actions can prepare pinned ArtiSys tooling without cross-repo crede
   const bootstrap = read('scripts/ci-bootstrap.mjs');
   const ocrBootstrap = read('scripts/ci-bootstrap-ocr.mjs');
   const security = read('scripts/security.mjs');
-  const workflow = read('.github/workflows/final-release.yml');
+  const workflow = read('.github/workflows/financeiro-release.yml');
 
   assert.equal(pkg.scripts['ci:bootstrap'], 'node ./scripts/ci-bootstrap.mjs && node ./scripts/ci-bootstrap-ocr.mjs');
   assert.equal(pkg.scripts['ci:qa-final'], 'node ./scripts/ci-capture-final-screens.mjs');

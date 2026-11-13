@@ -65,7 +65,7 @@ function createLicenseService({dataDir,publicKey,now=Date.now,sealedTrial=null,c
   const clockPath=path.join(dataDir,'artisys-financeiro-license-clock.json');
   const blocked=(reason,message)=>({active:false,reason,message,mode:'licensed'});
   function status(){
-    if(!fs.existsSync(filePath))return blocked('missing','Informe seu código de ativação para continuar.');
+    if(!fs.existsSync(filePath))return blocked('missing','Informe seu código de licença para continuar.');
     let license;
     try{license=decodeLicense(fs.readFileSync(filePath,'utf8'),publicKey);}
     catch(cause){return blocked('invalid',cause.message||'Licença inválida.');}
