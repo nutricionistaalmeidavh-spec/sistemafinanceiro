@@ -28,6 +28,14 @@ function runBuild(attempt) {
   });
 }
 
+const staged = spawnSync(process.execPath, ['scripts/stage-ocr-assets.mjs'], {
+  cwd: root, env: process.env, stdio: 'inherit', windowsHide: false,
+});
+if (staged.status !== 0) {
+  console.error('[package-win] Modelo OCR local indisponível; empacotamento interrompido.');
+  process.exit(staged.status || 1);
+}
+
 cleanRelease();
 
 for (let attempt = 1; attempt <= 3; attempt += 1) {
