@@ -1,5 +1,7 @@
 'use strict';
 
+const { localDay } = require('./date-utils.cjs');
+
 function monthKey(value) { return String(value).slice(0, 7); }
 function yearRange(year) { const y = Number(year); if (!Number.isInteger(y) || y < 2000 || y > 2200) throw new Error('invalid year'); return { from: `${y}-01-01`, to: `${y}-12-31` }; }
 function proportionalCents(value, total, share) {
@@ -69,8 +71,10 @@ function createAnalyticsService({ db, finance, cashflow, now = () => new Date().
 
   function getDashboardSnapshot({ year = Number(nowIso().slice(0, 4)) } = {}) {
     const range = yearRange(year);
-    const indicators = getIndicators({ from: range.from, to: range.to, asOf: range.to });
-    const accountBalances = cashflow.getAccountBalances({ asOf: range.to });
+    const today = localDay(nowIso());
+    const asOf = today < range.to ? today : range.to;
+    const indicators = getIndicators({ from: range.from, to: range.to, asOf });
+    const accountBalances = cashflow.getAccountBalances({ asOf });
     const buckets = Array.from({ length: 12 }, (_, index) => ({ month: `${year}-${String(index + 1).padStart(2, '0')}`, inCents: 0, outCents: 0, netCents: 0 }));
     const byMonth = new Map(buckets.map((item) => [item.month, item]));
     for (const movement of cashflow.listMovements(range)) {
@@ -82,7 +86,7 @@ function createAnalyticsService({ db, finance, cashflow, now = () => new Date().
       FROM financial_settlements fs JOIN financial_entries fe ON fe.id=fs.entry_id
       WHERE fs.reversed_at IS NULL AND fe.status<>'CANCELLED' AND fe.kind='PAYABLE' AND fs.occurred_at>=? AND fs.occurred_at<=?
       GROUP BY fe.description ORDER BY amount_cents DESC,fe.description LIMIT 5`).all(range.from, range.to).map((row) => ({ description: row.description, amountCents: Number(row.amount_cents || 0) }));
-    return { year: Number(year), range, cards: indicators, accountBalances, monthly: buckets, topExpenses, dre: getDre({ ...range, basis: 'realized' }) };
+    return { year: Number(year), range, asOf, cards: indicators, accountBalances, monthly: buckets, topExpenses, dre: getDre({ ...range, basis: 'realized' }) };
   }
 
   return { getDre, getIndicators, getDashboardSnapshot };
