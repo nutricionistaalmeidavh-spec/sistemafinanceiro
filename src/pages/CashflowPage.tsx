@@ -1,6 +1,7 @@
 import { FormEvent, useCallback, useEffect, useState } from 'react';
 import { ArrowLeftRight, Plus } from 'lucide-react';
 import { brl, can, toCents, today } from '../lib/format';
+import { saveBinaryFile } from '../lib/export-files';
 
 type Props = { token: string; session: FinanceiroSession };
 type ManualMovementType = Exclude<CashMovementType, 'TRANSFER' | 'SETTLEMENT'>;
@@ -30,7 +31,15 @@ export default function CashflowPage({ token, session }: Props) {
   async function createMovement(event: FormEvent) { event.preventDefault(); try { await api.cashflow.createMovement(token,{...form,amountCents:toCents(form.amount),direction:form.type==='ADJUSTMENT'?form.direction:undefined}); setForm({...form,amount:'',note:''}); await reload(); } catch(err){setError(err instanceof Error?err.message:String(err));} }
   async function doTransfer(event: FormEvent) { event.preventDefault(); try { await api.cashflow.transfer(token,{...transfer,amountCents:toCents(transfer.amount)}); setTransfer({...transfer,amount:'',note:''}); await reload(); } catch(err){setError(err instanceof Error?err.message:String(err));} }
 
-  return <section className="page-stack"><div className="page-header"><div><p className="eyebrow">Fluxo de Caixa</p><h2>Movimentações e saldos</h2><p className="muted">Livro-caixa consolidado com baixas financeiras e movimentos manuais.</p></div></div>
+  async function exportCashflow(format:'docx'|'pdf'){
+    try{
+      const filters={from:firstDayOfMonth(),to:today()};
+      if(format==='docx')saveBinaryFile(await api.cashflow.docx(token,filters));
+      else await api.cashflow.savePdf(token,filters);
+      setError('');
+    }catch(error){setError(error instanceof Error?error.message:String(error));}
+  }
+  return <section className="page-stack"><div className="page-header"><div><p className="eyebrow">Fluxo de Caixa</p><h2>Movimentações e saldos</h2><p className="muted">Livro-caixa consolidado com baixas financeiras e movimentos manuais.</p></div><div className="inline-actions"><button className="secondary-button" type="button" onClick={()=>void exportCashflow('docx')}>Exportar Word</button><button className="secondary-button" type="button" onClick={()=>void exportCashflow('pdf')}>Exportar PDF com gráfico</button></div></div>
     <div className="metric-grid"><div className="metric-card"><span>Saldo inicial do mês</span><strong>{brl(summary.openingBalanceCents)}</strong></div><div className="metric-card"><span>Entradas</span><strong>{brl(summary.inCents)}</strong></div><div className="metric-card"><span>Saídas</span><strong>{brl(summary.outCents)}</strong></div><div className="metric-card"><span>Saldo final</span><strong>{brl(summary.closingBalanceCents)}</strong></div></div>
     {error && <div className="error-box">{error}</div>}
     <div className="panel"><h3>Saldos por conta</h3><div className="account-balance-grid">{balances.map((item)=><div className="account-balance" key={item.id}><span>{item.name}<small>{item.type}</small></span><strong>{brl(item.balanceCents)}</strong></div>)}</div></div>
