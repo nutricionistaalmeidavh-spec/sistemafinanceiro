@@ -31,6 +31,8 @@ contextBridge.exposeInMainWorld('financeiro', {
   statements: {
     preview: (token, input) => ipcRenderer.invoke('statements:preview', token, input),
     inspectXlsx: (token, dataBase64) => ipcRenderer.invoke('statements:xlsx:inspect', token, dataBase64),
+    inspectOds: (token, dataBase64) => ipcRenderer.invoke('statements:ods:inspect', token, dataBase64),
+    inspectCnab: (token, content) => ipcRenderer.invoke('statements:cnab:inspect', token, content),
     commit: (token, input) => ipcRenderer.invoke('statements:commit', token, input),
     list: (token, filters) => ipcRenderer.invoke('statements:list', token, filters),
     suggestTransfers: (token, filters) => ipcRenderer.invoke('statements:suggest-transfers', token, filters),
@@ -96,6 +98,7 @@ contextBridge.exposeInMainWorld('financeiro', {
     receipt: (token, settlementId) => ipcRenderer.invoke('reports:receipt', token, settlementId),
     csv: (token, filters) => ipcRenderer.invoke('reports:csv', token, filters),
     xlsx: (token, filters) => ipcRenderer.invoke('reports:xlsx', token, filters),
+    ods: (token, filters) => ipcRenderer.invoke('reports:ods', token, filters),
     docx: (token, filters) => ipcRenderer.invoke('reports:docx', token, filters),
     json: (token, filters) => ipcRenderer.invoke('reports:json', token, filters),
     package: (token, filters) => ipcRenderer.invoke('reports:package', token, filters),
