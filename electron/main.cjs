@@ -75,7 +75,7 @@ app.whenReady().then(async () => {
   const planning = createPlanningService({ db, cashflow });
   const backup = createBackupService({ database, backupsDir: path.join(app.getPath('userData'), 'backups') });
   const documents = createDocumentService({ BrowserWindow, dialog });
-  const statements = createStatementImportService({ db });
+  const statements = createStatementImportService({ db, finance });
   const workspaceRoot = path.join(app.getPath('userData'), 'workspace');
   workspaceService = createWorkspaceService({
     rootDir: workspaceRoot,

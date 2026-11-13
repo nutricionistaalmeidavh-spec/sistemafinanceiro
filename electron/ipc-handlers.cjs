@@ -2,6 +2,11 @@
 
 function registerIpcHandlers({ ipcMain, app, dialog, database, auth, finance, registry, cashflow, analytics, recurrence, alerts, reports, backup, lan, documents, statements, workspace }) {
   if (!ipcMain?.handle) throw new TypeError('ipcMain is required');
+  const broadcast = (event, result) => {
+    // Notify the renderer only after the canonical SQLite operation succeeds.
+    event?.sender?.send?.('finance:data-changed', { scope: 'financial-ledger' });
+    return result;
+  };
   ipcMain.handle('system:health', () => database.health());
 
   ipcMain.handle('auth:needs-bootstrap', () => auth.needsBootstrap());
@@ -14,13 +19,13 @@ function registerIpcHandlers({ ipcMain, app, dialog, database, auth, finance, re
   ipcMain.handle('auth:users:set-active', (_event, token, userId, active) => auth.setUserActive(token, userId, active));
 
   ipcMain.handle('finance:accounts:list', (_event, token, filters) => { auth.require(token, 'finance.view'); return finance.listAccounts(filters || {}); });
-  ipcMain.handle('finance:accounts:create', (_event, token, input) => { const actor = auth.require(token, 'finance.manage'); return finance.createAccount(input, actor); });
+  ipcMain.handle('finance:accounts:create', (event, token, input) => { const actor = auth.require(token, 'finance.manage'); return broadcast(event, finance.createAccount(input, actor)); });
   ipcMain.handle('finance:entries:list', (_event, token, filters) => { auth.require(token, 'finance.view'); return finance.listEntries(filters || {}); });
-  ipcMain.handle('finance:entries:create', (_event, token, input) => { const actor = auth.require(token, 'finance.manage'); return finance.createEntry(input, actor); });
-  ipcMain.handle('finance:entries:update', (_event, token, entryId, input) => { const actor = auth.require(token, 'finance.manage'); return finance.updateEntry(entryId, input, actor); });
-  ipcMain.handle('finance:entries:settle', (_event, token, entryId, input) => { const actor = auth.require(token, 'finance.manage'); return finance.settleEntry(entryId, input, actor); });
-  ipcMain.handle('finance:settlements:reverse', (_event, token, settlementId, reason) => { const actor = auth.require(token, 'finance.manage'); return finance.reverseSettlement(settlementId, { reason, actor }); });
-  ipcMain.handle('finance:entries:cancel', (_event, token, entryId, reason) => { const actor = auth.require(token, 'finance.manage'); return finance.cancelEntry(entryId, { reason, actor }); });
+  ipcMain.handle('finance:entries:create', (event, token, input) => { const actor = auth.require(token, 'finance.manage'); return broadcast(event, finance.createEntry(input, actor)); });
+  ipcMain.handle('finance:entries:update', (event, token, entryId, input) => { const actor = auth.require(token, 'finance.manage'); return broadcast(event, finance.updateEntry(entryId, input, actor)); });
+  ipcMain.handle('finance:entries:settle', (event, token, entryId, input) => { const actor = auth.require(token, 'finance.manage'); return broadcast(event, finance.settleEntry(entryId, input, actor)); });
+  ipcMain.handle('finance:settlements:reverse', (event, token, settlementId, reason) => { const actor = auth.require(token, 'finance.manage'); return broadcast(event, finance.reverseSettlement(settlementId, { reason, actor })); });
+  ipcMain.handle('finance:entries:cancel', (event, token, entryId, reason) => { const actor = auth.require(token, 'finance.manage'); return broadcast(event, finance.cancelEntry(entryId, { reason, actor })); });
   ipcMain.handle('finance:summary', (_event, token, filters) => { auth.require(token, 'finance.view'); return finance.getSummary(filters || {}); });
 
   ipcMain.handle('statements:preview', async (_event, token, input) => { auth.require(token, 'finance.view'); return statements.preview(input || {}); });
@@ -28,7 +33,7 @@ function registerIpcHandlers({ ipcMain, app, dialog, database, auth, finance, re
   ipcMain.handle('statements:list', (_event, token, filters) => { auth.require(token, 'finance.view'); return statements.listTransactions(filters || {}); });
   ipcMain.handle('statements:suggest-transfers', async (_event, token, filters) => { auth.require(token, 'finance.view'); return statements.suggestTransfers(filters || {}); });
   ipcMain.handle('statements:suggest-entries', async (_event, token, filters) => { auth.require(token, 'finance.view'); return statements.suggestEntries(filters || {}); });
-  ipcMain.handle('statements:decision', async (_event, token, input) => { const actor = auth.require(token, 'finance.manage'); return statements.recordDecision(input || {}, actor); });
+  ipcMain.handle('statements:decision', async (event, token, input) => { const actor = auth.require(token, 'finance.manage'); const result = await statements.recordDecision(input || {}, actor); return input?.registerSettlement ? broadcast(event, result) : result; });
 
   ipcMain.handle('workspace:list', (_event, token, relativePath) => { auth.require(token, 'finance.view'); return workspace.list(relativePath || ''); });
   ipcMain.handle('workspace:tree', (_event, token) => { auth.require(token, 'finance.view'); return workspace.tree(); });
@@ -61,8 +66,8 @@ function registerIpcHandlers({ ipcMain, app, dialog, database, auth, finance, re
   ipcMain.handle('workspace:reveal', (_event, token, relativePath) => { auth.require(token, 'finance.view'); return workspace.reveal(relativePath); });
 
   ipcMain.handle('cashflow:movements:list', (_event, token, filters) => { auth.require(token, 'finance.view'); return cashflow.listMovements(filters || {}); });
-  ipcMain.handle('cashflow:movements:create', (_event, token, input) => { const actor = auth.require(token, 'finance.manage'); return cashflow.createManualMovement(input, actor); });
-  ipcMain.handle('cashflow:transfer', (_event, token, input) => { const actor = auth.require(token, 'finance.manage'); return cashflow.transfer(input, actor); });
+  ipcMain.handle('cashflow:movements:create', (event, token, input) => { const actor = auth.require(token, 'finance.manage'); return broadcast(event, cashflow.createManualMovement(input, actor)); });
+  ipcMain.handle('cashflow:transfer', (event, token, input) => { const actor = auth.require(token, 'finance.manage'); return broadcast(event, cashflow.transfer(input, actor)); });
   ipcMain.handle('cashflow:balances', (_event, token, filters) => { auth.require(token, 'finance.view'); return cashflow.getAccountBalances(filters || {}); });
   ipcMain.handle('cashflow:summary', (_event, token, filters) => { auth.require(token, 'finance.view'); return cashflow.getCashflowSummary(filters || {}); });
 
@@ -71,10 +76,10 @@ function registerIpcHandlers({ ipcMain, app, dialog, database, auth, finance, re
   ipcMain.handle('analytics:dashboard', (_event, token, filters) => { auth.require(token, 'finance.view'); return analytics.getDashboardSnapshot(filters || {}); });
 
   ipcMain.handle('recurrence:list', (_event, token, filters) => { auth.require(token, 'finance.view'); return recurrence.listRules(filters || {}); });
-  ipcMain.handle('recurrence:create', (_event, token, input) => { const actor = auth.require(token, 'finance.manage'); return recurrence.createRule(input, actor); });
-  ipcMain.handle('recurrence:update', (_event, token, id, input) => { const actor = auth.require(token, 'finance.manage'); return recurrence.updateRule(id, input, actor); });
-  ipcMain.handle('recurrence:set-active', (_event, token, id, active) => { const actor = auth.require(token, 'finance.manage'); return recurrence.setRuleActive(id, active, actor); });
-  ipcMain.handle('recurrence:generate', (_event, token, asOf) => { const actor = auth.require(token, 'finance.manage'); return recurrence.generateDue({ asOf, actor }); });
+  ipcMain.handle('recurrence:create', (event, token, input) => { const actor = auth.require(token, 'finance.manage'); return broadcast(event, recurrence.createRule(input, actor)); });
+  ipcMain.handle('recurrence:update', (event, token, id, input) => { const actor = auth.require(token, 'finance.manage'); return broadcast(event, recurrence.updateRule(id, input, actor)); });
+  ipcMain.handle('recurrence:set-active', (event, token, id, active) => { const actor = auth.require(token, 'finance.manage'); return broadcast(event, recurrence.setRuleActive(id, active, actor)); });
+  ipcMain.handle('recurrence:generate', (event, token, asOf) => { const actor = auth.require(token, 'finance.manage'); return broadcast(event, recurrence.generateDue({ asOf, actor })); });
 
   ipcMain.handle('alerts:list', (_event, token, filters) => { const actor = auth.require(token, 'finance.view'); return alerts.listAlerts({ ...(filters || {}), userId: actor.id }); });
   ipcMain.handle('alerts:ack', (_event, token, alertKey, state) => { const actor = auth.require(token, 'finance.view'); return alerts.acknowledge(alertKey, actor.id, state); });

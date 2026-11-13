@@ -72,21 +72,32 @@ function createCashflowService({ db, now = () => new Date().toISOString(), idFac
     });
   }
   function listMovements(filters = {}) {
-    const manual = db.prepare('SELECT * FROM cash_movements ORDER BY occurred_at,created_at,id').all().map(mapManual);
+    // Push down date/account filters to SQLite instead of scanning the full ledger.
+    const manualWhere = []; const manualParams = [];
+    const settlementWhere = ["fs.reversed_at IS NULL", "fe.status<>'CANCELLED'"];
+    const settlementParams = [];
+    if (filters.accountId) {
+      manualWhere.push('account_id=?'); manualParams.push(String(filters.accountId));
+      settlementWhere.push('COALESCE(fs.account_id,fe.account_id)=?'); settlementParams.push(String(filters.accountId));
+    }
+    if (filters.from) {
+      manualWhere.push('occurred_at>=?'); manualParams.push(String(filters.from));
+      settlementWhere.push('fs.occurred_at>=?'); settlementParams.push(String(filters.from));
+    }
+    if (filters.to) {
+      manualWhere.push('occurred_at<=?'); manualParams.push(String(filters.to));
+      settlementWhere.push('fs.occurred_at<=?'); settlementParams.push(String(filters.to));
+    }
+    const manual = db.prepare(`SELECT * FROM cash_movements${manualWhere.length ? ` WHERE ${manualWhere.join(' AND ')}` : ''} ORDER BY occurred_at,created_at,id`).all(...manualParams).map(mapManual);
     const settlements = db.prepare(`SELECT fs.*,COALESCE(fs.account_id,fe.account_id) resolved_account_id,fe.kind,fe.description
       FROM financial_settlements fs JOIN financial_entries fe ON fe.id=fs.entry_id
-      WHERE fs.reversed_at IS NULL AND fe.status<>'CANCELLED'
-      ORDER BY fs.occurred_at,fs.created_at,fs.id`).all().filter((row) => row.resolved_account_id).map((row) => ({
+      WHERE ${settlementWhere.join(' AND ')}
+      ORDER BY fs.occurred_at,fs.created_at,fs.id`).all(...settlementParams).filter((row) => row.resolved_account_id).map((row) => ({
         id: row.id, accountId: row.resolved_account_id, direction: row.kind === 'RECEIVABLE' ? 'IN' : 'OUT', type: 'SETTLEMENT',
         amountCents: Number(row.amount_cents), occurredAt: row.occurred_at, note: row.note || row.description,
         transferId: null, sourceType: 'SETTLEMENT', sourceId: row.entry_id, createdAt: row.created_at,
       }));
-    return [...manual, ...settlements].filter((item) => {
-      if (filters.accountId && item.accountId !== String(filters.accountId)) return false;
-      if (filters.from && item.occurredAt < String(filters.from)) return false;
-      if (filters.to && item.occurredAt > String(filters.to)) return false;
-      return true;
-    }).sort((a, b) => a.occurredAt.localeCompare(b.occurredAt) || a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
+    return [...manual, ...settlements].sort((a, b) => a.occurredAt.localeCompare(b.occurredAt) || a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
   }
   function getAccountBalances({ asOf = localDay(nowIso()), includeInactive = false } = {}) {
     const accounts = db.prepare(`SELECT * FROM financial_accounts${includeInactive ? '' : ' WHERE active=1'} ORDER BY name COLLATE NOCASE,id`).all();

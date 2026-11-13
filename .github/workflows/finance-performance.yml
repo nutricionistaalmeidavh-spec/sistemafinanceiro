@@ -1,0 +1,56 @@
+name: Financeiro | integridade e carga sintetica
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/qa-performance.mjs'
+      - 'electron/services/**'
+      - 'tests/canonicity-p0-p3.test.mjs'
+      - '.github/workflows/finance-performance.yml'
+  workflow_dispatch:
+    inputs:
+      sizes:
+        description: 'Tamanhos dos bancos ficticios'
+        type: choice
+        required: true
+        default: '1000,10000,100000'
+        options:
+          - '1000'
+          - '1000,10000,100000'
+          - '1000,10000,100000'
+
+permissions:
+  contents: read
+
+jobs:
+  finance-consistency-benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      PERF_LEVELS: ${{ inputs.sizes || '1000,10000,100000' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Bootstrap dos modulos open source fixados
+        run: npm run ci:bootstrap
+      - name: Dependencias locais
+        run: npm install --no-audit --no-fund
+      - name: Testes P0-P3 de canonicidade
+        run: node --test tests/canonicity-p0-p3.test.mjs
+      - name: Benchmark de dados ficticios
+        run: npm run qa:perf:smoke
+        env:
+          PERF_LEVELS: ${{ inputs.sizes || '1000,10000,100000' }}
+      - name: Preservar metricas e evidencias
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: artisys-financeiro-performance-${{ github.sha }}
+          path: qa-artifacts/performance/*.json
+          if-no-files-found: ignore
+          retention-days: 14

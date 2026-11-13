@@ -56,9 +56,10 @@ function createAnalyticsService({ db, finance, cashflow, now = () => new Date().
 
   function getIndicators({ from = null, to = null, asOf = localDay(nowIso()) } = {}) {
     const summary = finance.getSummary({ from, to, asOf });
+    const effectiveTo = to && String(to) < String(asOf) ? String(to) : String(asOf);
     const clauses = ['fs.reversed_at IS NULL', "fe.status<>'CANCELLED'"]; const params = [];
     if (from) { clauses.push('fs.occurred_at>=?'); params.push(String(from)); }
-    if (to) { clauses.push('fs.occurred_at<=?'); params.push(String(to)); }
+    if (effectiveTo) { clauses.push('fs.occurred_at<=?'); params.push(effectiveTo); }
     const realized = db.prepare(`SELECT fe.kind,SUM(fs.amount_cents) total FROM financial_settlements fs JOIN financial_entries fe ON fe.id=fs.entry_id WHERE ${clauses.join(' AND ')} GROUP BY fe.kind`).all(...params);
     let receivedCents = 0; let paidCents = 0;
     for (const row of realized) row.kind === 'RECEIVABLE' ? receivedCents += Number(row.total || 0) : paidCents += Number(row.total || 0);
