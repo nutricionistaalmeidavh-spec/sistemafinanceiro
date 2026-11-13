@@ -218,38 +218,60 @@ function normalizedHeader(value) {
 function getIndex(headers, aliases) {
   return headers.findIndex(value => aliases.includes(normalizedHeader(value)));
 }
-async function parseStatementXlsx(dataBase64) {
-  if (typeof dataBase64 !== 'string' || !dataBase64.trim()) throw new TypeError('XLSX é obrigatório');
-  const raw = Buffer.from(dataBase64, 'base64');
-  if (!raw.length || raw.length > MAX_IMPORT_BYTES || !raw.subarray(0,2).equals(Buffer.from('PK'))) throw new RangeError('arquivo XLSX inválido ou maior que 12 MB');
-  const workbook = new ExcelJS.Workbook();
+async function openStatementSheet(dataBase64) {
+  if (typeof dataBase64 !== 'string'||!dataBase64.trim())throw new TypeError('XLSX é obrigatório');
+  const raw=Buffer.from(dataBase64,'base64');
+  if(!raw.length||raw.length>MAX_IMPORT_BYTES||raw.subarray(0,2).toString()!=='PK')throw new RangeError('XLSX inválido ou maior que 12 MB');
+  const workbook=new ExcelJS.Workbook();
   await workbook.xlsx.load(raw);
-  const sheet = workbook.worksheets[0];
-  if (!sheet || sheet.rowCount < 2 || sheet.rowCount > MAX_IMPORT_ROWS + 1) throw new RangeError('planilha deve conter de 1 a 50 mil linhas');
-  const headers = Array.from({ length: Math.min(40, sheet.columnCount) }, (_, i) => cellText(sheet.getRow(1).getCell(i + 1)));
-  const dateCol = getIndex(headers, ['DATA','DATE','DTPOSTED','VENCIMENTO']);
-  const descCol = getIndex(headers, ['DESCRICAO','DESCRICAOOPERACAO','HISTORICO','MEMO','DESCRIPTION','NAME']);
-  const amountCol = getIndex(headers, ['VALOR','AMOUNT','TRNAMT']);
-  const debitCol = getIndex(headers, ['DEBITO','DEBIT']);
-  const creditCol = getIndex(headers, ['CREDITO','CREDIT']);
-  const typeCol = getIndex(headers, ['TIPO','NATUREZA','DIRECAO','DIRECTION']);
-  if (dateCol < 0 || descCol < 0 || (amountCol < 0 && debitCol < 0 && creditCol < 0)) throw new TypeError('XLSX requer Data, Descrição e Valor (ou Débito/Crédito)');
-  const rows = [];
-  for (let n = 2; n <= sheet.rowCount; n++) {
-    const cells = Array.from({ length: headers.length }, (_, i) => cellText(sheet.getRow(n).getCell(i + 1)));
-    if (cells.every(value => !value.trim())) continue;
-    const debit = debitCol >= 0 ? cells[debitCol] : '';
-    const credit = creditCol >= 0 ? cells[creditCol] : '';
-    const amount = amountCol >= 0 ? cells[amountCol] : debit ? '-' + debit : credit;
-    rows.push({ date: cells[dateCol], description: cells[descCol], amount,
-      direction: amountCol >= 0 ? cells[typeCol] : debit ? 'debit' : 'credit',
-      externalId: 'row-' + (n - 1) });
+  const sheet=workbook.worksheets[0];
+  if(!sheet||sheet.rowCount<2||sheet.rowCount>MAX_IMPORT_ROWS+1||sheet.columnCount>80)throw new RangeError('XLSX exige 1–50 mil linhas e até 80 colunas');
+  const headers=Array.from({length:sheet.columnCount},(_,i)=>cellText(sheet.getRow(1).getCell(i+1)));
+  return {sheet,headers};
+}
+async function inspectStatementXlsx(dataBase64) {
+  const {sheet,headers}=await openStatementSheet(dataBase64);
+  return {headers,rowCount:sheet.rowCount-1,previewRows:Array.from({length:Math.min(5,sheet.rowCount-1)},(_,n)=>
+    headers.map((_,i)=>cellText(sheet.getRow(n+2).getCell(i+1))))};
+}
+function mappedIndex(headers,mapping,key,aliases){
+  const explicit=mapping?.[key];
+  if(explicit===undefined || explicit===null||explicit==='')return getIndex(headers,aliases);
+  if(typeof explicit!=='string'||explicit.length>160)throw new TypeError('coluna mapeada inválida: '+key);
+  const direct=headers.indexOf(explicit);
+  if(direct<0)throw new TypeError('coluna não encontrada: '+explicit);
+  return direct;
+}
+async function parseStatementXlsx(dataBase64,columnMapping={}) {
+  const {sheet,headers}=await openStatementSheet(dataBase64);
+  if(!columnMapping||typeof columnMapping!=='object'||Array.isArray(columnMapping))throw new TypeError('mapeamento XLSX inválido');
+  const validKeys=new Set(['date','description','amount','debit','credit','direction']);
+  if(Object.keys(columnMapping).some(k=>!validKeys.has(k)))throw new TypeError('chave de mapeamento XLSX desconhecida');
+  const dateCol=mappedIndex(headers,columnMapping,'date',['DATA','DATE','DTPOSTED','VENCIMENTO']);
+  const descCol=mappedIndex(headers,columnMapping,'description',['DESCRICAO','DESCRICAOOPERACAO','HISTORICO','MEMO','DESCRIPTION','NAME']);
+  const amountCol=mappedIndex(headers,columnMapping,'amount',['VALOR','AMOUNT','TRNAMT']);
+  const debitCol=mappedIndex(headers,columnMapping,'debit',['DEBITO','DEBIT']);
+  const creditCol=mappedIndex(headers,columnMapping,'credit',['CREDITO','CREDIT']);
+  const typeCol=mappedIndex(headers,columnMapping,'direction',['TIPO','NATUREZA','DIRECAO','DIRECTION']);
+  if(dateCol<0||descCol<0||(amountCol<0&&debitCol<0&&creditCol<0))throw new TypeError('XLSX exige colunas Data, Descrição e Valor ou Débito/Crédito');
+  const selected=[dateCol,descCol,amountCol>=0?amountCol:debitCol];
+  if(new Set(selected).size!==selected.length)throw new TypeError('colunas XLSX não podem mapear para o mesmo campo');
+  const rows=[];
+  for(let n=2;n<=sheet.rowCount;n++){
+    const cells=headers.map((_,i)=>cellText(sheet.getRow(n).getCell(i+1)));
+    if(cells.every(value=>!value.trim()))continue;
+    const debit=debitCol>=0?cells[debitCol]:'';
+    const credit=creditCol>=0?cells[creditCol]:'';
+    const amount=amountCol>=0?cells[amountCol]:debit?'-'+debit:credit;
+    rows.push({date:cells[dateCol],description:cells[descCol],amount,
+      direction:amountCol>=0&&typeCol>=0?cells[typeCol]:debit?'debit':'credit',
+      externalId:'row-'+(n-1)});
   }
   return rows;
 }
 
 module.exports = {
   HEADERS, toStyledXlsxBuffer, toDocxBuffer, toJsonBuffer, toPackageBuffer,
-  annotatePdfBuffer, mergePdfBuffers, parseStatementXlsx, verifyReportPackageBuffer,
+  annotatePdfBuffer, mergePdfBuffers, parseStatementXlsx, inspectStatementXlsx, verifyReportPackageBuffer,
   verifyAndPreviewPackage, inspectPdfFormBuffer, fillPdfFormBuffer
 };
