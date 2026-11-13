@@ -86,11 +86,18 @@ export default function StatementsPage({ token, session, onOpenFinance }: Props)
     finally{setBusy(false);}
   }
   async function decide(item:EntrySuggestion,decision:'accepted'|'rejected'){
-    if(!canManage)return;
+    if(!canManage||busy)return;
     const allocation=item.allocations[0]; if(!allocation)return;
-    setBusy(true); setError('');
-    try{await api.decision(token,{transactionId:item.transactionId,entryId:allocation.obligationId,amountCents:allocation.amountCents,decision}); await loadSuggestions(); await reload();}
-    catch(err){setError(err instanceof Error?err.message:String(err)); setBusy(false);}
+    setBusy(true);setError('');setNotice('');
+    try{
+      await api.decision(token,{transactionId:item.transactionId,entryId:allocation.obligationId,amountCents:allocation.amountCents,decision});
+      const [nextSuggestions]=await Promise.all([api.suggestEntries(token,{minConfidence:0.65}),reload()]);
+      setSuggestions(nextSuggestions);
+      setNotice(decision==='accepted'
+        ?'Extrato vinculado ao lançamento. Nenhuma baixa automática foi realizada.'
+        :'Sugestão rejeitada; o lançamento não foi alterado.');
+    }catch(err){setError(err instanceof Error?err.message:String(err));}
+    finally{setBusy(false);}
   }
   function onSource(next:SourceType){setSourceType(next);setPreview(null);setPendingInput(null);setFile(null);setError('');setNotice('');}
   function onFile(event:ChangeEvent<HTMLInputElement>){setFile(event.target.files?.[0]||null);setPreview(null);setPendingInput(null);}
