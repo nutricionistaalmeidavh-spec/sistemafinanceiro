@@ -3,8 +3,8 @@
 ## Distribuição
 
 Há somente um instalador Windows NSIS: `ArtiSys-Financeiro-Setup-<versao>.exe` e uma release estável `financeiro-v<versao>`.
-O `appId` é `br.com.artisys.sistemafinanceiro`, sem variante de avaliação.
-A publicação é exclusivamente manual na `main` pelo workflow `.github/workflows/financeiro-release.yml`, após testes, build e QA real. Um código é obrigatório para **qualquer usuário**.
+O `appId` interno é `br.com.artisys.sistemafinanceiro.trial`, preservado da edição de avaliação original **exclusivamente** para que o Windows/NSIS reconheça a instalação existente como o mesmo produto. Isso não cria edição separada: a identidade visível permanece **ArtiSys Financeiro**, e todas as licenças usam o mesmo aplicativo. O `appId`/GUID não deve ser alterado em novas versões.
+A publicação exige autorização explícita na `main` pelo workflow `.github/workflows/financeiro-release.yml` (comando manual ou commit de publicação marcado), após testes, build e QA real. Um código é obrigatório para **qualquer usuário**.
 
 ## Geração de códigos sem recompilar
 
@@ -39,7 +39,9 @@ A versão 0.1.3 é a primeira com verificador de atualizações. Instalações a
 
 O banco SQLite, as configurações, o Workspace e a licença residem em `userData`, não na pasta de instalação NSIS. Ao atualizar, permanecem no mesmo local.
 
-Se o usuário tinha a antiga edição de avaliação e o banco unificado ainda não existe, o aplicativo copia banco, arquivos, backups e licença do diretório `ArtiSys Financeiro - Avaliacao`, sem apagar a origem. Se o banco unificado já existe, ele nunca é sobrescrito automaticamente; faça migração manual caso tenha dados em ambas as edições.
+Na v0.1.4 o instalador mantém o GUID NSIS da avaliação v0.1.0. Feche o aplicativo antigo e execute o novo instalador diretamente, sem desinstalar primeiro. O Windows deve reconhecer o mesmo produto e substituí-lo. A troca do nome visível altera o perfil `userData`; se o banco unificado ainda não existe, no primeiro início o aplicativo copia banco SQLite, arquivos, backups e licença do diretório `ArtiSys Financeiro - Avaliacao`, sem apagar a origem. A licença temporária já ativada mantém a data de expiração original.
+
+Instalações da v0.1.3 (que usavam outro `appId`) podem manter o registro antigo de instalação no Windows; os dados têm o mesmo perfil canônico `ArtiSys Financeiro`, mas o NSIS não reconhece o outro GUID como o mesmo instalador. Se o banco unificado já existe, ele nunca é sobrescrito automaticamente; faça migração manual caso tenha dados em ambas as edições.
 
 Códigos legados já ativados podem continuar válidos pela licença assinada migrada. Códigos curtos antigos ainda não ativados, criados para instaladores personalizados, talvez precisem ser reemitidos.
 
