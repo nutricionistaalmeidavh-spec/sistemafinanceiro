@@ -155,7 +155,7 @@ test('rotação de chave aceita ativações antigas sem impedir licenças perman
     assert.equal(service.status().type,'PERPETUAL');
     // Licença de terceiro permanece rejeitada mesmo com rotação.
     const attacker=generateKeyPairSync('ed25519');
-    assert.throws(()=>service.activate(f.encode(permanent,attacker.privateKey)),/assinatura inválida/i);
+    assert.throws(()=>service.activate(f.encode(permanent,attacker.privateKey)),/assinatura.*inválida/i);
     assert.equal(service.status().type,'PERPETUAL');
   }finally{fs.rmSync(f.dir,{recursive:true,force:true});}
 });
