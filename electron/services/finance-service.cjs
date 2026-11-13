@@ -43,8 +43,9 @@ function createFinanceService({ db, now = () => new Date().toISOString(), idFact
   function mapSettlement(row) {
     return row && { id: row.id, entryId: row.entry_id, accountId: row.account_id || null, amountCents: row.amount_cents, method: row.method, note: row.note, occurredAt: row.occurred_at, createdAt: row.created_at, reversedAt: row.reversed_at };
   }
+  const approvalSchemaAvailable=Boolean(db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='approval_policies'").get());
   function paymentApproval(row) {
-    if (row.kind !== 'PAYABLE' || row.status === 'CANCELLED') return { status:'NOT_REQUIRED', policyId:null };
+    if (!approvalSchemaAvailable || row.kind !== 'PAYABLE' || row.status === 'CANCELLED') return { status:'NOT_REQUIRED', policyId:null };
     const policy = db.prepare('SELECT id FROM approval_policies WHERE active=1 AND min_amount_cents<=? ORDER BY min_amount_cents DESC,id LIMIT 1').get(row.amount_cents);
     if (!policy) return { status:'NOT_REQUIRED', policyId:null };
     const request = db.prepare(`SELECT status FROM approval_requests
