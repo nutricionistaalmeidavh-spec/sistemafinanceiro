@@ -158,6 +158,24 @@ try {
   await recurringForm.getByLabel('Valor',{exact:true}).fill('99,90');
   await recurringForm.getByRole('button',{name:'Salvar alterações'}).click();
   await recurringRow.getByText('R$ 99,90').waitFor({timeout:15000});
+  await recurringRow.getByRole('button',{name:'Ver lançamentos'}).click();
+  const history=page.getByTestId('recurrence-history');
+  await history.getByText('R$ 89,90',{exact:false}).first().waitFor({timeout:15000});
+  await history.getByRole('button',{name:'Fechar histórico'}).click();
+
+  await page.getByTestId('nav-finance').click();
+  await page.getByTestId('finance-new-entry').click();
+  await entryForm.getByLabel('Descrição',{exact:true}).fill('Conta cancelamento E2E');
+  await entryForm.getByLabel('Valor',{exact:true}).fill('25,00');
+  await entryForm.getByRole('button',{name:'Salvar lançamento'}).click();
+  const cancelledRow=page.locator('tr').filter({hasText:'Conta cancelamento E2E'});
+  await cancelledRow.waitFor({timeout:15000});
+  await cancelledRow.getByRole('button',{name:'Cancelar',exact:true}).click();
+  const decisionForm=page.getByTestId('finance-decision-form');
+  await decisionForm.getByLabel('Motivo obrigatório').fill('Lançamento duplicado em QA');
+  await decisionForm.getByRole('button',{name:'Confirmar cancelamento'}).click();
+  await cancelledRow.getByText('Cancelado',{exact:true}).waitFor({timeout:15000});
+  console.log('FINANCE_RECURRENCE_HISTORY_AND_CANCEL_OK');
   console.log('FINANCE_USER_JOURNEY_OK');
 
   if (!usePackagedApp) {
