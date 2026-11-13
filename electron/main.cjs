@@ -25,7 +25,7 @@ const { registerPlanningIpcHandlers } = require('./planning-ipc.cjs');
 
 const qaMode = process.env.ARTISYS_QA === '1';
 if (qaMode) {
-  const qaUserData = path.join(os.tmpdir(), 'artisys-financeiro-qa');
+  const qaUserData = path.join(os.tmpdir(), process.env.ARTISYS_QA_EMPTY === '1' ? 'artisys-financeiro-qa-empty' : 'artisys-financeiro-qa');
   if (process.env.ARTISYS_QA_RESET === '1') fs.rmSync(qaUserData, { recursive: true, force: true });
   app.setPath('userData', qaUserData);
 }
@@ -64,7 +64,7 @@ app.whenReady().then(async () => {
   database.open();
   const db = database.connection();
   const auth = createAuthService({ db });
-  if (qaMode) seedQaFixture({ db, auth });
+  if (qaMode && process.env.ARTISYS_QA_EMPTY !== '1') seedQaFixture({ db, auth });
   const finance = createFinanceService({ db });
   const registry = createRegistryService({ db });
   const cashflow = createCashflowService({ db });
