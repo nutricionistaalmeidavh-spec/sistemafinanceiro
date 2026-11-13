@@ -1,4 +1,4 @@
-import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { FileDown, Landmark, Pencil, Plus, Printer, RotateCcw, Search, XCircle } from 'lucide-react';
 import { FinanceButton, FinanceDrawer, FinanceStatusBadge, FinanceToolbar } from '../components/finance-ui';
 import { brl, can, toCents, today } from '../lib/format';
@@ -32,19 +32,37 @@ export default function FinancePage({ token, session, intent, onIntentHandled, o
   const [form, setForm] = useState({ description:'', amount:'', dueAt:today(), accountId:'', categoryId:'', counterpartyId:'' });
   const [accountForm, setAccountForm] = useState({ name:'', type:'BANK' as FinanceAccount['type'] });
   const editable = can(session, 'finance.manage');
+  const [visibleLimit,setVisibleLimit]=useState(100);
+  const deferredSearch=useDeferredValue(search);
+  const ledgerRequest=useRef(0);
+  const catalogRequest=useRef(0);
 
-  const reload = useCallback(async () => {
+  const reloadEntries = useCallback(async () => {
+    const request=++ledgerRequest.current;
     try {
-      const [nextEntries, nextSummary, nextAccounts, nextCategories, nextCustomers, nextCreditors] = await Promise.all([
-        api.finance.listEntries(token, { kind }), api.finance.summary(token), api.finance.listAccounts(token),
-        api.registry.listCategories(token, { nature: kind === 'PAYABLE' ? 'EXPENSE' : 'REVENUE' }), api.registry.listCustomers(token), api.registry.listCreditors(token),
+      const [nextEntries,nextSummary]=await Promise.all([
+        api.finance.listEntries(token,{kind}),api.finance.summary(token),
       ]);
-      setEntries(nextEntries); setSummary(nextSummary); setAccounts(nextAccounts); setCategories(nextCategories); setCustomers(nextCustomers); setCreditors(nextCreditors); setError('');
-    } catch (err) { setError(err instanceof Error ? err.message : String(err)); }
-  }, [api, token, kind]);
+      if(request!==ledgerRequest.current)return;
+      setEntries(nextEntries);setSummary(nextSummary);setError('');
+    }catch(err){if(request===ledgerRequest.current)setError(err instanceof Error?err.message:String(err));}
+  },[api,token,kind]);
 
-  useEffect(() => { void reload(); }, [reload]);
-  useEffect(() => api.finance.onDataChanged(() => { void reload(); }), [api, reload]);
+  const reloadCatalogs = useCallback(async () => {
+    const request=++catalogRequest.current;
+    try {
+      const [nextAccounts,nextCategories,nextCustomers,nextCreditors]=await Promise.all([
+        api.finance.listAccounts(token),
+        api.registry.listCategories(token,{nature:kind==='PAYABLE'?'EXPENSE':'REVENUE'}),
+        api.registry.listCustomers(token),api.registry.listCreditors(token),
+      ]);
+      if(request!==catalogRequest.current)return;
+      setAccounts(nextAccounts);setCategories(nextCategories);setCustomers(nextCustomers);setCreditors(nextCreditors);
+    }catch(err){if(request===catalogRequest.current)setError(err instanceof Error?err.message:String(err));}
+  },[api,token,kind]);
+
+  useEffect(()=>{void reloadEntries();void reloadCatalogs();},[reloadEntries,reloadCatalogs]);
+  useEffect(()=>api.finance.onDataChanged(()=>{void reloadEntries();}),[api,reloadEntries]);
   useEffect(() => { setForm((old) => ({ ...old, categoryId:'', counterpartyId:'' })); }, [kind]);
   useEffect(()=>{if(!intent)return;setKind(intent);setEditingEntry(null);setRecurring(false);setForm({description:'',amount:'',dueAt:today(),accountId:'',categoryId:'',counterpartyId:''});setEntryDrawerOpen(true);onIntentHandled?.();},[intent,onIntentHandled]);
   const counterparties = kind === 'PAYABLE' ? creditors : customers;
@@ -86,7 +104,7 @@ export default function FinancePage({ token, session, intent, onIntentHandled, o
       setEditingEntry(null);
       setRecurring(false);
       setNotice(editingEntry?'Lançamento atualizado e auditado.':recurring?'Recorrência cadastrada. Próximos vencimentos serão gerados automaticamente.':'Lançamento salvo.');
-      await reload();
+      
     } catch (err) { setDrawerError(err instanceof Error ? err.message : String(err)); }
     finally{setBusy(false);}
   }
@@ -98,7 +116,7 @@ export default function FinancePage({ token, session, intent, onIntentHandled, o
     try{
       const item=kind==='PAYABLE'?await api.registry.saveCreditor(token,{name:partyName.trim()}):await api.registry.saveCustomer(token,{name:partyName.trim()});
       setForm(old=>({...old,counterpartyId:item.id}));
-      await reload();
+      await reloadCatalogs();
       setPartyName('');setShowPartyForm(false);
     }catch(err){setDrawerError(err instanceof Error?err.message:String(err));}
     finally{setBusy(false);}
@@ -106,7 +124,7 @@ export default function FinancePage({ token, session, intent, onIntentHandled, o
 
   async function createAccount(event: FormEvent) {
     event.preventDefault();
-    try { await api.finance.createAccount(token, accountForm); setAccountForm({ name:'', type:'BANK' }); await reload(); }
+    try { await api.finance.createAccount(token, accountForm); setAccountForm({ name:'', type:'BANK' }); await reloadCatalogs(); }
     catch (err) { setError(err instanceof Error ? err.message : String(err)); }
   }
 
@@ -129,21 +147,21 @@ export default function FinancePage({ token, session, intent, onIntentHandled, o
       });
       setPayingEntry(null);
       setNotice(`Pagamento de ${brl(result.settlement.amountCents)} registrado em ${payingEntry.description}. Restante: ${brl(result.entry.openCents)}.`);
-      await reload();
+      
     } catch(err) {setDrawerError(err instanceof Error?err.message:String(err));}
     finally{setBusy(false);}
   }
 
   async function cancel(entry: FinanceEntry) {
     const reason = window.prompt('Motivo do cancelamento'); if (!reason) return;
-    try { await api.finance.cancelEntry(token, entry.id, reason); await reload(); }
+    try { await api.finance.cancelEntry(token, entry.id, reason);  }
     catch (err) { setError(err instanceof Error ? err.message : String(err)); }
   }
 
   async function reverse(entry: FinanceEntry) {
     const settlement = entry.settlements.at(-1); if (!settlement) return;
     const reason = window.prompt('Motivo do estorno da última baixa'); if (!reason) return;
-    try { await api.finance.reverseSettlement(token, settlement.id, reason); await reload(); }
+    try { await api.finance.reverseSettlement(token, settlement.id, reason);  }
     catch (err) { setError(err instanceof Error ? err.message : String(err)); }
   }
 
@@ -156,16 +174,20 @@ export default function FinancePage({ token, session, intent, onIntentHandled, o
     try { await api.reports.printReceipt(token, settlement.id); } catch (err) { setError(err instanceof Error ? err.message : String(err)); }
   }
 
+  const creditorsById=useMemo(()=>new Map(creditors.map(row=>[row.id,row])),[creditors]);
+  const customersById=useMemo(()=>new Map(customers.map(row=>[row.id,row])),[customers]);
+  const categoriesById=useMemo(()=>new Map(categories.map(row=>[row.id,row])),[categories]);
   const filteredEntries = useMemo(() => {
-    const term = search.trim().toLocaleLowerCase('pt-BR');
+    const term = deferredSearch.trim().toLocaleLowerCase('pt-BR');
     return entries.filter((entry) => {
-      const counterparty = entry.kind === 'PAYABLE' ? creditors.find((item)=>item.id===entry.creditorId) : customers.find((item)=>item.id===entry.customerId);
-      const category = categories.find((item)=>item.id===entry.categoryId);
+      const counterparty = entry.kind === 'PAYABLE' ? creditorsById.get(entry.creditorId||'') : customersById.get(entry.customerId||'');
+      const category = categoriesById.get(entry.categoryId||'');
       const matchesTerm = !term || [entry.description, counterparty?.name, category?.name, entry.dueAt].some((value)=>String(value||'').toLocaleLowerCase('pt-BR').includes(term));
       const matchesStatus = statusFilter === 'ALL' || (statusFilter === 'OVERDUE' ? entry.isOverdue : entry.status === statusFilter);
       return matchesTerm && matchesStatus;
     });
-  }, [entries, search, statusFilter, creditors, customers, categories]);
+  }, [entries, deferredSearch, statusFilter, creditorsById, customersById, categoriesById]);
+  const visibleEntries=useMemo(()=>filteredEntries.slice(0,visibleLimit),[filteredEntries,visibleLimit]);
   const openTotal = useMemo(() => filteredEntries.filter((x) => x.status !== 'CANCELLED').reduce((sum, x) => sum + x.openCents, 0), [filteredEntries]);
 
   return <section className="page-stack" data-testid="page-finance">
@@ -180,11 +202,12 @@ export default function FinancePage({ token, session, intent, onIntentHandled, o
     {notice&&<div className="success-box" role="status">{notice}</div>}
     <div className="segmented"><button type="button" className={kind==='PAYABLE'?'active':''} onClick={() => setKind('PAYABLE')}>Contas a pagar</button><button type="button" className={kind==='RECEIVABLE'?'active':''} onClick={() => setKind('RECEIVABLE')}>Contas a receber</button></div>
     <FinanceToolbar
-      filters={<><label className="finance-search-control"><Search size={16}/><input data-testid="finance-search" aria-label="Buscar lançamentos" value={search} onChange={(e)=>setSearch(e.target.value)} placeholder="Buscar descrição, pessoa ou categoria"/></label><label className="filter-control"><span>Status</span><select aria-label="Filtrar status" value={statusFilter} onChange={(e)=>setStatusFilter(e.target.value as StatusFilter)}><option value="ALL">Todos os status</option><option value="OPEN">Em aberto</option><option value="PARTIAL">Parcial</option><option value="SETTLED">Quitado</option><option value="OVERDUE">Vencido</option><option value="CANCELLED">Cancelado</option></select></label></>}
+      filters={<><label className="finance-search-control"><Search size={16}/><input data-testid="finance-search" aria-label="Buscar lançamentos" value={search} onChange={(e)=>{setSearch(e.target.value);setVisibleLimit(100);}} placeholder="Buscar descrição, pessoa ou categoria"/></label><label className="filter-control"><span>Status</span><select aria-label="Filtrar status" value={statusFilter} onChange={(e)=>{setStatusFilter(e.target.value as StatusFilter);setVisibleLimit(100);}}><option value="ALL">Todos os status</option><option value="OPEN">Em aberto</option><option value="PARTIAL">Parcial</option><option value="SETTLED">Quitado</option><option value="OVERDUE">Vencido</option><option value="CANCELLED">Cancelado</option></select></label></>}
       actions={editable ? <FinanceButton type="button" data-testid="finance-new-entry" onClick={openNewEntry}><Plus size={16}/>Novo lançamento</FinanceButton> : undefined}
     />
 
-    <div className="panel table-panel table-scroll"><table><thead><tr><th>Descrição</th><th>Vencimento</th><th>Status</th><th>Valor</th><th>Em aberto</th><th></th></tr></thead><tbody>{filteredEntries.map((entry)=>{const hasReceipt=entry.settlements.some((item)=>!item.reversedAt);return <tr key={entry.id}><td><strong>{entry.description}</strong>{entry.isOverdue && <small className="danger-text">Vencido</small>}</td><td>{entry.dueAt}</td><td><FinanceStatusBadge status={entry.isOverdue && entry.status!=='SETTLED' ? 'OVERDUE' : entry.status}/></td><td>{brl(entry.amountCents)}</td><td>{brl(entry.openCents)}</td><td>{(editable||hasReceipt)&&<div className="row-actions">{editable&&entry.status!=='CANCELLED'&&entry.openCents>0&&<button type="button" onClick={()=>entry.approval.status==='NOT_REQUIRED'||entry.approval.status==='APPROVED'?openPayment(entry):onOpenPlanning?.(entry.id)}>{entry.approval.status==='REQUIRED'?'Solicitar aprovação':entry.approval.status==='PENDING'?'Aguardando aprovação':'Registrar pagamento'}</button>}{editable&&entry.status!=='CANCELLED'&&<button type="button" title="Editar lançamento" aria-label={`Editar ${entry.description}`} onClick={()=>openEditEntry(entry)}><Pencil size={15}/></button>}{editable&&entry.status!=='CANCELLED'&&entry.settlements.length>0&&<button type="button" title="Estornar última baixa" onClick={()=>void reverse(entry)}><RotateCcw size={15}/></button>}{editable&&entry.status!=='CANCELLED'&&entry.settlements.length===0&&<button type="button" title="Cancelar" onClick={()=>void cancel(entry)}><XCircle size={15}/></button>}{hasReceipt&&<button type="button" title="Salvar recibo em PDF" onClick={()=>void receiptPdf(entry)}><FileDown size={15}/></button>}{hasReceipt&&<button type="button" title="Imprimir recibo" onClick={()=>void receiptPrint(entry)}><Printer size={15}/></button>}</div>}</td></tr>})}</tbody></table>{filteredEntries.length===0 && <div className="empty-state">Nenhum lançamento encontrado com os filtros atuais.</div>}</div>
+    <div className="panel table-panel table-scroll"><table><thead><tr><th>Descrição</th><th>Vencimento</th><th>Status</th><th>Valor</th><th>Em aberto</th><th></th></tr></thead><tbody>{visibleEntries.map((entry)=>{const hasReceipt=entry.settlements.some((item)=>!item.reversedAt);return <tr key={entry.id}><td><strong>{entry.description}</strong>{entry.isOverdue && <small className="danger-text">Vencido</small>}</td><td>{entry.dueAt}</td><td><FinanceStatusBadge status={entry.isOverdue && entry.status!=='SETTLED' ? 'OVERDUE' : entry.status}/></td><td>{brl(entry.amountCents)}</td><td>{brl(entry.openCents)}</td><td>{(editable||hasReceipt)&&<div className="row-actions">{editable&&entry.status!=='CANCELLED'&&entry.openCents>0&&<button type="button" onClick={()=>entry.approval.status==='NOT_REQUIRED'||entry.approval.status==='APPROVED'?openPayment(entry):onOpenPlanning?.(entry.id)}>{entry.approval.status==='REQUIRED'?'Solicitar aprovação':entry.approval.status==='PENDING'?'Aguardando aprovação':'Registrar pagamento'}</button>}{editable&&entry.status!=='CANCELLED'&&<button type="button" title="Editar lançamento" aria-label={`Editar ${entry.description}`} onClick={()=>openEditEntry(entry)}><Pencil size={15}/></button>}{editable&&entry.status!=='CANCELLED'&&entry.settlements.length>0&&<button type="button" title="Estornar última baixa" onClick={()=>void reverse(entry)}><RotateCcw size={15}/></button>}{editable&&entry.status!=='CANCELLED'&&entry.settlements.length===0&&<button type="button" title="Cancelar" onClick={()=>void cancel(entry)}><XCircle size={15}/></button>}{hasReceipt&&<button type="button" title="Salvar recibo em PDF" onClick={()=>void receiptPdf(entry)}><FileDown size={15}/></button>}{hasReceipt&&<button type="button" title="Imprimir recibo" onClick={()=>void receiptPrint(entry)}><Printer size={15}/></button>}</div>}</td></tr>})}</tbody></table>{filteredEntries.length===0 && <div className="empty-state">Nenhum lançamento encontrado com os filtros atuais.</div>}
+      {filteredEntries.length>visibleLimit&&<div className="table-more"><button type="button" className="secondary-button" onClick={()=>setVisibleLimit(n=>n+100)}>Carregar mais ({visibleEntries.length} de {filteredEntries.length})</button></div>}</div>
 
     {editable && <section className="panel finance-secondary-panel">
       <div><div className="panel-title"><div><h3><Landmark size={18}/>Contas financeiras</h3><p className="muted">Cadastre contas sem misturar essa tarefa com um novo lançamento.</p></div></div><div className="finance-account-summary">{accounts.map((account)=><span className="finance-account-chip" key={account.id}>{account.name}<small>{account.type}</small></span>)}{accounts.length===0&&<span className="muted">Nenhuma conta cadastrada.</span>}</div></div>
