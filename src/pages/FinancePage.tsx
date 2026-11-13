@@ -29,6 +29,7 @@ export default function FinancePage({ token, session, intent, browseKind, onBrow
   const [entryDrawerOpen, setEntryDrawerOpen] = useState(false);
   const [editingEntry, setEditingEntry] = useState<FinanceEntry | null>(null);
   const [recurring, setRecurring] = useState(false);
+  const [focusedEntryId,setFocusedEntryId]=useState<string|null>(null);
   const [recurrenceOptions,setRecurrenceOptions]=useState({intervalMonths:'1',intervalDays:'',endDate:'',maxOccurrences:'',annualAdjustmentPct:'0'});
   const [payingEntry, setPayingEntry] = useState<FinanceEntry | null>(null);
   const [paymentForm, setPaymentForm] = useState({amount:'',occurredAt:today(),accountId:'',method:'PIX',note:''});
@@ -68,11 +69,12 @@ export default function FinancePage({ token, session, intent, browseKind, onBrow
   useEffect(()=>api.finance.onDataChanged(()=>{void reloadEntries();}),[api,reloadEntries]);
   useEffect(() => { if(!editingEntry)setForm((old) => ({ ...old, categoryId:'', counterpartyId:'' })); }, [kind,editingEntry]);
   useEffect(()=>{if(!browseKind)return;setKind(browseKind);onBrowseHandled?.();},[browseKind,onBrowseHandled]);
-  useEffect(()=>{if(focusEntry){setKind(focusEntry.kind);setSearch(focusEntry.description);setStatusFilter('ALL');setVisibleLimit(100);}},[focusEntry]);
+  useEffect(()=>{if(focusEntry){setKind(focusEntry.kind);setSearch('');setStatusFilter('ALL');setFocusedEntryId(focusEntry.id);setVisibleLimit(100);}else setFocusedEntryId(null);},[focusEntry]);
   useEffect(()=>{if(!intent)return;setKind(intent);setEditingEntry(null);setRecurring(false);setForm({description:'',amount:'',dueAt:today(),accountId:'',categoryId:'',counterpartyId:''});setEntryDrawerOpen(true);onIntentHandled?.();},[intent,onIntentHandled]);
   const counterparties = kind === 'PAYABLE' ? creditors : customers;
 
   function openNewEntry() {
+    setFocusedEntryId(null);
     setDrawerError('');
     setEditingEntry(null);
     setRecurring(false);
@@ -199,13 +201,14 @@ export default function FinancePage({ token, session, intent, browseKind, onBrow
   const filteredEntries = useMemo(() => {
     const term = deferredSearch.trim().toLocaleLowerCase('pt-BR');
     return entries.filter((entry) => {
+      if(focusedEntryId&&entry.id!==focusedEntryId)return false;
       const counterparty = entry.kind === 'PAYABLE' ? creditorsById.get(entry.creditorId||'') : customersById.get(entry.customerId||'');
       const category = categoriesById.get(entry.categoryId||'');
       const matchesTerm = !term || [entry.description, counterparty?.name, category?.name, entry.dueAt].some((value)=>String(value||'').toLocaleLowerCase('pt-BR').includes(term));
       const matchesStatus = statusFilter === 'ALL' || (statusFilter === 'OVERDUE' ? entry.isOverdue : entry.status === statusFilter);
       return matchesTerm && matchesStatus;
     });
-  }, [entries, deferredSearch, statusFilter, creditorsById, customersById, categoriesById]);
+  }, [entries, focusedEntryId, deferredSearch, statusFilter, creditorsById, customersById, categoriesById]);
   const visibleEntries=useMemo(()=>filteredEntries.slice(0,visibleLimit),[filteredEntries,visibleLimit]);
   const openTotal = useMemo(() => filteredEntries.filter((x) => x.status !== 'CANCELLED').reduce((sum, x) => sum + x.openCents, 0), [filteredEntries]);
 
@@ -219,18 +222,19 @@ export default function FinancePage({ token, session, intent, browseKind, onBrow
     </div>
     {error && <div className="error-box" role="alert">{error}</div>}
     {notice&&<div className="success-box" role="status">{notice}</div>}
-    {focusEntry&&<div className="panel" data-testid="finance-recurring-focus">
+    {focusEntry&&focusedEntryId&&<div className="panel" data-testid="finance-recurring-focus">
       <strong>Parcela selecionada: {focusEntry.description}</strong>
       <p className="muted">Vencimento {focusEntry.dueAt.split('-').reverse().join('/')} · {brl(focusEntry.amountCents)} · saldo em aberto {brl(focusEntry.openCents)}</p>
-      <p className="muted">Localize a parcela filtrada abaixo para registrar a baixa, editar ou consultar o comprovante.</p>
+      <p className="muted">A parcela exata está selecionada abaixo, com suas ações de pagamento, recebimento e comprovante.</p>
+      <button type="button" className="secondary-button small" onClick={()=>setFocusedEntryId(null)}>Ver todos os lançamentos</button>
     </div>}
-    <div className="segmented"><button type="button" className={kind==='PAYABLE'?'active':''} onClick={() => setKind('PAYABLE')}>Contas a pagar</button><button type="button" className={kind==='RECEIVABLE'?'active':''} onClick={() => setKind('RECEIVABLE')}>Contas a receber</button></div>
+    <div className="segmented"><button type="button" className={kind==='PAYABLE'?'active':''} onClick={() => {setFocusedEntryId(null);setKind('PAYABLE');}}>Contas a pagar</button><button type="button" className={kind==='RECEIVABLE'?'active':''} onClick={() => {setFocusedEntryId(null);setKind('RECEIVABLE');}}>Contas a receber</button></div>
     <FinanceToolbar
-      filters={<><label className="finance-search-control"><Search size={16}/><input data-testid="finance-search" aria-label="Buscar lançamentos" value={search} onChange={(e)=>{setSearch(e.target.value);setVisibleLimit(100);}} placeholder="Buscar descrição, pessoa ou categoria"/></label><label className="filter-control"><span>Status</span><select aria-label="Filtrar status" value={statusFilter} onChange={(e)=>{setStatusFilter(e.target.value as StatusFilter);setVisibleLimit(100);}}><option value="ALL">Todos os status</option><option value="OPEN">Em aberto</option><option value="PARTIAL">Parcial</option><option value="SETTLED">Quitado</option><option value="OVERDUE">Vencido</option><option value="CANCELLED">Cancelado</option></select></label></>}
+      filters={<><label className="finance-search-control"><Search size={16}/><input data-testid="finance-search" aria-label="Buscar lançamentos" value={search} onChange={(e)=>{setFocusedEntryId(null);setSearch(e.target.value);setVisibleLimit(100);}} placeholder="Buscar descrição, pessoa ou categoria"/></label><label className="filter-control"><span>Status</span><select aria-label="Filtrar status" value={statusFilter} onChange={(e)=>{setFocusedEntryId(null);setStatusFilter(e.target.value as StatusFilter);setVisibleLimit(100);}}><option value="ALL">Todos os status</option><option value="OPEN">Em aberto</option><option value="PARTIAL">Parcial</option><option value="SETTLED">Quitado</option><option value="OVERDUE">Vencido</option><option value="CANCELLED">Cancelado</option></select></label></>}
       actions={editable ? <FinanceButton type="button" data-testid="finance-new-entry" onClick={openNewEntry}><Plus size={16}/>Novo lançamento</FinanceButton> : undefined}
     />
 
-    <div className="panel table-panel table-scroll"><table><thead><tr><th>Descrição</th><th>Vencimento</th><th>Status</th><th>Valor</th><th>Em aberto</th><th></th></tr></thead><tbody>{visibleEntries.map((entry)=>{const hasReceipt=entry.settlements.some((item)=>!item.reversedAt);return <tr key={entry.id}><td><strong>{entry.description}</strong>{entry.isOverdue && <small className="danger-text">Vencido</small>}</td><td>{entry.dueAt}</td><td><FinanceStatusBadge status={entry.isOverdue && entry.status!=='SETTLED' ? 'OVERDUE' : entry.status}/></td><td>{brl(entry.amountCents)}</td><td>{brl(entry.openCents)}</td><td>{(editable||hasReceipt)&&<div className="row-actions">{editable&&entry.status!=='CANCELLED'&&entry.openCents>0&&<button type="button" onClick={()=>entry.approval.status==='NOT_REQUIRED'||entry.approval.status==='APPROVED'?openPayment(entry):onOpenPlanning?.(entry.id)}>{entry.approval.status==='REQUIRED'?'Solicitar aprovação':entry.approval.status==='PENDING'?'Aguardando aprovação':'Registrar pagamento'}</button>}{editable&&entry.status!=='CANCELLED'&&<button type="button" title="Editar lançamento" aria-label={`Editar ${entry.description}`} onClick={()=>openEditEntry(entry)}><Pencil size={15}/></button>}{editable&&entry.status!=='CANCELLED'&&entry.settlements.length>0&&<button type="button" title="Estornar última baixa" onClick={()=>openDecision(entry,'REVERSE')}><RotateCcw size={15}/></button>}{editable&&entry.status!=='CANCELLED'&&entry.settlements.length===0&&<button type="button" title="Cancelar" onClick={()=>openDecision(entry,'CANCEL')}><XCircle size={15}/></button>}{hasReceipt&&<button type="button" title="Salvar recibo em PDF" onClick={()=>void receiptPdf(entry)}><FileDown size={15}/></button>}{hasReceipt&&<button type="button" title="Imprimir recibo" onClick={()=>void receiptPrint(entry)}><Printer size={15}/></button>}</div>}</td></tr>})}</tbody></table>{filteredEntries.length===0 && <div className="empty-state">Nenhum lançamento encontrado com os filtros atuais.</div>}
+    <div className="panel table-panel table-scroll"><table><thead><tr><th>Descrição</th><th>Vencimento</th><th>Status</th><th>Valor</th><th>Em aberto</th><th></th></tr></thead><tbody>{visibleEntries.map((entry)=>{const hasReceipt=entry.settlements.some((item)=>!item.reversedAt);return <tr key={entry.id} data-testid={entry.id===focusedEntryId?'finance-focused-row':undefined}><td><strong>{entry.description}</strong>{entry.isOverdue && <small className="danger-text">Vencido</small>}</td><td>{entry.dueAt}</td><td><FinanceStatusBadge status={entry.isOverdue && entry.status!=='SETTLED' ? 'OVERDUE' : entry.status}/></td><td>{brl(entry.amountCents)}</td><td>{brl(entry.openCents)}</td><td>{(editable||hasReceipt)&&<div className="row-actions">{editable&&entry.status!=='CANCELLED'&&entry.openCents>0&&<button type="button" onClick={()=>entry.approval.status==='NOT_REQUIRED'||entry.approval.status==='APPROVED'?openPayment(entry):onOpenPlanning?.(entry.id)}>{entry.approval.status==='REQUIRED'?'Solicitar aprovação':entry.approval.status==='PENDING'?'Aguardando aprovação':(entry.kind==='PAYABLE'?'Registrar pagamento':'Registrar recebimento')}</button>}{editable&&entry.status!=='CANCELLED'&&<button type="button" title="Editar lançamento" aria-label={`Editar ${entry.description}`} onClick={()=>openEditEntry(entry)}><Pencil size={15}/></button>}{editable&&entry.status!=='CANCELLED'&&entry.settlements.length>0&&<button type="button" title="Estornar última baixa" onClick={()=>openDecision(entry,'REVERSE')}><RotateCcw size={15}/></button>}{editable&&entry.status!=='CANCELLED'&&entry.settlements.length===0&&<button type="button" title="Cancelar" onClick={()=>openDecision(entry,'CANCEL')}><XCircle size={15}/></button>}{hasReceipt&&<button type="button" title="Salvar recibo em PDF" onClick={()=>void receiptPdf(entry)}><FileDown size={15}/></button>}{hasReceipt&&<button type="button" title="Imprimir recibo" onClick={()=>void receiptPrint(entry)}><Printer size={15}/></button>}</div>}</td></tr>})}</tbody></table>{filteredEntries.length===0 && <div className="empty-state">Nenhum lançamento encontrado com os filtros atuais.</div>}
       {filteredEntries.length>visibleLimit&&<div className="table-more"><button type="button" className="secondary-button" onClick={()=>setVisibleLimit(n=>n+100)}>Carregar mais ({visibleEntries.length} de {filteredEntries.length})</button></div>}</div>
 
     {editable && <section className="panel finance-secondary-panel">
