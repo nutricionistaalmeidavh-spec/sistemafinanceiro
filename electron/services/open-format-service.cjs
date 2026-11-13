@@ -6,6 +6,7 @@ const MAX_ROWS = 50000;
 const MAX_COLS = 80;
 const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&apos;'}[ch]));
 const arr = value => value == null ? [] : Array.isArray(value) ? value : [value];
+const decodeXml = value => String(value||'').replace(/&(amp|lt|gt|quot|apos);/g,(_,key)=>({amp:'&',lt:'<',gt:'>',quot:'"',apos:"'"}[key]));
 function cellXml(value) {
   if (typeof value === 'number' && Number.isFinite(value)) {
     return '<table:table-cell office:value-type="float" office:value="'+value+'"><text:p>'+esc(value)+'</text:p></table:table-cell>';
@@ -53,7 +54,7 @@ function parseOdsCells(base64) {
       if(field['@_office:value-type']==='float')text=String(field['@_office:value']??'');
       else {
         const p=arr(field['text:p']);
-        text=p.map(v=>typeof v==='string'?v:typeof v==='number'?String(v):typeof v==='object'?String(v['#text']||''):'').join(' ');
+        text=p.map(v=>decodeXml(typeof v==='string'?v:typeof v==='number'?String(v):typeof v==='object'?String(v['#text']||''):'')).join(' ');
       }
       const repeats=Number(field['@_table:number-columns-repeated']||1);
       if(!Number.isSafeInteger(repeats)||repeats<1||values.length+repeats>MAX_COLS)throw new RangeError('ODS excede 80 colunas');
