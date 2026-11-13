@@ -18,6 +18,25 @@ function forecast(rule:RecurringRule,count=3){
   }
   return dates;
 }
+function draftPreview(startDate:string,dueDay:number,interval:number,max:number|null,endDate:string|null,already=0){
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(startDate)||!Number.isInteger(dueDay)||dueDay<1||dueDay>31
+    ||!Number.isInteger(interval)||interval<1||interval>12)return [] as string[];
+  const first=new Date(startDate+'T00:00:00Z');
+  if(Number.isNaN(first.getTime()))return [] as string[];
+  let y=first.getUTCFullYear(),m=first.getUTCMonth();
+  const out:string[]=[];
+  for(let n=0;n<48&&out.length<3;n++){
+    const last=new Date(Date.UTC(y,m+1,0)).getUTCDate();
+    const day=`${y}-${String(m+1).padStart(2,'0')}-${String(Math.min(last,dueDay)).padStart(2,'0')}`;
+    if(endDate && day>endDate)break;
+    if(day>=startDate){
+      if(max!==null && already+out.length>=max)break;
+      out.push(day);
+    }
+    const k=y*12+m+interval;y=Math.floor(k/12);m=k%12;
+  }
+  return out;
+}
 const initialForm = () => ({
   description:'',amount:'',startDate:today(),endDate:'',dueDay:String(new Date().getDate()),intervalMonths:'1',
   maxOccurrences:'',accountId:'',categoryId:'',counterpartyId:'',notes:'',
@@ -36,6 +55,11 @@ export default function RecurringPage({token,session}:Props){
   const [search,setSearch]=useState('');
   const [editingRule,setEditingRule]=useState<RecurringRule|null>(null);
   const [form,setForm]=useState(initialForm);
+  const draftDates=useMemo(()=>draftPreview(
+    editingRule?editingRule.nextDueAt.slice(0,7)+'-01':form.startDate,
+    Number(form.dueDay),Number(form.intervalMonths),form.maxOccurrences?Number(form.maxOccurrences):null,
+    form.endDate||null,editingRule?.generatedCount||0
+  ),[editingRule,form.startDate,form.dueDay,form.intervalMonths,form.maxOccurrences,form.endDate]);
   const [historyRule,setHistoryRule]=useState<RecurringRule|null>(null);
   const [history,setHistory]=useState<FinanceEntry[]>([]);
   const reload=useCallback(async()=>{
@@ -79,12 +103,20 @@ export default function RecurringPage({token,session}:Props){
     finally{setBusy(false);}
   }
   async function toggle(rule:RecurringRule){
-    try{await api.recurrence.setActive(token,rule.id,!rule.active);await reload();}
-    catch(err){setError(err instanceof Error?err.message:String(err));}
+    if(busy||rule.lifecycleStatus==='COMPLETED')return;
+    setBusy(true);setError('');
+    try{await api.recurrence.setActive(token,rule.id,!rule.active);await reload();
+      setNotice(rule.active?'Recorrência pausada.':'Recorrência reativada.');
+    }catch(err){setError(err instanceof Error?err.message:String(err));}
+    finally{setBusy(false);}
   }
   async function generate(){
-    try{await api.recurrence.generate(token,today());await reload();}
-    catch(err){setError(err instanceof Error?err.message:String(err));}
+    if(busy)return;
+    setBusy(true);setError('');
+    try{const generated=await api.recurrence.generate(token,today());await reload();
+      setNotice(generated.length?String(generated.length)+' parcela(s) gerada(s).':'Nenhuma parcela nova; não houve duplicação.');
+    }catch(err){setError(err instanceof Error?err.message:String(err));}
+    finally{setBusy(false);}
   }
   async function viewHistory(rule:RecurringRule) {
     try {
@@ -99,7 +131,7 @@ export default function RecurringPage({token,session}:Props){
   return <section className="page-stack" data-testid="page-recurring">
     <div className="page-header"><div><p className="eyebrow">Recorrências</p>
       <h2>Contas automáticas</h2><p className="muted">Vencimentos gerados automaticamente na abertura e durante o uso do aplicativo.</p>
-    </div>{editable&&<button type="button" className="secondary-button" onClick={()=>void generate()}><RefreshCcw size={16}/> Atualizar vencimentos</button>}</div>
+    </div>{editable&&<button type="button" className="secondary-button" disabled={busy} onClick={()=>void generate()}><RefreshCcw size={16}/> Atualizar vencimentos</button>}</div>
     {error&&<div className="error-box" role="alert">{error}</div>}
     {notice&&<div className="success-box" role="status">{notice}</div>}
     <div className="page-toolbar"><p className="section-caption">{rules.filter(rule=>rule.active).length} regras ativas</p>
@@ -128,6 +160,10 @@ export default function RecurringPage({token,session}:Props){
         <option value="">Não informado</option>{parties.map(x=><option key={x.id} value={x.id}>{x.name}</option>)}
       </select></label>
       <label className="wide">Observações<input value={form.notes} onChange={e=>setForm({...form,notes:e.target.value})}/></label>
+      <section className="wide recurrence-preview" aria-label="Próximas parcelas"><strong>Próximas parcelas previstas</strong>
+        <p className="muted">Apenas uma prévia. As parcelas serão lançadas quando o vencimento chegar.</p>
+        <div className="chip-row">{draftDates.length?draftDates.map(date=><span className="badge" key={date}>{date.split('-').reverse().join('/')} · {form.amount||'Valor pendente'}</span>):<span className="muted">Nenhuma parcela prevista com estes limites.</span>}</div>
+      </section>
       <button className="primary-button" type="submit" disabled={busy}>{busy?'Salvando…':editingRule?'Salvar alterações':'Salvar recorrência'}</button>
       {editingRule&&<button className="secondary-button" type="button" onClick={()=>{setEditingRule(null);setForm(initialForm());}}>Cancelar edição</button>}
     </form>}

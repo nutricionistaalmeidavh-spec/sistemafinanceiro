@@ -145,6 +145,16 @@ function createFinanceService({ db, now = () => new Date().toISOString(), idFact
         if (legacy.total > 0 && !row.account_id) throw new Error('legacy payments have no original account; choose an account before editing');
         if (legacy.total > 0) db.prepare('UPDATE financial_settlements SET account_id=? WHERE entry_id=? AND account_id IS NULL').run(row.account_id, String(entryId));
       }
+      const approvalSensitiveChange=row.kind==='PAYABLE' && (
+        description!==row.description || amountCents!==row.amount_cents || dueAt!==row.due_at ||
+        accountId!==row.account_id || categoryId!==row.category_id || creditorId!==row.creditor_id
+      );
+      if(approvalSensitiveChange && approvalSchemaAvailable){
+        const count=db.prepare("UPDATE approval_requests SET status='CANCELLED',updated_at=? WHERE entry_id=? AND status IN ('PENDING','APPROVED')")
+          .run(nowIso(),String(entryId)).changes;
+        if(count) writeAudit(db,{action:'planning.approval.invalidate',entity:'financial-entry',entityId:String(entryId),actor,
+          context:{reason:'financial_entry_changed',invalidated:count}},nowIso);
+      }
       db.prepare(`UPDATE financial_entries SET description=?,amount_cents=?,due_at=?,account_id=?,category_id=?,customer_id=?,creditor_id=?,notes=?,updated_at=? WHERE id=?`)
         .run(description,amountCents,dueAt,accountId,categoryId,customerId,creditorId,notes,nowIso(),String(entryId));
       recalculateStatus(entryId);

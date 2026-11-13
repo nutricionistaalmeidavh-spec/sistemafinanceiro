@@ -16,6 +16,7 @@ function createAnalyticsService({ db, finance, cashflow, now = () => new Date().
   function getDre({ from, to, basis = 'realized', costCenterId = null, tagId = null } = {}) {
     const start = String(from || `${nowIso().slice(0, 4)}-01-01`);
     const end = String(to || `${nowIso().slice(0, 4)}-12-31`);
+    const cutoff=end<localDay(nowIso())?end:localDay(nowIso());
     const center = costCenterId ? String(costCenterId) : null;
     const tag = tagId ? String(tagId) : null;
     const tagClause = tag ? ' AND EXISTS (SELECT 1 FROM entry_tags et WHERE et.entry_id=fe.id AND et.tag_id=?)' : '';
@@ -24,21 +25,24 @@ function createAnalyticsService({ db, finance, cashflow, now = () => new Date().
     if (basis === 'accrual') {
       const params = [];
       if (center) params.push(center);
-      params.push(start, end);
+      params.push(cutoff,start,end);
       if (tag) params.push(tag);
       rows = db.prepare(`SELECT fe.id,COALESCE(fc.dre_group,'UNCLASSIFIED') dre_group,fe.kind,fe.amount_cents entry_amount_cents,${center ? 'ea.amount_cents' : 'fe.amount_cents'} scoped_amount_cents
         FROM financial_entries fe LEFT JOIN financial_categories fc ON fc.id=fe.category_id${centerJoin}
-        WHERE fe.status<>'CANCELLED' AND fe.due_at>=? AND fe.due_at<=?${tagClause}`).all(...params)
+        WHERE (fe.status<>'CANCELLED' OR (fe.cancelled_at IS NOT NULL AND substr(fe.cancelled_at,1,10)>?))
+          AND fe.due_at>=? AND fe.due_at<=?${tagClause}`).all(...params)
         .map((row) => ({ ...row, total: Number(row.scoped_amount_cents || 0) }));
     } else if (basis === 'realized') {
       const params = [];
       if (center) params.push(center);
-      params.push(start, end);
+      params.push(cutoff,cutoff,start,cutoff);
       if (tag) params.push(tag);
       rows = db.prepare(`SELECT fe.id,COALESCE(fc.dre_group,'UNCLASSIFIED') dre_group,fe.kind,fe.amount_cents entry_amount_cents,${center ? 'ea.amount_cents allocation_amount_cents,' : ''}SUM(fs.amount_cents) settled_cents
         FROM financial_settlements fs JOIN financial_entries fe ON fe.id=fs.entry_id
         LEFT JOIN financial_categories fc ON fc.id=fe.category_id${centerJoin}
-        WHERE fs.reversed_at IS NULL AND fe.status<>'CANCELLED' AND fs.occurred_at>=? AND fs.occurred_at<=?${tagClause}
+        WHERE (fs.reversed_at IS NULL OR substr(fs.reversed_at,1,10)>?)
+          AND (fe.status<>'CANCELLED' OR (fe.cancelled_at IS NOT NULL AND substr(fe.cancelled_at,1,10)>?))
+          AND fs.occurred_at>=? AND fs.occurred_at<=?${tagClause}
         GROUP BY fe.id,COALESCE(fc.dre_group,'UNCLASSIFIED'),fe.kind,fe.amount_cents${center ? ',ea.amount_cents' : ''}`).all(...params)
         .map((row) => ({ ...row, total: center ? proportionalCents(row.settled_cents, row.entry_amount_cents, row.allocation_amount_cents) : Number(row.settled_cents || 0) }));
     } else throw new Error('basis must be realized or accrual');
@@ -55,16 +59,19 @@ function createAnalyticsService({ db, finance, cashflow, now = () => new Date().
   }
 
   function getIndicators({ from = null, to = null, summaryTo = to, asOf = localDay(nowIso()) } = {}) {
-    // Future obligations remain in the period summary; cash and DRE stop at as-of.
-    const summary = finance.getSummary({ from, to:summaryTo, asOf });
-    const effectiveTo = to && String(to) < String(asOf) ? String(to) : String(asOf);
-    const clauses = ['fs.reversed_at IS NULL', "fe.status<>'CANCELLED'"]; const params = [];
+    // Obligations reflect the requested period; realization and cash respect the effective date.
+    const asOfDay=String(asOf).slice(0,10);
+    const effectiveTo=[asOfDay,localDay(nowIso()),...(to?[String(to)]:[])].sort()[0];
+    const summary = finance.getSummary({ from, to:summaryTo, asOf:effectiveTo });
+    const clauses = ['(fs.reversed_at IS NULL OR substr(fs.reversed_at,1,10)>?)',
+      "(fe.status<>'CANCELLED' OR (fe.cancelled_at IS NOT NULL AND substr(fe.cancelled_at,1,10)>?))"];
+    const params = [effectiveTo,effectiveTo];
     if (from) { clauses.push('fs.occurred_at>=?'); params.push(String(from)); }
-    if (effectiveTo) { clauses.push('fs.occurred_at<=?'); params.push(effectiveTo); }
+    clauses.push('fs.occurred_at<=?'); params.push(effectiveTo);
     const realized = db.prepare(`SELECT fe.kind,SUM(fs.amount_cents) total FROM financial_settlements fs JOIN financial_entries fe ON fe.id=fs.entry_id WHERE ${clauses.join(' AND ')} GROUP BY fe.kind`).all(...params);
     let receivedCents = 0; let paidCents = 0;
     for (const row of realized) row.kind === 'RECEIVABLE' ? receivedCents += Number(row.total || 0) : paidCents += Number(row.total || 0);
-    const balances = cashflow.getAccountBalances({ asOf });
+    const balances = cashflow.getAccountBalances({ asOf:effectiveTo });
     const bankBalanceCents = balances.filter((item) => item.type === 'BANK').reduce((sum, item) => sum + item.balanceCents, 0);
     const totalBalanceCents = balances.reduce((sum, item) => sum + item.balanceCents, 0);
     return { ...summary, receivedCents, paidCents, resultCents: receivedCents - paidCents, bankBalanceCents, totalBalanceCents };
@@ -87,8 +94,10 @@ function createAnalyticsService({ db, finance, cashflow, now = () => new Date().
     }
     const topExpenses = db.prepare(`SELECT fe.description,SUM(fs.amount_cents) amount_cents
       FROM financial_settlements fs JOIN financial_entries fe ON fe.id=fs.entry_id
-      WHERE fs.reversed_at IS NULL AND fe.status<>'CANCELLED' AND fe.kind='PAYABLE' AND fs.occurred_at>=? AND fs.occurred_at<=?
-      GROUP BY fe.description ORDER BY amount_cents DESC,fe.description LIMIT 5`).all(range.from, periodTo).map((row) => ({ description: row.description, amountCents: Number(row.amount_cents || 0) }));
+      WHERE (fs.reversed_at IS NULL OR substr(fs.reversed_at,1,10)>?)
+        AND (fe.status<>'CANCELLED' OR (fe.cancelled_at IS NOT NULL AND substr(fe.cancelled_at,1,10)>?))
+        AND fe.kind='PAYABLE' AND fs.occurred_at>=? AND fs.occurred_at<=?
+      GROUP BY fe.description ORDER BY amount_cents DESC,fe.description LIMIT 5`).all(periodTo,periodTo,range.from,periodTo).map((row) => ({ description: row.description, amountCents: Number(row.amount_cents || 0) }));
     return { year: Number(year), range, balanceAsOf, cards: indicators, accountBalances, monthly: buckets, topExpenses, dre: getDre({ ...range, to:periodTo, basis: 'realized' }) };
   }
 
