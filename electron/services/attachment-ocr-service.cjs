@@ -44,7 +44,7 @@ async function recognizeLocal(source, language) {
         page.cleanup();
       }
       return { text: texts.join('\n\n'), confidence: confidences.reduce((a,b)=>a+b,0) / (confidences.length || 1), blocks: [] };
-    } finally { await pdf.destroy(); }
+    } finally { if (typeof pdf.destroy === 'function') await pdf.destroy(); else if (typeof pdf.cleanup === 'function') await pdf.cleanup(); }
   } finally { await worker.terminate(); }
 }
 
