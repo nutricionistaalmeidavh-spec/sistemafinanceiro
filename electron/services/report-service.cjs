@@ -1,7 +1,7 @@
 'use strict';
 
 const openDocs = require('./open-document-suite.cjs');
-const {splitCents}=require('./allocation-service.cjs');
+const {scopedSplitCents}=require('./allocation-service.cjs');
 
 let printing = null;
 try { printing = require('@artisys/printing'); } catch {}
@@ -120,8 +120,8 @@ function createReportService({ db, finance, analytics = null, now = () => new Da
       if (costCenterId) {
         const allocation = metadata.allocations.find((item) => item.costCenterId === String(costCenterId));
         if (!allocation) continue;
-        amountCents = splitCents(entry.amountCents,metadata.allocations).get(String(costCenterId))||0;
-        settledCents = entry.settlements.reduce((sum,settlement)=>sum+(splitCents(settlement.amountCents,metadata.allocations).get(String(costCenterId))||0),0);
+        amountCents = scopedSplitCents(entry.amountCents,entry.amountCents,metadata.allocations).get(String(costCenterId))||0;
+        settledCents = entry.settlements.reduce((sum,settlement)=>sum+(scopedSplitCents(settlement.amountCents,entry.amountCents,metadata.allocations).get(String(costCenterId))||0),0);
         openCents = Math.max(amountCents-settledCents,0);
       }
       const party = counterparty(entry);
