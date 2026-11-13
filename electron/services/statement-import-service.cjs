@@ -1,7 +1,7 @@
 'use strict';
 const crypto = require('node:crypto');
 const Papa = require('papaparse');
-const { parseStatementXlsx } = require('./open-document-suite.cjs');
+const { parseStatementXlsx, inspectStatementXlsx } = require('./open-document-suite.cjs');
 
 function normalizeSourceType(value) {
   const type = String(value || '').trim().toUpperCase();
@@ -108,7 +108,7 @@ function rowTotal(db,sql,...args){return Number(db.prepare(sql).get(...args)?.to
 function createStatementImportService({ db=null, finance=null, now=()=>new Date().toISOString(), idFactory=(prefix)=>`${prefix}-${crypto.randomUUID()}`, domainLoader=()=>import('@artisys/finance-domain'), pdfTextLoader=defaultPdfTextLoader }={}) {
   async function parseInput(input, sourceType) {
     if(sourceType==='CSV')return parseCsv(input.content);
-    if(sourceType==='XLSX')return parseStatementXlsx(input.dataBase64);
+    if(sourceType==='XLSX')return parseStatementXlsx(input.dataBase64,input.columnMapping || {});
     if(sourceType==='OFX')return parseOfx(input.content);
     if(sourceType==='PDF'){
       const text=input.text || (input.dataBase64 ? await pdfTextLoader(input.dataBase64) : input.content);
@@ -267,6 +267,6 @@ function createStatementImportService({ db=null, finance=null, now=()=>new Date(
       return {transactionId,entryId,decision,registerSettlement,settlementId,alreadyRegistered,stats:next};
     });
   }
-  return {preview,commit,listTransactions,suggestTransfers,suggestEntries,recordDecision};
+  return {preview,commit,listTransactions,suggestTransfers,suggestEntries,recordDecision,inspectXlsx:inspectStatementXlsx};
 }
 module.exports={createStatementImportService,parseCsv,parseOfx,parsePdfText,parseDate,parseAmount,defaultPdfTextLoader,documentIdentity};
