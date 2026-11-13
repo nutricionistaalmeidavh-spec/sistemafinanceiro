@@ -215,8 +215,65 @@ try {
     console.log('REACT_RENDER_PROFILER_OK '+JSON.stringify(renders));
   }
 
+
+  // Fluxos adicionais de primeiro uso e ativacao: processos Electron reais, mas
+  // em bancos QA diferentes, sem tocar na fixture financeira nem nas licencas do cliente.
+  if (!usePackagedApp) {
+    const captureExtra = async (filename) => {
+      await page.screenshot({ path: path.join(output, filename) });
+      diagnostics.screenshots.push(filename);
+      console.log('[evidence] ' + path.join(output, filename));
+    };
+    const launchVariant = async (entry, flags) => {
+      if (app) await app.close();
+      app = null;
+      page = null;
+      app = await electron.launch({
+        executablePath: electronExecutable,
+        args: [path.resolve(entry)],
+        cwd: root,
+        env: { ...appEnv, ...flags },
+        timeout: 60000,
+      });
+      page = await app.firstWindow();
+      await page.setViewportSize({ width: 1440, height: 900 }).catch(() => {});
+      page.on('pageerror', error => diagnostics.errors.push(String(error?.message || error)));
+    };
+
+    await launchVariant('electron/main.cjs', { ARTISYS_QA_EMPTY: '1' });
+    await page.getByRole('button', { name: 'Criar administrador' }).waitFor({ timeout: 20000 });
+    await captureExtra('22-criar-administrador-final.png');
+    await page.getByLabel('Senha', { exact: true }).fill(qaPassword);
+    await page.getByRole('button', { name: 'Criar administrador' }).click();
+    await page.getByTestId('app-shell').waitFor({ timeout: 20000 });
+    await page.getByRole('button', { name: 'Configuração passo a passo' }).click();
+    const guide = page.getByTestId('first-use-guide');
+    await guide.getByLabel('Nome da conta').waitFor({ timeout: 15000 });
+    await captureExtra('23-guia-conta-final.png');
+    await guide.getByLabel('Nome da conta').fill('Banco Demonstrativo QA');
+    await guide.getByRole('button', { name: 'Salvar e continuar' }).click();
+    await guide.getByLabel('Saldo inicial (R$)').waitFor({ timeout: 15000 });
+    await captureExtra('24-guia-saldo-final.png');
+    await guide.getByLabel('Saldo inicial (R$)').fill('1500,00');
+    await guide.getByRole('button', { name: 'Continuar', exact: true }).click();
+    await guide.getByText('Registre seu primeiro lançamento').waitFor({ timeout: 15000 });
+    await captureExtra('25-guia-lancamento-final.png');
+    await guide.getByLabel('Descrição', { exact: true }).fill('Despesa demonstrativa QA');
+    await guide.getByLabel('Valor (R$)').fill('99,90');
+    await guide.getByRole('button', { name: 'Concluir primeiro lançamento' }).click();
+    await guide.getByText('Pronto para usar').waitFor({ timeout: 15000 });
+    await captureExtra('26-guia-concluido-final.png');
+    await guide.getByRole('button', { name: 'Ver meu financeiro' }).click();
+    await page.getByText('Banco Demonstrativo QA').first().waitFor({ timeout: 15000 });
+    await captureExtra('27-dashboard-primeiro-uso-final.png');
+
+    await launchVariant('electron/trial-main.cjs', { ARTISYS_QA_LICENSE_SCREEN: '1' });
+    await page.getByRole('heading', { name: 'Ativar avaliação' }).waitFor({ timeout: 20000 });
+    await captureExtra('28-ativar-licenca-final.png');
+  }
+
   const files = fs.readdirSync(output).filter((file) => file.endsWith('.png')).sort();
-  const expected = flow.steps.filter(step => step.action === 'screenshot').length + 4;
+  const expected = flow.steps.filter(step => step.action === 'screenshot').length + 4 + (usePackagedApp ? 0 : 7);
   if (files.length !== expected) throw new Error(`Expected ${expected} final screenshots, found ${files.length}`);
   diagnostics.status = 'passed';
   console.log(`FINAL_SCREENSHOTS_OK ${files.length}`);
