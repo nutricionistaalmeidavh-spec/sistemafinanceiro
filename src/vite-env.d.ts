@@ -23,8 +23,8 @@ declare global {
   interface CashflowSummary { openingBalanceCents:number; inCents:number; outCents:number; netCents:number; closingBalanceCents:number }
   interface DreGroup { group:string; revenueCents:number; expenseCents:number; resultCents:number }
   interface DreReport { basis:'realized'|'accrual'; from:string; to:string; groups:DreGroup[]; totals:{revenueCents:number;expenseCents:number;resultCents:number} }
-  interface FinancialIndicators extends FinancialSummary { receivedCents:number; paidCents:number; resultCents:number; bankBalanceCents:number; totalBalanceCents:number }
-  interface DashboardSnapshot { year:number; range:{from:string;to:string}; cards:FinancialIndicators; accountBalances:AccountBalance[]; monthly:Array<{month:string;inCents:number;outCents:number;netCents:number}>; topExpenses:Array<{description:string;amountCents:number}>; dre:DreReport }
+  interface FinancialIndicators extends FinancialSummary { receivedCents:number; paidCents:number; resultCents:number; bankBalanceCents:number; availableBalanceCents:number; totalBalanceCents:number }
+  interface DashboardSnapshot { year:number; asOf:string; range:{from:string;to:string}; cards:FinancialIndicators; accountBalances:AccountBalance[]; monthly:Array<{month:string;inCents:number;outCents:number;netCents:number}>; topExpenses:Array<{description:string;amountCents:number}>; dre:DreReport }
   interface RecurringRule { id:string; kind:FinanceiroKind; description:string; categoryId?:string|null; accountId?:string|null; customerId?:string|null; creditorId?:string|null; amountCents:number; startDate:string; endDate?:string|null; dueDay:number; intervalMonths:number; maxOccurrences?:number|null; generatedCount:number; nextDueAt:string; notes?:string|null; active:boolean; createdAt:string; updatedAt:string }
 
   interface StatementClassification { matched:boolean; ruleId:string|null; confidence:number; reason:string; assignments?:Record<string,unknown> }
