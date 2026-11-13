@@ -21,6 +21,8 @@ contextBridge.exposeInMainWorld('financeiro', {
     createAccount: (token, input) => ipcRenderer.invoke('finance:accounts:create', token, input),
     listEntries: (token, filters) => ipcRenderer.invoke('finance:entries:list', token, filters),
     createEntry: (token, input) => ipcRenderer.invoke('finance:entries:create', token, input),
+    updateEntry: (token, entryId, input) => ipcRenderer.invoke('finance:entries:update', token, entryId, input),
+    onDataChanged: (callback) => { const handler = (_event, payload) => callback(payload); ipcRenderer.on('finance:data-changed', handler); return () => ipcRenderer.removeListener('finance:data-changed', handler); },
     settleEntry: (token, entryId, input) => ipcRenderer.invoke('finance:entries:settle', token, entryId, input),
     reverseSettlement: (token, settlementId, reason) => ipcRenderer.invoke('finance:settlements:reverse', token, settlementId, reason),
     cancelEntry: (token, entryId, reason) => ipcRenderer.invoke('finance:entries:cancel', token, entryId, reason),
@@ -72,6 +74,7 @@ contextBridge.exposeInMainWorld('financeiro', {
   recurrence: {
     list: (token, filters) => ipcRenderer.invoke('recurrence:list', token, filters),
     create: (token, input) => ipcRenderer.invoke('recurrence:create', token, input),
+    update: (token, id, input) => ipcRenderer.invoke('recurrence:update', token, id, input),
     setActive: (token, id, active) => ipcRenderer.invoke('recurrence:set-active', token, id, active),
     generate: (token, asOf) => ipcRenderer.invoke('recurrence:generate', token, asOf),
   },

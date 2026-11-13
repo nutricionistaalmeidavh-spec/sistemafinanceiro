@@ -2,12 +2,11 @@
 
 const { randomUUID } = require('node:crypto');
 const { writeAudit } = require('./audit.cjs');
+const { assertDateOnly, localDay } = require('./date-utils.cjs');
 
 const SEVERITY_ORDER = Object.freeze({ CRITICAL: 0, WARNING: 1, INFO: 2 });
 function dateOnly(value) {
-  const text = String(value || '').slice(0, 10);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(text) || !Number.isFinite(Date.parse(`${text}T00:00:00Z`))) throw new Error('invalid alert date');
-  return text;
+  return assertDateOnly(value, 'alert date');
 }
 function assertThreshold(value) {
   if (!Number.isSafeInteger(value) || value < 0) throw new Error('thresholdCents must be a non-negative integer in cents');
@@ -23,7 +22,7 @@ function createAlertService({ db, finance, cashflow, now = () => new Date().toIS
     return new Map(db.prepare('SELECT alert_key,state FROM alert_states WHERE user_id=?').all(String(userId)).map((row) => [row.alert_key, row.state]));
   }
 
-  function listAlerts({ userId = '', asOf = nowIso().slice(0, 10), includeDismissed = false } = {}) {
+  function listAlerts({ userId = '', asOf = localDay(nowIso()), includeDismissed = false } = {}) {
     const day = dateOnly(asOf);
     const items = [];
     for (const entry of finance.listEntries({ asOf: day })) {
@@ -76,7 +75,7 @@ function createAlertService({ db, finance, cashflow, now = () => new Date().toIS
     const body = String(input.body || '').trim();
     const severity = String(input.severity || 'INFO').toUpperCase();
     if (!['INFO', 'WARNING', 'CRITICAL'].includes(severity)) throw new Error('invalid alert severity');
-    const startsAt = dateOnly(input.startsAt || nowIso().slice(0, 10));
+    const startsAt = dateOnly(input.startsAt || localDay(nowIso()));
     const endsAt = input.endsAt ? dateOnly(input.endsAt) : null;
     if (endsAt && endsAt < startsAt) throw new Error('alert end date cannot precede start date');
     const timestamp = nowIso();

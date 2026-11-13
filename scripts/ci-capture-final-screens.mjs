@@ -121,6 +121,40 @@ try {
     }
   }
 
+  // Fluxo real adicional: cadastro -> pagamento parcial -> edicao -> recorrencia.
+  // Usa apenas o banco isolado ARTISYS_QA; nunca toca os dados do cliente.
+  await page.getByTestId('nav-finance').click();
+  await page.getByTestId('finance-new-entry').click();
+  const entryForm=page.getByTestId('finance-entry-drawer');
+  await entryForm.getByLabel('Descrição',{exact:true}).fill('Conta E2E de regressão');
+  await entryForm.getByLabel('Valor',{exact:true}).fill('100,00');
+  await entryForm.getByRole('button',{name:'Salvar lançamento'}).click();
+  const entryRow=page.locator('tr').filter({hasText:'Conta E2E de regressão'});
+  await entryRow.waitFor();
+  await entryRow.getByRole('button',{name:'Registrar pagamento'}).click();
+  const payForm=page.getByTestId('finance-payment-form');
+  await payForm.getByLabel('Valor pago/recebido').fill('40,00');
+  await payForm.getByRole('button',{name:'Confirmar registro'}).click();
+  await entryRow.getByText('Parcial',{exact:true}).waitFor({timeout:15000});
+  await entryRow.getByRole('button',{name:'Editar Conta E2E de regressão'}).click();
+  await entryForm.getByLabel('Descrição',{exact:true}).fill('Conta E2E corrigida');
+  await entryForm.getByLabel('Valor',{exact:true}).fill('120,00');
+  await entryForm.getByRole('button',{name:'Salvar alterações'}).click();
+  await page.locator('tr').filter({hasText:'Conta E2E corrigida'}).getByText('Parcial',{exact:true}).waitFor({timeout:15000});
+
+  await page.getByTestId('nav-recurring').click();
+  const recurringForm=page.getByTestId('recurring-form');
+  await recurringForm.getByLabel('Descrição',{exact:true}).fill('Recorrência E2E');
+  await recurringForm.getByLabel('Valor',{exact:true}).fill('89,90');
+  await recurringForm.getByRole('button',{name:'Salvar recorrência'}).click();
+  const recurringRow=page.locator('tr').filter({hasText:'Recorrência E2E'});
+  await recurringRow.waitFor({timeout:15000});
+  await recurringRow.getByRole('button',{name:'Editar'}).click();
+  await recurringForm.getByLabel('Valor',{exact:true}).fill('99,90');
+  await recurringForm.getByRole('button',{name:'Salvar alterações'}).click();
+  await recurringRow.getByText('R$ 99,90').waitFor({timeout:15000});
+  console.log('FINANCE_USER_JOURNEY_OK');
+
   const files = fs.readdirSync(output).filter((file) => file.endsWith('.png')).sort();
   if (files.length !== 12) throw new Error(`Expected 12 final screenshots, found ${files.length}`);
   console.log(`FINAL_SCREENSHOTS_OK ${files.length}`);
