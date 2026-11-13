@@ -25,4 +25,18 @@ function splitCents(totalCents, allocations=[]) {
   for(let i=0;i<remaining;i++)ranked[i].allocated+=1;
   return new Map(remainders.map(row=>[row.id,row.allocated]));
 }
-module.exports={splitCents};
+// Some legacy records assign less than 100% to cost centers. The remainder is
+// explicitly unallocated; it must not be redistributed to configured centers.
+function scopedSplitCents(totalCents,entryTotalCents,allocations=[]) {
+  if(!Number.isSafeInteger(entryTotalCents)||entryTotalCents<=0)throw new TypeError('invalid entryTotalCents');
+  if(!Array.isArray(allocations))throw new TypeError('invalid allocations');
+  const sum=allocations.reduce((n,row)=>n+Number(row.amountCents??row.amount_cents),0);
+  if(!Number.isSafeInteger(sum)||sum>entryTotalCents)throw new Error('cost-center allocations exceed entry amount');
+  if(sum===0)return new Map();
+  const fallbackId='\\u0000unallocated';
+  const normalized=sum===entryTotalCents?allocations:[...allocations,{costCenterId:fallbackId,amountCents:entryTotalCents-sum}];
+  const shares=splitCents(totalCents,normalized);
+  shares.delete(fallbackId);
+  return shares;
+}
+module.exports={splitCents,scopedSplitCents};
