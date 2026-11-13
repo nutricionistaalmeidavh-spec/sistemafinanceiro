@@ -112,4 +112,4 @@ function createAttachmentOcrService({ db, workspaceRoot, executeOcr = defaultExe
   return { extract };
 }
 
-module.exports = { createAttachmentOcrService, resolveWorkspaceFile };
+module.exports = { createAttachmentOcrService, resolveWorkspaceFile, recognizeLocal };
