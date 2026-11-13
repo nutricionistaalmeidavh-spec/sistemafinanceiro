@@ -27,6 +27,7 @@ async function toPlanningXlsxBuffer({budgets=[], comparisons=[], projection=[]}=
     comparisons.map(row => [row.year,row.month,row.nature,...['plannedCents','actualCents','committedCents','projectedCents','varianceCents'].map(key => requireInteger(row[key],key))]), [4,5,6,7,8]);
   applySheet(workbook, 'Projeção', ['Mês','Saldo inicial','Movimento base','Ajuste','Saldo projetado'],
     projection.map(row => [row.month, requireInteger(row.openingBalanceCents,'saldo'), requireInteger(row.baseNetCents,'base'), requireInteger(row.adjustmentCents,'ajuste'), requireInteger(row.closingBalanceCents,'projetado')]),[2,3,4,5]);
+  applySheet(workbook, 'Modelo conciliação', ['Data','Descrição','Valor','Direção'], [], [3]);
   return Buffer.from(await workbook.xlsx.writeBuffer());
 }
 async function toDreXlsxBuffer(input) {
