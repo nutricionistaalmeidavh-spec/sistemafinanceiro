@@ -46,6 +46,14 @@ test('Word, canonical JSON, and integrity manifest ZIP are produced without chan
   assert.equal(archive.subarray(0,2).toString(), 'PK');
   assert.match(archive.toString('utf8'), /manifest.json/);
   assert.match(archive.toString('utf8'), /relatorio.docx/);
+  assert.deepEqual(suite.verifyReportPackageBuffer(archive).valid, true);
+  const corrupted = Buffer.from(archive);
+  const fileMarker = Buffer.from('"version": 1', 'utf8');
+  const location = corrupted.indexOf(fileMarker);
+  if (location >= 0) {
+    corrupted[location + 2] ^= 1;
+    assert.throws(() => suite.verifyReportPackageBuffer(corrupted));
+  }
   assert.equal(JSON.stringify(report), original);
 });
 
