@@ -4,7 +4,7 @@ const { randomUUID } = require('node:crypto');
 const { writeAudit } = require('./audit.cjs');
 const { localDay } = require('./date-utils.cjs');
 const { addMonthsClamped } = require('./recurrence-schedule.cjs');
-const {splitCents}=require('./allocation-service.cjs');
+const {scopedSplitCents}=require('./allocation-service.cjs');
 const { createFinanceService } = require('./finance-service.cjs');
 const { createRecurrenceService } = require('./recurrence-service.cjs');
 
@@ -205,7 +205,7 @@ function createPlanningService({ db, cashflow = null, finance = null, recurrence
         const weights=allocByEntry.get(entry.id)||[];
         const selected=budget.cost_center_id?String(budget.cost_center_id):null;
         if(selected&&!weights.some(row=>row.cost_center_id===selected))continue;
-        const portion=(cents)=>selected?(splitCents(cents,weights).get(selected)||0):cents;
+        const portion=(cents)=>selected?(scopedSplitCents(cents,entry.amountCents,weights).get(selected)||0):cents;
         for(const settlement of entry.settlements)
           if(monthKey(settlement.occurredAt)===period)actualCents+=portion(settlement.amountCents);
         if(monthKey(entry.dueAt)===period&&entry.openCents>0){
