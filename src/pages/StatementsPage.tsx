@@ -86,18 +86,25 @@ export default function StatementsPage({ token, session, onOpenFinance }: Props)
     finally{setBusy(false);}
   }
   async function decide(item:EntrySuggestion,decision:'accepted'|'rejected'){
-    if(!canManage)return;
+    if(!canManage||busy)return;
     const allocation=item.allocations[0]; if(!allocation)return;
-    setBusy(true); setError('');
-    try{await api.decision(token,{transactionId:item.transactionId,entryId:allocation.obligationId,amountCents:allocation.amountCents,decision}); await loadSuggestions(); await reload();}
-    catch(err){setError(err instanceof Error?err.message:String(err)); setBusy(false);}
+    setBusy(true);setError('');setNotice('');
+    try{
+      await api.decision(token,{transactionId:item.transactionId,entryId:allocation.obligationId,amountCents:allocation.amountCents,decision});
+      const [newSuggestions]=await Promise.all([api.suggestEntries(token,{minConfidence:0.65}),reload()]);
+      setSuggestions(newSuggestions);
+      setNotice(decision==='accepted'
+        ? 'Extrato vinculado ao lançamento. A vinculação não registra pagamento nem altera o saldo; use Pagar / Receber para registrar a baixa, se necessário.'
+        : 'Sugestão rejeitada. Nenhum pagamento ou recebimento foi registrado.');
+    }catch(err){setError(err instanceof Error?err.message:String(err));}
+    finally{setBusy(false);}
   }
   function onSource(next:SourceType){setSourceType(next);setPreview(null);setPendingInput(null);setFile(null);setError('');setNotice('');}
   function onFile(event:ChangeEvent<HTMLInputElement>){setFile(event.target.files?.[0]||null);setPreview(null);setPendingInput(null);}
 
   return <section className="page-stack" data-testid="page-statements">
     <div className="page-header"><div><p className="eyebrow">Extratos</p><h2>Importação e conciliação bancária</h2><p className="muted">CSV, OFX, PDF e lançamento manual entram no mesmo modelo canônico e passam por revisão antes de afetar o financeiro.</p></div><button type="button" className="secondary-button" onClick={()=>void reload()}><RefreshCw size={16}/>Atualizar</button></div>
-    {error&&<div className="error-box">{error}</div>}{notice&&<div className="status status-ok">{notice}</div>}
+    {error&&<div className="error-box">{error}</div>}{notice&&<div className="status status-ok" role="status">{notice}</div>}
 
     <form className="panel form-grid" onSubmit={(event)=>void runPreview(event)}>
       <div className="wide panel-title"><div><strong>Analisar extrato</strong><small>O arquivo é analisado localmente. Nada é lançado antes da confirmação.</small></div></div>
@@ -119,6 +126,6 @@ export default function StatementsPage({ token, session, onOpenFinance }: Props)
       <table><thead><tr><th>Data</th><th>Conta</th><th>Descrição</th><th>Categoria</th><th>Status</th><th>Valor</th></tr></thead><tbody>{visible.map(tx=><tr key={tx.id}><td>{tx.occurred_at}</td><td>{tx.account_name}</td><td>{tx.description}</td><td>{tx.category_label||'—'}</td><td>{({PENDING:'Pendente',AUTO_CLASSIFIED:'Classificada automaticamente',REVIEWED:'Revisada',MATCHED:'Conciliada'} as Record<string,string>)[tx.review_status]||tx.review_status}</td><td>{tx.direction==='debit'?'-':''}{brl(tx.amount_cents)}</td></tr>)}{!visible.length&&<tr><td colSpan={6} className="muted">Nenhum extrato importado.</td></tr>}</tbody></table>
     </div>
 
-    {suggestions.length>0&&<div className="panel table-panel table-scroll"><div className="panel-title"><div><strong>Sugestões de conciliação</strong><small>Aceitar apenas vincula o extrato ao lançamento; não registra pagamento. Revise data, beneficiário e valor antes de confirmar.</small></div><button type="button" className="secondary-button small" onClick={()=>onOpenFinance?.()}>Abrir lançamentos</button></div><table><thead><tr><th>Transação</th><th>Lançamento sugerido</th><th>Valor</th><th>Confiança</th><th>Motivo</th><th></th></tr></thead><tbody>{suggestions.map(item=>{const allocation=item.allocations[0];return <tr key={`${item.transactionId}-${allocation?.obligationId}`}><td>{stored.find(tx=>tx.id===item.transactionId)?.description||'Transação bancária'}<small className="muted">{stored.find(tx=>tx.id===item.transactionId)?.occurred_at||''}</small></td><td>{entries.find(entry=>entry.id===allocation?.obligationId)?.description||'Lançamento não localizado'}<small className="muted">{entries.find(entry=>entry.id===allocation?.obligationId)?.status==='SETTLED'?'Já quitado':'Verifique o saldo antes de vincular'}</small></td><td>{brl(allocation?.amountCents||0)}</td><td>{confidence(item.confidence)}</td><td>{item.reason}</td><td>{canManage&&<div className="row-actions"><button type="button" className="secondary-button small" onClick={()=>void decide(item,'rejected')} disabled={busy}><X size={15}/>Rejeitar</button><button className="primary-button" type="button" onClick={()=>void decide(item,'accepted')} disabled={busy}><Check size={15}/>Aceitar</button></div>}</td></tr>})}</tbody></table></div>}
+    {suggestions.length>0&&<div className="panel table-panel table-scroll"><div className="panel-title"><div><strong>Sugestões de conciliação</strong><small>Vincular relaciona o extrato ao lançamento, mas não registra pagamento. Revise data, beneficiário e valor antes de confirmar.</small></div><button type="button" className="secondary-button small" onClick={()=>onOpenFinance?.()}>Abrir lançamentos</button></div><table><thead><tr><th>Transação</th><th>Lançamento sugerido</th><th>Valor</th><th>Confiança</th><th>Motivo</th><th></th></tr></thead><tbody>{suggestions.map(item=>{const allocation=item.allocations[0];return <tr key={`${item.transactionId}-${allocation?.obligationId}`}><td>{stored.find(tx=>tx.id===item.transactionId)?.description||'Transação bancária'}<small className="muted">{stored.find(tx=>tx.id===item.transactionId)?.occurred_at||''}</small></td><td>{entries.find(entry=>entry.id===allocation?.obligationId)?.description||'Lançamento não localizado'}<small className="muted">{entries.find(entry=>entry.id===allocation?.obligationId)?.status==='SETTLED'?'Já quitado':`Vence em ${entries.find(entry=>entry.id===allocation?.obligationId)?.dueAt||'—'} · Em aberto: ${brl(entries.find(entry=>entry.id===allocation?.obligationId)?.openCents||0)}`}</small></td><td>{brl(allocation?.amountCents||0)}</td><td>{confidence(item.confidence)}</td><td>{item.reason}</td><td>{canManage&&<div className="row-actions"><button type="button" className="secondary-button small" onClick={()=>void decide(item,'rejected')} disabled={busy}><X size={15}/>Rejeitar</button><button className="primary-button" type="button" onClick={()=>void decide(item,'accepted')} disabled={busy}><Check size={15}/>Vincular ao lançamento</button></div>}</td></tr>})}</tbody></table></div>}
   </section>;
 }
