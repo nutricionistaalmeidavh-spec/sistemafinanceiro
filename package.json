@@ -1,6 +1,6 @@
 {
   "name": "artisys-sistema-financeiro",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "private": true,
   "description": "ArtiSys Financeiro desktop local-first com ativação por licença e atualização opcional",
   "author": "ArtiSys",
@@ -72,7 +72,7 @@
     "playwright": "1.62.1"
   },
   "build": {
-    "appId": "br.com.artisys.sistemafinanceiro",
+    "appId": "br.com.artisys.sistemafinanceiro.trial",
     "productName": "ArtiSys Financeiro",
     "npmRebuild": false,
     "directories": {

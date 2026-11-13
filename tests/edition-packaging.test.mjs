@@ -4,7 +4,9 @@ import fs from 'node:fs';
 const pkg=JSON.parse(fs.readFileSync('package.json','utf8'));
 test('identidade e instalador sao unicos e o ponto de entrada exige licença',()=>{
   assert.equal(pkg.main,'electron/main.cjs');
-  assert.equal(pkg.build.appId,'br.com.artisys.sistemafinanceiro');
+  assert.equal(pkg.build.appId,'br.com.artisys.sistemafinanceiro.trial');
+  assert.equal(pkg.build.nsis.guid,undefined,'o NSIS deve derivar o GUID da identidade do instalador legado');
+  assert.equal(pkg.build.nsis.deleteAppDataOnUninstall,undefined,'não apagar dados do usuário no upgrade');
   assert.equal(pkg.build.productName,'ArtiSys Financeiro');
   assert.ok(pkg.build.win.artifactName.startsWith('ArtiSys-Financeiro-Setup-'));
   assert.equal(pkg.build.publish[0].provider,'github');
@@ -16,7 +18,7 @@ test('identidade e instalador sao unicos e o ponto de entrada exige licença',()
   assert.match(main,/createUpdateService/);
   assert.match(fs.readFileSync('electron/preload.cjs','utf8'),/license:activate/);
 });
-test('um unico workflow de publicacao e apenas manual',()=>{
+test('um unico workflow de publicacao com gatilho explicito e protegido',()=>{
   const files=fs.readdirSync('.github/workflows').filter(name=>name.endsWith('.yml'));
   const publishing=files.filter(name=>fs.readFileSync('.github/workflows/'+name,'utf8').includes('gh release create'));
   assert.deepEqual(publishing,['financeiro-release.yml']);

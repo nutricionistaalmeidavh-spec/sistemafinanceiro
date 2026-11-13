@@ -2,13 +2,15 @@
 
 Aplicativo desktop **local-first** para gestão financeira pessoal. O núcleo funciona no computador do usuário, com SQLite local, sem SaaS, cloud ou serviço pago obrigatório. O produto pode ser usado por alguém que também possua empresa/CNPJ, mas não depende de estrutura multiempresa, tenant ou `companyId`.
 
-## Instalação, ativação e atualizações (v0.1.3)
+## Instalação, ativação e atualizações (v0.1.4)
 
 Existe **uma única edição e um único instalador**: `ArtiSys-Financeiro-Setup-<versao>.exe`.
 O acesso exige código de licença para todos, podendo ser de teste, por prazo ou permanente.
 Códigos novos de 16 caracteres são emitidos com `scripts/issue-license.mjs` sem recompilar o instalador; a primeira ativação consulta um catálogo cifrado no GitHub, e o uso posterior é offline.
 Ao abrir, o sistema verifica a release estável e permite baixar e instalar voluntariamente pelo próprio app.
-O único workflow de publicação é `.github/workflows/financeiro-release.yml`, acionado manualmente na `main`.
+O único workflow de publicação é `.github/workflows/financeiro-release.yml`, autorizado na `main` por execução manual ou commit de release explicitamente marcado.
+
+**Upgrade da antiga avaliação:** a v0.1.4 reutiliza a identidade interna do instalador NSIS (`br.com.artisys.sistemafinanceiro.trial`), sem introduzir edição trial separada. Por isso reconhece o instalador antigo e pode instalar por cima; mantém o nome visível **ArtiSys Financeiro**. No primeiro uso, copia dados e licença do perfil antigo para o novo sem apagar a origem. Feche o aplicativo antes de executar o instalador. Não desinstale a versão anterior antes de confirmar a migração.
 Consulte `docs/licenciamento-avaliacao.md` para emissão, segurança e migração.
 
 ## Estado do roadmap
