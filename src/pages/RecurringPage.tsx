@@ -2,12 +2,34 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { Pause, Pencil, Play, Plus, RefreshCcw, Search } from 'lucide-react';
 import { brl, can, toCents, today } from '../lib/format';
 
-type Props = { token:string; session:FinanceiroSession };
+type Props = { token:string; session:FinanceiroSession; onNavigate:(page:'finance')=>void };
+function ruleCompleted(rule:RecurringRule){
+  return !rule.active && ((rule.maxOccurrences!=null && rule.generatedCount>=rule.maxOccurrences) ||
+    (Boolean(rule.endDate)&&rule.nextDueAt>String(rule.endDate)));
+}
+function previewDates(start:string,day:number,interval:number,max:number|null,end:string|null,count=0):string[]{
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(start)||!Number.isInteger(day)||day<1||day>31||!Number.isInteger(interval)||interval<1||interval>12)return [];
+  const result:string[]=[];
+  let d=new Date(`${start}T00:00:00Z`);
+  if(Number.isNaN(d.valueOf()))return [];
+  for(let i=0;i<3&&i<120;i++){
+    const year=d.getUTCFullYear(),month=d.getUTCMonth();
+    const last=new Date(Date.UTC(year,month+1,0)).getUTCDate();
+    const due=`${year}-${String(month+1).padStart(2,'0')}-${String(Math.min(day,last)).padStart(2,'0')}`;
+    if(due>=start){
+      if(end&&due>end)break;
+      if(max!=null&&count+result.length>=max)break;
+      result.push(due);
+    }
+    d=new Date(Date.UTC(year,month+interval,1));
+  }
+  return result;
+}
 const initialForm = () => ({
   description:'',amount:'',startDate:today(),endDate:'',dueDay:String(new Date().getDate()),intervalMonths:'1',
   maxOccurrences:'',accountId:'',categoryId:'',counterpartyId:'',notes:'',
 });
-export default function RecurringPage({token,session}:Props){
+export default function RecurringPage({token,session,onNavigate}:Props){
   const api=window.financeiro!;
   const editable=can(session,'finance.manage');
   const [kind,setKind]=useState<FinanceiroKind>('PAYABLE');
@@ -19,6 +41,10 @@ export default function RecurringPage({token,session}:Props){
   const [search,setSearch]=useState('');
   const [editingRule,setEditingRule]=useState<RecurringRule|null>(null);
   const [form,setForm]=useState(initialForm);
+  const [busy,setBusy]=useState(false);
+  const [notice,setNotice]=useState('');
+  const [historyRule,setHistoryRule]=useState<RecurringRule|null>(null);
+  const [history,setHistory]=useState<FinanceEntry[]>([]);
   const reload=useCallback(async()=>{
     try {
       const [nextRules,nextAccounts,nextCategories,nextParties]=await Promise.all([
@@ -42,7 +68,7 @@ export default function RecurringPage({token,session}:Props){
       counterpartyId:(rule.kind==='PAYABLE'?rule.creditorId:rule.customerId)||'',notes:rule.notes||''});
   }
   async function save(event:FormEvent){
-    event.preventDefault();
+    event.preventDefault();if(busy)return;setBusy(true);setError('');
     try{
       const input={kind,description:form.description,amountCents:toCents(form.amount),
         startDate:form.startDate,endDate:form.endDate||null,dueDay:Number(form.dueDay),
@@ -52,17 +78,27 @@ export default function RecurringPage({token,session}:Props){
       };
       if(editingRule) await api.recurrence.update(token,editingRule.id,input);
       else {await api.recurrence.create(token,input);await api.recurrence.generate(token,today());}
-      setEditingRule(null);setForm(initialForm());await reload();
+      setEditingRule(null);setForm(initialForm());await reload();setNotice('Recorrência salva. Alterações futuras preservam o histórico já gerado.');
     }catch(err){setError(err instanceof Error?err.message:String(err));}
+    finally{setBusy(false);}
   }
   async function toggle(rule:RecurringRule){
-    try{await api.recurrence.setActive(token,rule.id,!rule.active);await reload();}
+    if(busy||ruleCompleted(rule))return;setBusy(true);setError('');
+    try{await api.recurrence.setActive(token,rule.id,!rule.active);await reload();setNotice(rule.active?'Recorrência pausada.':'Recorrência reativada.');}
     catch(err){setError(err instanceof Error?err.message:String(err));}
+    finally{setBusy(false);}
   }
   async function generate(){
-    try{await api.recurrence.generate(token,today());await reload();}
+    if(busy)return;setBusy(true);setError('');
+    try{const records=await api.recurrence.generate(token,today());await reload();setNotice(records.length?`${records.length} lançamento(s) gerado(s).`:'Recorrências atualizadas. Nenhum lançamento duplicado.');}
+    catch(err){setError(err instanceof Error?err.message:String(err));}
+    finally{setBusy(false);}
+  }
+  async function viewHistory(rule:RecurringRule){
+    try{const rows=await api.finance.listEntries(token,{recurrenceRuleId:rule.id});setHistory(rows);setHistoryRule(rule);}
     catch(err){setError(err instanceof Error?err.message:String(err));}
   }
+  const upcoming=useMemo(()=>previewDates(editingRule?.nextDueAt||form.startDate,Number(form.dueDay),Number(form.intervalMonths),form.maxOccurrences?Number(form.maxOccurrences):null,form.endDate||null,editingRule?.generatedCount||0),[editingRule,form.startDate,form.dueDay,form.intervalMonths,form.maxOccurrences,form.endDate]);
   const filtered=useMemo(()=>{
     const term=search.trim().toLocaleLowerCase('pt-BR');
     return rules.filter(rule=>!term||[rule.description,rule.kind,rule.nextDueAt].some(value=>String(value||'').toLocaleLowerCase('pt-BR').includes(term)));
@@ -70,8 +106,9 @@ export default function RecurringPage({token,session}:Props){
   return <section className="page-stack" data-testid="page-recurring">
     <div className="page-header"><div><p className="eyebrow">Recorrências</p>
       <h2>Contas automáticas</h2><p className="muted">Vencimentos gerados automaticamente na abertura e durante o uso do aplicativo.</p>
-    </div>{editable&&<button type="button" className="secondary-button" onClick={()=>void generate()}><RefreshCcw size={16}/> Atualizar vencimentos</button>}</div>
-    {error&&<div className="error-box">{error}</div>}
+    </div>{editable&&<button type="button" className="secondary-button" disabled={busy} onClick={()=>void generate()}><RefreshCcw size={16}/> Atualizar vencimentos</button>}</div>
+    {error&&<div className="error-box" role="alert">{error}</div>}
+    {notice&&<div className="success-box" role="status">{notice}</div>}
     <div className="page-toolbar"><p className="section-caption">{rules.filter(rule=>rule.active).length} regras ativas</p>
       <label className="search-control"><Search size={16}/><input data-testid="recurring-search" aria-label="Buscar recorrências" value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar descrição ou vencimento"/></label>
     </div>
@@ -98,7 +135,8 @@ export default function RecurringPage({token,session}:Props){
         <option value="">Não informado</option>{parties.map(x=><option key={x.id} value={x.id}>{x.name}</option>)}
       </select></label>
       <label className="wide">Observações<input value={form.notes} onChange={e=>setForm({...form,notes:e.target.value})}/></label>
-      <button className="primary-button" type="submit">{editingRule?'Salvar alterações':'Salvar recorrência'}</button>
+      <section className="wide recurrence-preview" aria-label="Prévia de vencimentos"><strong>Próximas parcelas previstas</strong><p className="muted">Apenas uma prévia: os lançamentos são criados quando cada vencimento chega.</p><div className="chip-row">{upcoming.length?upcoming.map(date=><span className="badge" key={date}>{date.split('-').reverse().join('/')}{form.amount?' · '+form.amount:''}</span>):<span className="muted">Nenhuma parcela futura com esses limites.</span>}</div></section>
+      <button className="primary-button" disabled={busy} type="submit">{busy?'Salvando…':editingRule?'Salvar alterações':'Salvar recorrência'}</button>
       {editingRule&&<button className="secondary-button" type="button" onClick={()=>{setEditingRule(null);setForm(initialForm());}}>Cancelar edição</button>}
     </form>}
     <div className="panel table-panel table-scroll"><table><thead><tr><th>Descrição</th><th>Tipo</th><th>Valor</th><th>Próximo</th><th>Geradas</th><th>Status</th><th>Ações</th></tr></thead>
@@ -106,13 +144,14 @@ export default function RecurringPage({token,session}:Props){
         <td><strong>{rule.description}</strong></td><td>{rule.kind==='PAYABLE'?'Pagar':'Receber'}</td>
         <td>{brl(rule.amountCents)}</td><td>{rule.nextDueAt}</td>
         <td>{rule.generatedCount}{rule.maxOccurrences?` / ${rule.maxOccurrences}`:''}</td>
-        <td><span className={`badge ${rule.active?'badge-settled':'badge-cancelled'}`}>{rule.active?'ATIVA':'PAUSADA'}</span></td>
+        <td><span className={`badge ${rule.active?'badge-settled':'badge-cancelled'}`}>{rule.active?'Ativa':ruleCompleted(rule)?'Concluída':'Pausada'}</span></td>
         <td>{editable&&<div className="row-actions">
           <button type="button" className="secondary-button small" onClick={()=>edit(rule)}><Pencil size={14}/> Editar</button>
-          <button type="button" className="secondary-button small" onClick={()=>void toggle(rule)}>{rule.active?<Pause size={14}/>:<Play size={14}/>} {rule.active?'Pausar':'Ativar'}</button>
-        </div>}</td>
+          {!ruleCompleted(rule)&&<button type="button" disabled={busy} className="secondary-button small" onClick={()=>void toggle(rule)}>{rule.active?<Pause size={14}/>:<Play size={14}/>} {rule.active?'Pausar':'Ativar'}</button>}
+        </div>}<button type="button" className="secondary-button small" onClick={()=>void viewHistory(rule)}>Ver lançamentos</button></td>
       </tr>)}</tbody></table>
       {filtered.length===0&&<div className="empty-state">Nenhuma recorrência encontrada.</div>}
     </div>
+    {historyRule&&<section className="panel"><div className="panel-title"><div><h3>Histórico: {historyRule.description}</h3><p className="muted">Lançamentos desta regra; parcelas anteriores não são reescritas ao editar.</p></div><button className="secondary-button" type="button" onClick={()=>setHistoryRule(null)}>Fechar</button></div><div className="compact-list">{history.map(item=><div key={item.id}><strong>{item.dueAt.split('-').reverse().join('/')} · {brl(item.amountCents)}</strong><small>{item.status==='SETTLED'?'Quitado':item.status==='PARTIAL'?'Parcial':item.status==='OPEN'?'Em aberto':'Cancelado'}</small></div>)}{history.length===0&&<p className="muted">Ainda não há parcelas lançadas.</p>}</div><button className="secondary-button" type="button" onClick={()=>onNavigate('finance')}>Abrir contas a pagar/receber</button></section>}
   </section>;
 }
