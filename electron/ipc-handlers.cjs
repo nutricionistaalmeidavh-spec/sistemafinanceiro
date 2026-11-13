@@ -115,6 +115,8 @@ function registerIpcHandlers({ ipcMain, app, dialog, database, auth, finance, re
   ipcMain.handle('analytics:dashboard', (_event, token, filters) => { auth.require(token, 'finance.view'); return analytics.getDashboardSnapshot(filters || {}); });
 
   ipcMain.handle('recurrence:list', (_event, token, filters) => { auth.require(token, 'finance.view'); return recurrence.listRules(filters || {}); });
+  ipcMain.handle('recurrence:upcoming', (_event, token, filters) => { auth.require(token, 'finance.view'); return recurrence.listUpcoming(filters || {}); });
+  ipcMain.handle('recurrence:preview', (_event, token, input) => { auth.require(token, 'finance.view'); return recurrence.previewRule(input || {}); });
   ipcMain.handle('recurrence:create', (event, token, input) => { const actor = auth.require(token, 'finance.manage'); return broadcast(event, recurrence.createRule(input, actor)); });
   ipcMain.handle('recurrence:update', (event, token, id, input) => { const actor = auth.require(token, 'finance.manage'); return broadcast(event, recurrence.updateRule(id, input, actor)); });
   ipcMain.handle('recurrence:set-active', (event, token, id, active) => { const actor = auth.require(token, 'finance.manage'); return broadcast(event, recurrence.setRuleActive(id, active, actor)); });
