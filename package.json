@@ -44,6 +44,7 @@
     "docx": "9.15.3",
     "echarts": "6.1.0",
     "exceljs": "4.4.0",
+    "fast-xml-parser": "5.2.5",
     "fflate": "0.8.2",
     "lucide-react": "1.28.0",
     "papaparse": "5.7.0",
