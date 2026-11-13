@@ -238,7 +238,6 @@ function createFinanceService({ db, now = () => new Date().toISOString(), idFact
     const clauses = [];
     const params = [];
     if (filters.kind) { clauses.push('kind=?'); params.push(String(filters.kind).toUpperCase()); }
-    if (filters.status) { clauses.push('status=?'); params.push(String(filters.status).toUpperCase()); }
     if (filters.from) { clauses.push('due_at>=?'); params.push(String(filters.from)); }
     if (filters.to) { clauses.push('due_at<=?'); params.push(String(filters.to)); }
     if (filters.accountId) { clauses.push('account_id=?'); params.push(String(filters.accountId)); }
@@ -265,7 +264,7 @@ function createFinanceService({ db, now = () => new Date().toISOString(), idFact
       }
     }
     return rows.map(row=>mapEntry(row,day,byEntry.get(row.id)||[]))
-      .filter(entry=>filters.overdue===true?entry.isOverdue:true);
+      .filter(entry=>(!filters.status||entry.status===String(filters.status).toUpperCase())&&(filters.overdue!==true||entry.isOverdue));
   }
   function getSummary({ from = null, to = null, asOf = localDay(nowIso()) } = {}) {
     const day=assertDateOnly(String(asOf).slice(0,10),'asOf');
