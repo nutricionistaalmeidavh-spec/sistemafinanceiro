@@ -46,14 +46,22 @@ function createFinanceService({ db, now = () => new Date().toISOString(), idFact
   }
   function mapEntry(row, asOf = localDay(nowIso())) {
     if (!row) return null;
-    const settlements = activeSettlements(row.id).map(mapSettlement);
+    const day=assertDateOnly(String(asOf).slice(0,10),'asOf');
+    // Leitura as-of: pagamentos futuros e estornos realizados depois da data nao mudam o passado.
+    const settlements=db.prepare(`SELECT * FROM financial_settlements
+      WHERE entry_id=? AND occurred_at<=?
+      AND (reversed_at IS NULL OR substr(reversed_at,1,10)>?)
+      ORDER BY occurred_at,created_at,id`).all(String(row.id),day,day).map(mapSettlement);
     const settledCents = settlements.reduce((sum, item) => sum + Number(item.amountCents || 0), 0);
     const openCents = Math.max(Number(row.amount_cents) - settledCents, 0);
-    const isOverdue = ['OPEN', 'PARTIAL'].includes(row.status) && row.due_at < assertDateOnly(String(asOf).slice(0, 10), 'asOf');
+    const cancelledAt=row.cancelled_at?localDay(row.cancelled_at):null;
+    const isCancelled=row.status==='CANCELLED' && (!cancelledAt||cancelledAt<=day);
+    const status=isCancelled?'CANCELLED':openCents===0?'SETTLED':settledCents>0?'PARTIAL':'OPEN';
+    const isOverdue = ['OPEN', 'PARTIAL'].includes(status) && row.due_at < day;
     return {
       id: row.id, kind: row.kind, description: row.description, categoryId: row.category_id, accountId: row.account_id,
       customerId: row.customer_id, creditorId: row.creditor_id, amountCents: row.amount_cents, issueAt: row.issue_at,
-      dueAt: row.due_at, status: row.status, sourceType: row.source_type, sourceId: row.source_id, notes: row.notes,
+      dueAt: row.due_at, status, sourceType: row.source_type, sourceId: row.source_id, notes: row.notes,
       recurrenceRuleId: row.recurrence_rule_id || null, recurrenceKey: row.recurrence_key || null,
       createdAt: row.created_at, updatedAt: row.updated_at, cancelledAt: row.cancelled_at,
       settledCents, openCents, isOverdue, settlements,
@@ -225,6 +233,7 @@ function createFinanceService({ db, now = () => new Date().toISOString(), idFact
     if (filters.recurrenceRuleId) { clauses.push('recurrence_rule_id=?'); params.push(String(filters.recurrenceRuleId)); }
     if (filters.query) { clauses.push('LOWER(description) LIKE ?'); params.push(`%${String(filters.query).trim().toLowerCase()}%`); }
     return db.prepare(`SELECT * FROM financial_entries${clauses.length ? ` WHERE ${clauses.join(' AND ')}` : ''} ORDER BY due_at,id`).all(...params)
+      .filter((row) => !filters.asOf || String(row.created_at).slice(0,10)<=String(filters.asOf).slice(0,10))
       .map((row) => mapEntry(row, filters.asOf || localDay(nowIso())))
       .filter((entry) => filters.overdue === true ? entry.isOverdue : true);
   }
