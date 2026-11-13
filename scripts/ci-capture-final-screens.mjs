@@ -159,9 +159,9 @@ try {
   await recurringForm.getByRole('button',{name:'Salvar alterações'}).click();
   await recurringRow.getByText('R$ 99,90').waitFor({timeout:15000});
   await recurringRow.getByRole('button',{name:'Ver lançamentos'}).click();
-  const history=page.getByTestId('recurrence-history');
+  const history=page.getByTestId('recurring-history');
   await history.getByText('R$ 89,90',{exact:false}).first().waitFor({timeout:15000});
-  await history.getByRole('button',{name:'Fechar histórico'}).click();
+  await history.getByRole('button',{name:'Fechar',exact:true}).click();
 
   await page.getByTestId('nav-finance').click();
   await page.getByTestId('finance-new-entry').click();
