@@ -215,7 +215,7 @@ export default function FinancePage({ token, session }: Props) {
         {dialogError&&<p className="wide error-box" role="alert">{dialogError} Corrija os dados ou solicite a aprovação necessária.</p>}
         <p className="wide muted">Altere o valor para registrar um pagamento parcial. A operação apenas registra a baixa, sem transferir dinheiro.</p>
         <label>Valor pago/recebido<input required value={paymentForm.amount} onChange={(e)=>setPaymentForm({...paymentForm,amount:e.target.value})} /></label>
-        <label>Data<input required type="date" value={paymentForm.occurredAt} onChange={(e)=>setPaymentForm({...paymentForm,occurredAt:e.target.value})}/></label>
+        <label>Data<input required type="date" max={today()} value={paymentForm.occurredAt} onChange={(e)=>setPaymentForm({...paymentForm,occurredAt:e.target.value})}/></label>
         <label>Conta financeira<select required value={paymentForm.accountId} onChange={(e)=>setPaymentForm({...paymentForm,accountId:e.target.value})}>{accounts.map((x)=><option key={x.id} value={x.id}>{x.name}</option>)}</select></label>
         <label>Forma de pagamento<select value={paymentForm.method} onChange={(e)=>setPaymentForm({...paymentForm,method:e.target.value})}>
           <option value="PIX">PIX</option><option value="CASH">Dinheiro</option><option value="TRANSFER">Transferência</option><option value="BOLETO">Boleto</option><option value="DEBIT_CARD">Cartão de débito</option><option value="CREDIT_CARD">Cartão de crédito</option><option value="OTHER">Outro</option>
