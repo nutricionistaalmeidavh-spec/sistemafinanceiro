@@ -69,3 +69,20 @@ test('capturador falha caso alguma tela não seja registrada e preserva screensh
   assert.match(source, /run-summary\.json/);
   assert.match(source, /electron\/install\.js/, 'Electron deve ser reinstalado quando o binário estiver ausente');
 });
+
+test('primeiro uso e ativacao trial sao capturados com bancos QA separados', () => {
+  const commercial = fs.readFileSync('electron/main.cjs', 'utf8');
+  const trial = fs.readFileSync('electron/trial-main.cjs', 'utf8');
+  const runner = fs.readFileSync('scripts/ci-capture-final-screens.mjs', 'utf8');
+  assert.match(commercial, /ARTISYS_QA_EMPTY/);
+  assert.match(trial, /ARTISYS_QA_LICENSE_SCREEN/);
+  for (const filename of [
+    '22-criar-administrador-final.png',
+    '23-guia-conta-final.png',
+    '24-guia-saldo-final.png',
+    '25-guia-lancamento-final.png',
+    '26-guia-concluido-final.png',
+    '27-dashboard-primeiro-uso-final.png',
+    '28-ativar-licenca-final.png',
+  ]) assert.ok(runner.includes(filename), `Falta evidência de ${filename}`);
+});
