@@ -18,7 +18,7 @@ function parseDate(value) {
     parts=raw.match(/^(\d{2})[\/-](\d{2})[\/-](\d{4})$/);
     if(parts){day=Number(parts[1]);month=Number(parts[2]);year=Number(parts[3]);}
     else {
-      parts=raw.match(/^(\d{4})(\d{2})(\d{2})(?:\d{6})?$/);
+      parts=raw.match(/^(\d{4})(\d{2})(\d{2})(?:\d{6}(?:\.\d+)?)?(?:\[[^\]\r\n]{1,30}\])?$/);
       if(!parts)throw new TypeError('invalid date: '+raw);
       year=Number(parts[1]);month=Number(parts[2]);day=Number(parts[3]);
     }
