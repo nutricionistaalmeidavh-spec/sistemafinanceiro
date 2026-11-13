@@ -15,7 +15,12 @@ function withTransaction(db, fn) { db.exec('BEGIN IMMEDIATE'); try { const resul
 function createRecurrenceService({ db, finance, now = () => new Date().toISOString(), idFactory = () => `rule-${randomUUID()}` } = {}) {
   if (!db || !finance) throw new TypeError('db and finance are required');
   const nowIso = () => String(now());
-  function mapRule(row) { return row && { id: row.id, kind: row.kind, description: row.description, categoryId: row.category_id, accountId: row.account_id, customerId: row.customer_id, creditorId: row.creditor_id, amountCents: Number(row.amount_cents), startDate: row.start_date, endDate: row.end_date, dueDay: row.due_day, intervalMonths: row.interval_months, maxOccurrences: row.max_occurrences, generatedCount: row.generated_count, nextDueAt: row.next_due_at, notes: row.notes, active: Boolean(row.active), createdAt: row.created_at, updatedAt: row.updated_at }; }
+  function lifecycleStatus(row) {
+    const ended = (row.max_occurrences != null && row.generated_count >= row.max_occurrences)
+      || (row.end_date != null && row.next_due_at > row.end_date);
+    return ended ? 'COMPLETED' : row.active ? 'ACTIVE' : 'PAUSED';
+  }
+  function mapRule(row) { return row && { id: row.id, kind: row.kind, description: row.description, categoryId: row.category_id, accountId: row.account_id, customerId: row.customer_id, creditorId: row.creditor_id, amountCents: Number(row.amount_cents), startDate: row.start_date, endDate: row.end_date, dueDay: row.due_day, intervalMonths: row.interval_months, maxOccurrences: row.max_occurrences, generatedCount: row.generated_count, nextDueAt: row.next_due_at, notes: row.notes, active: Boolean(row.active), lifecycleStatus:lifecycleStatus(row), createdAt: row.created_at, updatedAt: row.updated_at }; }
   function requireRelation(table, id, label) { if (!id) return; const row = db.prepare(`SELECT id,active FROM ${table} WHERE id=?`).get(String(id)); if (!row || !Boolean(row.active)) throw new Error(`${label} not found or inactive`); }
   function validateCategory(kind, id) { if (!id) return; const row = db.prepare('SELECT * FROM financial_categories WHERE id=? AND active=1').get(String(id)); if (!row) throw new Error('category not found or inactive'); const expected = kind === 'PAYABLE' ? 'EXPENSE' : 'REVENUE'; if (row.nature !== expected) throw new Error(`category nature must be ${expected}`); }
   function createRule(input = {}, actor = null) {
@@ -84,7 +89,16 @@ function createRecurrenceService({ db, finance, now = () => new Date().toISOStri
     });
   }
   function listRules({ includeInactive = true } = {}) { return db.prepare(`SELECT * FROM recurring_rules${includeInactive ? '' : ' WHERE active=1'} ORDER BY active DESC,next_due_at,description`).all().map(mapRule); }
-  function setRuleActive(id, active, actor = null) { const timestamp = nowIso(); const result = db.prepare('UPDATE recurring_rules SET active=?,updated_at=? WHERE id=?').run(active ? 1 : 0, timestamp, String(id)); if (!result.changes) throw new Error('recurring rule not found'); writeAudit(db, { action: active ? 'recurrence.enable' : 'recurrence.pause', entity: 'recurring-rule', entityId: String(id), actor, context: {} }, nowIso); return mapRule(db.prepare('SELECT * FROM recurring_rules WHERE id=?').get(String(id))); }
+  function setRuleActive(id, active, actor = null) {
+    const row=db.prepare('SELECT * FROM recurring_rules WHERE id=?').get(String(id));
+    if(!row)throw new Error('recurring rule not found');
+    if(active && lifecycleStatus(row)==='COMPLETED')throw new Error('recorrencia concluida: ajuste o limite ou a data final antes de reativar');
+    if(Boolean(row.active)===Boolean(active))return mapRule(row);
+    const timestamp=nowIso();
+    db.prepare('UPDATE recurring_rules SET active=?,updated_at=? WHERE id=?').run(active?1:0,timestamp,String(id));
+    writeAudit(db,{action:active?'recurrence.enable':'recurrence.pause',entity:'recurring-rule',entityId:String(id),actor,context:{}},nowIso);
+    return mapRule(db.prepare('SELECT * FROM recurring_rules WHERE id=?').get(String(id)));
+  }
   function generateDue({ asOf = localDay(nowIso()), actor = null } = {}) {
     const limit = validDate(asOf, 'generation date');
     return withTransaction(db, () => {
