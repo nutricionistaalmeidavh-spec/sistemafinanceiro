@@ -36,6 +36,8 @@ export default function RecurringPage({token,session}:Props){
   const [search,setSearch]=useState('');
   const [editingRule,setEditingRule]=useState<RecurringRule|null>(null);
   const [form,setForm]=useState(initialForm);
+  const [historyRule,setHistoryRule]=useState<RecurringRule|null>(null);
+  const [history,setHistory]=useState<FinanceEntry[]>([]);
   const reload=useCallback(async()=>{
     try {
       const [nextRules,nextAccounts,nextCategories,nextParties]=await Promise.all([
@@ -83,6 +85,12 @@ export default function RecurringPage({token,session}:Props){
   async function generate(){
     try{await api.recurrence.generate(token,today());await reload();}
     catch(err){setError(err instanceof Error?err.message:String(err));}
+  }
+  async function viewHistory(rule:RecurringRule) {
+    try {
+      const entries=await api.finance.listEntries(token,{recurrenceRuleId:rule.id});
+      setHistory(entries);setHistoryRule(rule);setError('');
+    }catch(error){setError(error instanceof Error?error.message:String(error));}
   }
   const filtered=useMemo(()=>{
     const term=search.trim().toLocaleLowerCase('pt-BR');
@@ -133,9 +141,18 @@ export default function RecurringPage({token,session}:Props){
         <td>{editable&&<div className="row-actions">
           <button type="button" className="secondary-button small" onClick={()=>edit(rule)}><Pencil size={14}/> Editar</button>
           {rule.lifecycleStatus!=='COMPLETED'&&<button type="button" className="secondary-button small" onClick={()=>void toggle(rule)}>{rule.active?<Pause size={14}/>:<Play size={14}/>} {rule.active?'Pausar':'Ativar'}</button>}
-        </div>}</td>
+        </div>}<button type="button" className="secondary-button small" onClick={()=>void viewHistory(rule)}>Ver lançamentos</button></td>
       </tr>)}</tbody></table>
       {filtered.length===0&&<div className="empty-state">Nenhuma recorrência encontrada.</div>}
     </div>
+    {historyRule&&<section className="panel" data-testid="recurring-history">
+      <div className="panel-title"><div><h3>Histórico da recorrência: {historyRule.description}</h3>
+        <p className="muted">Lançamentos existentes vinculados a esta regra. Editar a regra não altera parcelas já registradas.</p></div>
+        <button type="button" className="secondary-button" onClick={()=>setHistoryRule(null)}>Fechar</button></div>
+      <div className="compact-list">{history.map(entry=><div key={entry.id}>
+        <strong>{entry.dueAt.split('-').reverse().join('/')} · {brl(entry.amountCents)}</strong>
+        <small>{entry.status==='SETTLED'?'Quitada':entry.status==='PARTIAL'?'Parcial':entry.status==='CANCELLED'?'Cancelada':'Em aberto'} · Saldo: {brl(entry.openCents)}</small>
+      </div>)}{!history.length&&<p className="muted">Nenhuma parcela lançada até o momento.</p>}</div>
+    </section>}
   </section>;
 }
