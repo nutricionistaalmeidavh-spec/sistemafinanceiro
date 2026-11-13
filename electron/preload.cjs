@@ -77,6 +77,8 @@ contextBridge.exposeInMainWorld('financeiro', {
   },
   recurrence: {
     list: (token, filters) => ipcRenderer.invoke('recurrence:list', token, filters),
+    upcoming: (token, filters) => ipcRenderer.invoke('recurrence:upcoming', token, filters),
+    preview: (token, input) => ipcRenderer.invoke('recurrence:preview', token, input),
     create: (token, input) => ipcRenderer.invoke('recurrence:create', token, input),
     update: (token, id, input) => ipcRenderer.invoke('recurrence:update', token, id, input),
     setActive: (token, id, active) => ipcRenderer.invoke('recurrence:set-active', token, id, active),
