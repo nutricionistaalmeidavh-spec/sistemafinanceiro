@@ -67,8 +67,21 @@ if (!usePackagedApp) {
 }
 
 let app = null;
+let page = null;
+const diagnostics = { startedAt: new Date().toISOString(), status: 'running', screenshots: [], errors: [] };
 try {
   if (!usePackagedApp) await waitForServer('http://127.0.0.1:5173', 60000);
+  if (!fs.existsSync(executablePath) && !usePackagedApp) {
+    const installScript = path.resolve('node_modules/electron/install.js');
+    if (!fs.existsSync(installScript)) throw new Error(`Electron installer missing: ${installScript}`);
+    const install = spawnSync(process.execPath, [installScript], {
+      cwd: path.dirname(installScript),
+      env: process.env,
+      stdio: 'inherit',
+      timeout: 180000,
+    });
+    if (install.error || install.status !== 0) throw new Error(`Electron binary install failed: ${install.error?.message || install.status}`);
+  }
   if (!fs.existsSync(executablePath)) throw new Error(`Electron executable not found: ${executablePath}`);
 
   const appEnv = {
@@ -77,6 +90,7 @@ try {
     ARTISYS_QA_RESET: '1',
     ARTISYS_QA_PASSWORD: qaPassword,
   };
+  delete appEnv.ELECTRON_RUN_AS_NODE;
   if (!usePackagedApp) appEnv.VITE_DEV_SERVER_URL = 'http://127.0.0.1:5173';
 
   app = await electron.launch({
@@ -86,7 +100,8 @@ try {
     env: appEnv,
     timeout: 60000,
   });
-  const page = await app.firstWindow();
+  page = await app.firstWindow();
+  page.on('pageerror', (error) => diagnostics.errors.push(String(error?.message || error)));
   await page.setViewportSize({ width: 1440, height: 900 }).catch(() => {});
 
   for (const step of flow.steps) {
@@ -113,6 +128,7 @@ try {
       case 'screenshot': {
         const target = path.join(output, `${step.name}.png`);
         await page.screenshot({ path: target, fullPage: false });
+        diagnostics.screenshots.push(path.basename(target));
         console.log(`[evidence] ${target}`);
         break;
       }
@@ -130,6 +146,8 @@ try {
   // Usa apenas o banco isolado ARTISYS_QA; nunca toca os dados do cliente.
   await page.getByTestId('nav-finance').click();
   await page.getByTestId('finance-new-entry').click();
+  await page.screenshot({ path: path.join(output, '18-novo-lancamento-final.png') });
+  diagnostics.screenshots.push('18-novo-lancamento-final.png');
   const entryForm=page.getByTestId('finance-entry-drawer');
   await entryForm.getByLabel('Descrição',{exact:true}).fill('Conta E2E de regressão');
   await entryForm.getByLabel('Valor',{exact:true}).fill('100,00');
@@ -137,6 +155,9 @@ try {
   const entryRow=page.locator('tr').filter({hasText:'Conta E2E de regressão'});
   await entryRow.waitFor();
   await entryRow.getByRole('button',{name:'Registrar pagamento'}).click();
+  await page.getByTestId('finance-payment-form').waitFor();
+  await page.screenshot({ path: path.join(output, '19-registrar-pagamento-final.png') });
+  diagnostics.screenshots.push('19-registrar-pagamento-final.png');
   const payForm=page.getByTestId('finance-payment-form');
   await payForm.getByLabel('Valor pago/recebido').fill('40,00');
   await payForm.getByRole('button',{name:'Confirmar registro'}).click();
@@ -159,6 +180,9 @@ try {
   await recurringForm.getByRole('button',{name:'Salvar alterações'}).click();
   await recurringRow.getByText('R$ 99,90').waitFor({timeout:15000});
   await recurringRow.getByRole('button',{name:'Ver lançamentos'}).click();
+  await page.getByTestId('recurring-history').waitFor();
+  await page.screenshot({ path: path.join(output, '20-historico-recorrencia-final.png') });
+  diagnostics.screenshots.push('20-historico-recorrencia-final.png');
   const history=page.getByTestId('recurring-history');
   await history.getByText('R$ 89,90',{exact:false}).first().waitFor({timeout:15000});
   await history.getByRole('button',{name:'Fechar',exact:true}).click();
@@ -171,6 +195,9 @@ try {
   const cancelledRow=page.locator('tr').filter({hasText:'Conta cancelamento E2E'});
   await cancelledRow.waitFor({timeout:15000});
   await cancelledRow.getByRole('button',{name:'Cancelar',exact:true}).click();
+  await page.getByTestId('finance-decision-form').waitFor();
+  await page.screenshot({ path: path.join(output, '21-confirmar-cancelamento-final.png') });
+  diagnostics.screenshots.push('21-confirmar-cancelamento-final.png');
   const decisionForm=page.getByTestId('finance-decision-form');
   await decisionForm.getByLabel('Motivo obrigatório').fill('Lançamento duplicado em QA');
   await decisionForm.getByRole('button',{name:'Confirmar cancelamento'}).click();
@@ -189,14 +216,86 @@ try {
     console.log('REACT_RENDER_PROFILER_OK '+JSON.stringify(renders));
   }
 
+
+  // Fluxos adicionais de primeiro uso e ativacao: processos Electron reais, mas
+  // em bancos QA diferentes, sem tocar na fixture financeira nem nas licencas do cliente.
+  if (!usePackagedApp) {
+    const captureExtra = async (filename) => {
+      await page.screenshot({ path: path.join(output, filename) });
+      diagnostics.screenshots.push(filename);
+      console.log('[evidence] ' + path.join(output, filename));
+    };
+    const launchVariant = async (entry, flags) => {
+      if (app) await app.close();
+      app = null;
+      page = null;
+      app = await electron.launch({
+        executablePath: electronExecutable,
+        args: [path.resolve(entry)],
+        cwd: root,
+        env: { ...appEnv, ...flags },
+        timeout: 60000,
+      });
+      page = await app.firstWindow();
+      await page.setViewportSize({ width: 1440, height: 900 }).catch(() => {});
+      page.on('pageerror', error => diagnostics.errors.push(String(error?.message || error)));
+    };
+
+    await launchVariant('electron/main.cjs', { ARTISYS_QA_EMPTY: '1' });
+    await page.getByRole('button', { name: 'Criar administrador' }).waitFor({ timeout: 20000 });
+    await captureExtra('22-criar-administrador-final.png');
+    await page.getByLabel('Senha', { exact: true }).fill(qaPassword);
+    await page.getByRole('button', { name: 'Criar administrador' }).click();
+    await page.getByTestId('app-shell').waitFor({ timeout: 20000 });
+    await page.getByRole('button', { name: 'Configuração passo a passo' }).click();
+    const guide = page.getByRole('dialog', { name: 'Preparar o financeiro' });
+    await guide.getByLabel('Nome da conta').waitFor({ timeout: 15000 });
+    await captureExtra('23-guia-conta-final.png');
+    await guide.getByLabel('Nome da conta').fill('Banco Demonstrativo QA');
+    await guide.getByRole('button', { name: 'Salvar e continuar' }).click();
+    await guide.getByLabel('Saldo inicial (R$)').waitFor({ timeout: 15000 });
+    await captureExtra('24-guia-saldo-final.png');
+    await guide.getByLabel('Saldo inicial (R$)').fill('1500,00');
+    await guide.getByRole('button', { name: 'Continuar', exact: true }).click();
+    await guide.getByText('Registre seu primeiro lançamento').waitFor({ timeout: 15000 });
+    await captureExtra('25-guia-lancamento-final.png');
+    await guide.getByLabel('Descrição', { exact: true }).fill('Despesa demonstrativa QA');
+    await guide.getByLabel('Valor (R$)').fill('99,90');
+    await guide.getByRole('button', { name: 'Concluir primeiro lançamento' }).click();
+    await guide.getByText('Pronto para usar').waitFor({ timeout: 15000 });
+    await captureExtra('26-guia-concluido-final.png');
+    await guide.getByRole('button', { name: 'Ver meu financeiro' }).click();
+    await page.getByText('Banco Demonstrativo QA').first().waitFor({ timeout: 15000 });
+    await captureExtra('27-dashboard-primeiro-uso-final.png');
+
+    await launchVariant('electron/trial-main.cjs', { ARTISYS_QA_LICENSE_SCREEN: '1' });
+    await page.getByRole('heading', { name: 'Ativar avaliação' }).waitFor({ timeout: 20000 });
+    await captureExtra('28-ativar-licenca-final.png');
+  }
+
   const files = fs.readdirSync(output).filter((file) => file.endsWith('.png')).sort();
-  if (files.length !== 12) throw new Error(`Expected 12 final screenshots, found ${files.length}`);
+  const expected = flow.steps.filter(step => step.action === 'screenshot').length + 4 + (usePackagedApp ? 0 : 7);
+  if (files.length !== expected) throw new Error(`Expected ${expected} final screenshots, found ${files.length}`);
+  diagnostics.status = 'passed';
   console.log(`FINAL_SCREENSHOTS_OK ${files.length}`);
 } catch (error) {
+  diagnostics.status = 'failed';
+  diagnostics.failure = String(error?.stack || error?.message || error);
+  if (page) {
+    try {
+      await page.screenshot({ path: path.join(output, 'failure.png') });
+      diagnostics.screenshots.push('failure.png');
+    } catch (screenshotError) {
+      diagnostics.errors.push('Failure screenshot unavailable: ' + String(screenshotError?.message || screenshotError));
+    }
+  }
   console.error(error.stack || error.message || error);
   if (viteLogs.length) console.error(viteLogs.slice(-30).join(''));
   process.exitCode = 1;
 } finally {
+  diagnostics.finishedAt = new Date().toISOString();
+  diagnostics.screenshots = fs.readdirSync(output).filter(filename => filename.endsWith('.png')).sort();
+  fs.writeFileSync(path.resolve('qa-artifacts/final/run-summary.json'), JSON.stringify(diagnostics, null, 2));
   if (app) await app.close().catch(() => {});
   stopTree(vite);
 }

@@ -26,7 +26,7 @@ const { registerPlanningIpcHandlers } = require('./planning-ipc.cjs');
 
 const qaMode = process.env.ARTISYS_QA === '1';
 if (qaMode) {
-  const qaUserData = path.join(os.tmpdir(), 'artisys-financeiro-qa');
+  const qaUserData = path.join(os.tmpdir(), process.env.ARTISYS_QA_LICENSE_SCREEN === '1' ? 'artisys-financeiro-qa-license' : 'artisys-financeiro-qa');
   if (process.env.ARTISYS_QA_RESET === '1') fs.rmSync(qaUserData, { recursive: true, force: true });
   app.setPath('userData', qaUserData);
 }
@@ -67,7 +67,7 @@ app.whenReady().then(async () => {
   const auth = createAuthService({ db });
   // Bypass somente no Electron descompactado e com fixture de QA isolada;
   // builds instaladas continuam exigindo licença assinada.
-  const devQaLicense = qaMode && !app.isPackaged;
+  const devQaLicense = qaMode && !app.isPackaged && process.env.ARTISYS_QA_LICENSE_SCREEN !== '1';
   const license = devQaLicense
     ? { status:() => ({active:true,mode:'trial',reason:'qa-fixture'}), requireActive:() => true, activate:() => { throw new Error('QA only'); } }
     : createLicenseService({ dataDir:app.getPath('userData'), publicKey:fs.readFileSync(path.join(__dirname, 'services', 'trial-public.pem'),'utf8'), sealedTrial:JSON.parse(fs.readFileSync(path.join(__dirname, 'services', 'trial-activation.bundle.json'),'utf8')) });

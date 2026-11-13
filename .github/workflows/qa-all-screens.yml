@@ -1,0 +1,85 @@
+name: Financeiro | QA visual de todas as telas
+
+on:
+  push:
+    branches:
+      - qa/all-screens-actions-20261113
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'electron/**'
+      - 'qa/**'
+      - 'scripts/ci-capture-final-screens.mjs'
+      - 'tests/qa-final-flow.test.mjs'
+      - '.github/workflows/qa-all-screens.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: financeiro-qa-all-screens-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  screenshots:
+    name: Windows | Electron real + Playwright + evidencias
+    runs-on: windows-latest
+    timeout-minutes: 40
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - name: Checkout do codigo sem submodulos privados
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Instalar Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Preparar adaptadores locais open source
+        run: npm run ci:bootstrap
+
+      - name: Instalar dependencias
+        run: npm install --no-audit --no-fund
+
+      - name: Testes unitarios e contratos de cobertura
+        run: npm test
+
+      - name: Build TypeScript e Vite
+        run: npm run build
+
+      - name: Recompilar SQLite nativo para Electron
+        run: npx electron-builder install-app-deps
+
+      - name: Capturar todas as telas no Electron com fixture isolada
+        run: npm run ci:qa-final
+
+      - name: Relatorio de evidencias
+        if: always()
+        shell: pwsh
+        run: |
+          $folder = 'qa-artifacts/final/screenshots'
+          if (Test-Path $folder) {
+            $screens = @(Get-ChildItem -Path $folder -Filter '*.png')
+            "### Evidencias visuais do ArtiSys Financeiro" >> $env:GITHUB_STEP_SUMMARY
+            "Capturas PNG: $($screens.Count)" >> $env:GITHUB_STEP_SUMMARY
+            foreach ($screen in $screens) { "- $($screen.Name)" >> $env:GITHUB_STEP_SUMMARY }
+          } else {
+            "QA sem capturas: verificar logs do job." >> $env:GITHUB_STEP_SUMMARY
+          }
+
+      - name: Disponibilizar todas as capturas e diagnosticos (inclusive se falhar)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: artisys-financeiro-qa-all-screens
+          path: |
+            qa-artifacts/final/screenshots/**/*.png
+            qa-artifacts/final/metrics/**/*.json
+            qa-artifacts/final/run-summary.json
+          if-no-files-found: warn
+          retention-days: 30
