@@ -122,6 +122,37 @@ try {
     }
   }
 
+
+  // CRM comercial end-to-end em fixture isolada; a venda ganha não deve gerar dinheiro.
+  await page.getByTestId('nav-crm').click();
+  await page.getByTestId('page-crm').waitFor({state:'visible'});
+  await page.getByRole('tab',{name:'Leads'}).click();
+  await page.getByLabel('Nome',{exact:true}).fill('Lead Comercial QA');
+  await page.getByLabel('E-mail',{exact:true}).fill('crm-qa@example.test');
+  await page.getByRole('button',{name:'Cadastrar lead'}).click();
+  await page.getByText('Lead Comercial QA').first().waitFor();
+  await page.getByRole('tab',{name:'Funil'}).click();
+  await page.getByLabel('Lead ou cliente').selectOption({label:'Lead Comercial QA'});
+  await page.getByLabel('Nome da oportunidade').fill('Oportunidade QA Comercial');
+  await page.getByLabel('Estimativa (R$)').fill('100,00');
+  await page.getByRole('button',{name:'Adicionar',exact:true}).click();
+  await page.getByTestId('crm-opportunity-detail').waitFor({state:'visible'});
+  await page.getByPlaceholder('Produto ou serviço').fill('Serviço QA');
+  await page.getByLabel('Valor unitário').fill('100,00');
+  await page.getByRole('button',{name:'Criar proposta'}).click();
+  await page.getByLabel('Mover oportunidade').selectOption('WON');
+  await page.getByText('Venda ganha. Nenhum recebível é criado sem sua confirmação.').waitFor();
+  await page.getByRole('button',{name:'Converter lead em cliente'}).click();
+  await page.getByLabel('Parcelas').selectOption('2');
+  await page.getByRole('button',{name:'Visualizar recebíveis'}).click();
+  await page.getByText('Prévia, sem lançamento financeiro').waitFor();
+  await page.getByRole('button',{name:'Confirmar e criar 2 recebível(is)'}).click();
+  await page.getByText('2 parcela(s) já vinculada(s) ao Financeiro.').waitFor();
+  const crmFolder=path.resolve('qa-artifacts/crm/screenshots');
+  fs.mkdirSync(crmFolder,{recursive:true});
+  await page.screenshot({path:path.join(crmFolder,'crm-comercial-funil-recebiveis.png'),fullPage:true});
+  console.log('CRM_LEAD_QUOTE_BILLING_CONFIRMATION_OK');
+
   // Instrument the actual React render/commit cost in QA only (Vite dev).
   await page.evaluate(() => { window.__ARTISYS_RENDER_STATS = {}; });
   await page.getByTestId('nav-dashboard').click();
