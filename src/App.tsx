@@ -36,6 +36,7 @@ export default function App() {
   }, [api]);
   const [page, setPage] = useState<Page>('dashboard');
   const [financeIntent,setFinanceIntent]=useState<FinanceiroKind|null>(null);
+  const [approvalEntryIntent,setApprovalEntryIntent]=useState<string|null>(null);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   useEffect(() => {
@@ -76,7 +77,7 @@ export default function App() {
       <div className="sidebar-footer"><div><strong>{session.user.name}</strong><small>{session.user.role}</small></div><button type="button" title="Sair" aria-label="Sair" data-testid="logout" onClick={()=>void logout()}><LogOut size={17}/></button></div>
     </aside>
     <main className="content">
-      {page==='dashboard' && <DashboardPage token={token} onOpenFinance={(kind)=>{setFinanceIntent(kind);setPage('finance');}} onOpenCashflow={()=>setPage('cashflow')}/>} {page==='alerts' && <AlertsPage token={token} session={session}/>} {page==='cashflow' && <CashflowPage token={token} session={session}/>} {page==='finance' && <FinancePage token={token} session={session} intent={financeIntent} onIntentHandled={()=>setFinanceIntent(null)} onOpenPlanning={()=>setPage('planning')}/>} {page==='statements' && <StatementsPage token={token} session={session} onOpenFinance={()=>setPage('finance')}/>} {page==='dre' && <DrePage token={token}/>} {page==='planning' && <PlanningPage token={token} session={session}/>} {page==='reports' && <ReportsPage token={token}/>} {page==='recurring' && <RecurringPage token={token} session={session}/>} {page==='workspace' && <WorkspacePage token={token} session={session}/>} {page==='registry' && <RegistryPage token={token} session={session}/>} {page==='users' && showUsers && <UsersPage token={token} session={session}/>} {page==='system' && showSystem && <SystemPage token={token}/>} 
+      {page==='dashboard' && <DashboardPage token={token} onOpenFinance={(kind)=>{setFinanceIntent(kind);setPage('finance');}} onOpenCashflow={()=>setPage('cashflow')}/>} {page==='alerts' && <AlertsPage token={token} session={session}/>} {page==='cashflow' && <CashflowPage token={token} session={session}/>} {page==='finance' && <FinancePage token={token} session={session} intent={financeIntent} onIntentHandled={()=>setFinanceIntent(null)} onOpenPlanning={(entryId)=>{setApprovalEntryIntent(entryId);setPage('planning');}}/>} {page==='statements' && <StatementsPage token={token} session={session} onOpenFinance={()=>setPage('finance')}/>} {page==='dre' && <DrePage token={token}/>} {page==='planning' && <PlanningPage token={token} session={session} focusApprovalEntryId={approvalEntryIntent} onApprovalFocusHandled={()=>setApprovalEntryIntent(null)}/>} {page==='reports' && <ReportsPage token={token}/>} {page==='recurring' && <RecurringPage token={token} session={session}/>} {page==='workspace' && <WorkspacePage token={token} session={session}/>} {page==='registry' && <RegistryPage token={token} session={session}/>} {page==='users' && showUsers && <UsersPage token={token} session={session}/>} {page==='system' && showSystem && <SystemPage token={token}/>} 
     </main>
   </div>;
 }
