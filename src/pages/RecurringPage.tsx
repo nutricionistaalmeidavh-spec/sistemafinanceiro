@@ -18,6 +18,26 @@ function forecast(rule:RecurringRule,count=3){
   }
   return dates;
 }
+function previewDraft(startDate:string,dueDay:number,intervalMonths:number,maxOccurrences:number|null,endDate:string|null,alreadyGenerated=0){
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(startDate)||!Number.isInteger(dueDay)||dueDay<1||dueDay>31||
+    !Number.isInteger(intervalMonths)||intervalMonths<1||intervalMonths>12)return [] as string[];
+  const start=new Date(startDate+'T00:00:00Z');
+  if(Number.isNaN(start.getTime()))return [] as string[];
+  const dates:string[]=[];
+  let year=start.getUTCFullYear(),month=start.getUTCMonth();
+  for(let attempt=0;attempt<48 && dates.length<3;attempt++){
+    const last=new Date(Date.UTC(year,month+1,0)).getUTCDate();
+    const due=`${year}-${String(month+1).padStart(2,'0')}-${String(Math.min(last,dueDay)).padStart(2,'0')}`;
+    if(endDate&&due>endDate)break;
+    if(due>=startDate){
+      if(maxOccurrences!=null&&alreadyGenerated+dates.length>=maxOccurrences)break;
+      dates.push(due);
+    }
+    const next=year*12+month+intervalMonths;
+    year=Math.floor(next/12);month=next%12;
+  }
+  return dates;
+}
 const initialForm = () => ({
   description:'',amount:'',startDate:today(),endDate:'',dueDay:String(new Date().getDate()),intervalMonths:'1',
   maxOccurrences:'',accountId:'',categoryId:'',counterpartyId:'',notes:'',
@@ -36,6 +56,13 @@ export default function RecurringPage({token,session}:Props){
   const [search,setSearch]=useState('');
   const [editingRule,setEditingRule]=useState<RecurringRule|null>(null);
   const [form,setForm]=useState(initialForm);
+  const [historyRule,setHistoryRule]=useState<RecurringRule|null>(null);
+  const [history,setHistory]=useState<FinanceEntry[]>([]);
+  const [historyBusy,setHistoryBusy]=useState(false);
+  const draftDates=useMemo(()=>previewDraft(
+    editingRule?.nextDueAt||form.startDate,Number(form.dueDay),Number(form.intervalMonths),
+    form.maxOccurrences?Number(form.maxOccurrences):null,form.endDate||null,editingRule?.generatedCount||0
+  ),[editingRule,form.startDate,form.dueDay,form.intervalMonths,form.maxOccurrences,form.endDate]);
   const reload=useCallback(async()=>{
     try {
       const [nextRules,nextAccounts,nextCategories,nextParties]=await Promise.all([
@@ -75,6 +102,16 @@ export default function RecurringPage({token,session}:Props){
       setNotice('Recorrência salva. As parcelas já geradas permanecem inalteradas.');
     }catch(err){setError(err instanceof Error?err.message:String(err));}
     finally{setBusy(false);}
+  }
+  async function viewHistory(rule:RecurringRule){
+    if(historyBusy)return;
+    setHistoryBusy(true);setError('');
+    try {
+      const entries=await api.finance.listEntries(token,{recurrenceRuleId:rule.id});
+      setHistoryRule(rule);
+      setHistory(entries.sort((a,b)=>a.dueAt.localeCompare(b.dueAt)));
+    } catch(err) {setError(err instanceof Error?err.message:String(err));}
+    finally{setHistoryBusy(false);}
   }
   async function toggle(rule:RecurringRule){
     try{await api.recurrence.setActive(token,rule.id,!rule.active);await reload();}
@@ -120,6 +157,11 @@ export default function RecurringPage({token,session}:Props){
         <option value="">Não informado</option>{parties.map(x=><option key={x.id} value={x.id}>{x.name}</option>)}
       </select></label>
       <label className="wide">Observações<input value={form.notes} onChange={e=>setForm({...form,notes:e.target.value})}/></label>
+      <div className="wide recurrence-preview" aria-label="Próximas parcelas"><strong>Próximas parcelas previstas</strong>
+        <p className="muted">Esta prévia não cria lançamentos. As parcelas são geradas quando o vencimento chega.</p>
+        <div className="chip-row">{draftDates.length?draftDates.map(date=><span className="badge" key={date}>{date.split('-').reverse().join('/')} · {form.amount||'Valor não informado'}</span>):
+          <span className="muted">Não há parcelas previstas com esses limites.</span>}</div>
+      </div>
       <button className="primary-button" type="submit" disabled={busy}>{busy?'Salvando…':editingRule?'Salvar alterações':'Salvar recorrência'}</button>
       {editingRule&&<button className="secondary-button" type="button" onClick={()=>{setEditingRule(null);setForm(initialForm());}}>Cancelar edição</button>}
     </form>}
@@ -130,12 +172,21 @@ export default function RecurringPage({token,session}:Props){
         <td>{rule.generatedCount}{rule.maxOccurrences?` / ${rule.maxOccurrences}`:''}</td>
         <td><span className={`badge ${rule.lifecycleStatus==='ACTIVE'?'badge-settled':'badge-cancelled'}`}>{rule.lifecycleStatus==='ACTIVE'?'Ativa':rule.lifecycleStatus==='PAUSED'?'Pausada':'Concluída'}</span></td>
         <td>{forecast(rule).join(' · ')||'Sem próximas parcelas'}</td>
-        <td>{editable&&<div className="row-actions">
+        <td><div className="row-actions"><button type="button" className="secondary-button small" disabled={historyBusy} onClick={()=>void viewHistory(rule)}>Ver lançamentos</button>{editable&&
           <button type="button" className="secondary-button small" onClick={()=>edit(rule)}><Pencil size={14}/> Editar</button>
           {rule.lifecycleStatus!=='COMPLETED'&&<button type="button" className="secondary-button small" onClick={()=>void toggle(rule)}>{rule.active?<Pause size={14}/>:<Play size={14}/>} {rule.active?'Pausar':'Ativar'}</button>}
         </div>}</td>
       </tr>)}</tbody></table>
       {filtered.length===0&&<div className="empty-state">Nenhuma recorrência encontrada.</div>}
     </div>
+    {historyRule&&<section className="panel" data-testid="recurrence-history" aria-label="Histórico da recorrência">
+      <div className="panel-title"><div><h3>Histórico: {historyRule.description}</h3>
+      <p className="muted">{history.length} lançamento(s) vinculado(s). Alterar a regra não reescreve parcelas anteriores.</p></div>
+      <button type="button" className="secondary-button" onClick={()=>setHistoryRule(null)}>Fechar histórico</button></div>
+      <div className="compact-list">{history.map(entry=><div key={entry.id}>
+        <strong>{entry.dueAt.split('-').reverse().join('/')} · {brl(entry.amountCents)}</strong>
+        <small>{entry.status==='SETTLED'?'Quitado':entry.status==='PARTIAL'?'Pago parcialmente':entry.status==='CANCELLED'?'Cancelado':'Em aberto'} · Saldo: {brl(entry.openCents)}</small>
+      </div>)}{history.length===0&&<p className="muted">Nenhuma parcela gerada até o momento.</p>}</div>
+    </section>}
   </section>;
 }
