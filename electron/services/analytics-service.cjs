@@ -59,9 +59,10 @@ function createAnalyticsService({ db, finance, cashflow, now = () => new Date().
           const list=byEntry.get(allocation.entry_id)||[];list.push(allocation);byEntry.set(allocation.entry_id,list);
         }
         if(basis==='realized'){
-          const settlements=db.prepare(`SELECT entry_id,amount_cents FROM financial_settlements
-            WHERE entry_id IN (${params}) AND occurred_at>=? AND occurred_at<=?
-              AND (reversed_at IS NULL OR substr(reversed_at,1,10)>?)`).all(...batch,start,cutoff,cutoff);
+          const settlements=db.prepare(`SELECT id,entry_id,amount_cents,occurred_at FROM financial_settlements
+            WHERE entry_id IN (${params}) AND occurred_at<=?
+              AND (reversed_at IS NULL OR substr(reversed_at,1,10)>?)
+            ORDER BY occurred_at,created_at,id`).all(...batch,cutoff,cutoff);
           for(const settlement of settlements){
             const list=paymentsByEntry.get(settlement.entry_id)||[];list.push(settlement);paymentsByEntry.set(settlement.entry_id,list);
           }
@@ -69,9 +70,16 @@ function createAnalyticsService({ db, finance, cashflow, now = () => new Date().
       }
       rows=rows.map(row=>{
         const allocations=byEntry.get(row.id)||[];
-        const total=basis==='realized'
-          ? (paymentsByEntry.get(row.id)||[]).reduce((sum,payment)=>sum+(scopedSplitCents(Number(payment.amount_cents),Number(row.entry_amount_cents),allocations).get(center)||0),0)
-          : (scopedSplitCents(Number(row.entry_amount_cents),Number(row.entry_amount_cents),allocations).get(center)||0);
+        let total=0;
+        if(basis==='realized'){
+          let cumulative=0;
+          for(const payment of paymentsByEntry.get(row.id)||[]){
+            const previous=scopedSplitCents(cumulative,Number(row.entry_amount_cents),allocations).get(center)||0;
+            cumulative+=Number(payment.amount_cents);
+            const current=scopedSplitCents(cumulative,Number(row.entry_amount_cents),allocations).get(center)||0;
+            if(payment.occurred_at>=start)total+=current-previous;
+          }
+        }else total=scopedSplitCents(Number(row.entry_amount_cents),Number(row.entry_amount_cents),allocations).get(center)||0;
         return {...row,total};
       });
     }
