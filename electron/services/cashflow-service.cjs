@@ -74,8 +74,14 @@ function createCashflowService({ db, now = () => new Date().toISOString(), idFac
   function listMovements(filters = {}) {
     // Push down date/account filters to SQLite instead of scanning the full ledger.
     const manualWhere = []; const manualParams = [];
-    const settlementWhere = ["fs.reversed_at IS NULL", "fe.status<>'CANCELLED'"];
-    const settlementParams = [];
+    // As-of historico: um estorno ou cancelamento posterior nao reescreve saldos passados.
+    // Listagens sem data continuam mostrando o ledger atual.
+    const cutoff = filters.to ? assertDate(filters.to,'cashflow cut-off') : null;
+    const settlementWhere = cutoff
+      ? ['(fs.reversed_at IS NULL OR substr(fs.reversed_at,1,10)>?)',
+         "(fe.status<>'CANCELLED' OR (fe.cancelled_at IS NOT NULL AND substr(fe.cancelled_at,1,10)>?))"]
+      : ["fs.reversed_at IS NULL", "fe.status<>'CANCELLED'"];
+    const settlementParams = cutoff ? [cutoff,cutoff] : [];
     if (filters.accountId) {
       manualWhere.push('account_id=?'); manualParams.push(String(filters.accountId));
       settlementWhere.push('COALESCE(fs.account_id,fe.account_id)=?'); settlementParams.push(String(filters.accountId));
