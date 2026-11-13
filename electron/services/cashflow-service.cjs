@@ -72,11 +72,14 @@ function createCashflowService({ db, now = () => new Date().toISOString(), idFac
     });
   }
   function listMovements(filters = {}) {
+    const cutoff = assertDate(filters.to || localDay(nowIso()), 'cashflow as-of date');
     const manual = db.prepare('SELECT * FROM cash_movements ORDER BY occurred_at,created_at,id').all().map(mapManual);
     const settlements = db.prepare(`SELECT fs.*,COALESCE(fs.account_id,fe.account_id) resolved_account_id,fe.kind,fe.description
       FROM financial_settlements fs JOIN financial_entries fe ON fe.id=fs.entry_id
-      WHERE fs.reversed_at IS NULL AND fe.status<>'CANCELLED'
-      ORDER BY fs.occurred_at,fs.created_at,fs.id`).all().filter((row) => row.resolved_account_id).map((row) => ({
+      WHERE fs.occurred_at<=?
+        AND (fs.reversed_at IS NULL OR substr(fs.reversed_at,1,10)>?)
+        AND (fe.status<>'CANCELLED' OR (fe.cancelled_at IS NOT NULL AND substr(fe.cancelled_at,1,10)>?))
+      ORDER BY fs.occurred_at,fs.created_at,fs.id`).all(cutoff,cutoff,cutoff).filter((row) => row.resolved_account_id).map((row) => ({
         id: row.id, accountId: row.resolved_account_id, direction: row.kind === 'RECEIVABLE' ? 'IN' : 'OUT', type: 'SETTLEMENT',
         amountCents: Number(row.amount_cents), occurredAt: row.occurred_at, note: row.note || row.description,
         transferId: null, sourceType: 'SETTLEMENT', sourceId: row.entry_id, createdAt: row.created_at,
