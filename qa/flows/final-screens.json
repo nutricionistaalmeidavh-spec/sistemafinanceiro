@@ -1,56 +1,363 @@
 {
   "id": "sistemafinanceiro/final-screens",
   "steps": [
-    { "action": "waitFor", "label": "Usuário", "name": "login-ready", "timeoutMs": 20000 },
-    { "action": "fill", "label": "Usuário", "value": "admin", "name": "fill-admin" },
-    { "action": "fill", "label": "Senha", "valueFromEnv": "ARTISYS_QA_PASSWORD", "name": "fill-password" },
-    { "action": "click", "role": "button", "name": "Entrar" },
-    { "action": "waitFor", "testId": "app-shell", "name": "workspace-ready", "timeoutMs": 20000 },
-    { "action": "waitFor", "text": "Banco Principal", "name": "dashboard-data-ready", "timeoutMs": 15000 },
-    { "action": "screenshot", "name": "01-dashboard-final" },
-    { "action": "click", "testId": "nav-cashflow", "name": "open-cashflow" },
-    { "action": "waitFor", "text": "Movimentações e saldos", "name": "cashflow-ready" },
-    { "action": "waitFor", "testId": "cashflow-movements", "name": "cashflow-data-ready", "timeoutMs": 15000 },
-    { "action": "screenshot", "name": "02-fluxo-caixa-final" },
-    { "action": "click", "testId": "nav-finance", "name": "open-finance" },
-    { "action": "waitFor", "text": "Contas a pagar e receber", "name": "finance-ready" },
-    { "action": "waitFor", "text": "Aluguel escritório", "name": "finance-data-ready" },
-    { "action": "screenshot", "name": "03-pagar-receber-final" },
-    { "action": "click", "testId": "nav-dre", "name": "open-dre" },
-    { "action": "waitFor", "text": "Demonstração de resultado", "name": "dre-ready" },
-    { "action": "waitForTimeout", "name": "dre-data-settle", "timeoutMs": 350 },
-    { "action": "screenshot", "name": "04-dre-final" },
-    { "action": "click", "testId": "nav-recurring", "name": "open-recurring" },
-    { "action": "waitFor", "text": "Contas automáticas", "name": "recurring-ready" },
-    { "action": "waitFor", "text": "Aluguel mensal", "name": "recurring-data-ready" },
-    { "action": "screenshot", "name": "05-recorrencias-final" },
-    { "action": "click", "testId": "nav-registry", "name": "open-registry" },
-    { "action": "waitFor", "text": "Clientes, credores e categorias", "name": "registry-ready" },
-    { "action": "waitFor", "text": "Construtora Alpha", "name": "registry-data-ready" },
-    { "action": "screenshot", "name": "06-cadastros-final" },
-    { "action": "click", "testId": "nav-alerts", "name": "open-alerts" },
-    { "action": "waitFor", "text": "Central de avisos", "name": "alerts-ready" },
-    { "action": "waitFor", "text": "Projeto Beta", "name": "alerts-data-ready" },
-    { "action": "screenshot", "name": "07-alertas-final" },
-    { "action": "click", "testId": "nav-reports", "name": "open-reports" },
-    { "action": "waitFor", "text": "Financeiro e exportações", "name": "reports-ready" },
-    { "action": "waitFor", "text": "Energia elétrica", "name": "reports-data-ready" },
-    { "action": "screenshot", "name": "08-relatorios-final" },
-    { "action": "click", "testId": "nav-system", "name": "open-system" },
-    { "action": "waitFor", "text": "Backup e acesso local", "name": "system-ready" },
-    { "action": "waitForTimeout", "name": "system-data-settle", "timeoutMs": 350 },
-    { "action": "screenshot", "name": "09-sistema-lan-final" },
-    { "action": "click", "testId": "nav-users", "name": "open-users" },
-    { "action": "waitFor", "text": "Usuários e permissões", "name": "users-ready" },
-    { "action": "waitFor", "text": "Financeiro QA", "name": "users-data-ready" },
-    { "action": "screenshot", "name": "10-acessos-final" },
-    { "action": "click", "testId": "nav-statements", "name": "open-statements" },
-    { "action": "waitFor", "text": "Importação e conciliação bancária", "name": "statements-ready" },
-    { "action": "waitFor", "text": "Nenhum extrato importado", "name": "statements-empty-ready" },
-    { "action": "screenshot", "name": "11-extratos-final" },
-    { "action": "click", "testId": "nav-workspace", "name": "open-workspace" },
-    { "action": "waitFor", "testId": "workspace-page", "name": "personal-workspace-ready" },
-    { "action": "waitFor", "text": "Esta pasta está vazia", "name": "workspace-empty-ready" },
-    { "action": "screenshot", "name": "12-workspace-final" }
+    {
+      "action": "waitFor",
+      "label": "Usuário",
+      "name": "login-ready",
+      "timeoutMs": 20000
+    },
+    {
+      "action": "screenshot",
+      "name": "00-login-final"
+    },
+    {
+      "action": "fill",
+      "label": "Usuário",
+      "value": "admin",
+      "name": "fill-admin"
+    },
+    {
+      "action": "fill",
+      "label": "Senha",
+      "valueFromEnv": "ARTISYS_QA_PASSWORD",
+      "name": "fill-password"
+    },
+    {
+      "action": "click",
+      "role": "button",
+      "name": "Entrar"
+    },
+    {
+      "action": "waitFor",
+      "testId": "app-shell",
+      "name": "workspace-ready",
+      "timeoutMs": 20000
+    },
+    {
+      "action": "waitFor",
+      "text": "Banco Principal",
+      "name": "dashboard-data-ready",
+      "timeoutMs": 15000
+    },
+    {
+      "action": "screenshot",
+      "name": "01-dashboard-final"
+    },
+    {
+      "action": "click",
+      "testId": "nav-cashflow",
+      "name": "open-cashflow"
+    },
+    {
+      "action": "waitFor",
+      "text": "Movimentações e saldos",
+      "name": "cashflow-ready"
+    },
+    {
+      "action": "waitFor",
+      "testId": "cashflow-movements",
+      "name": "cashflow-data-ready",
+      "timeoutMs": 15000
+    },
+    {
+      "action": "screenshot",
+      "name": "02-fluxo-caixa-final"
+    },
+    {
+      "action": "click",
+      "testId": "nav-finance",
+      "name": "open-finance"
+    },
+    {
+      "action": "waitFor",
+      "text": "Contas a pagar e receber",
+      "name": "finance-ready"
+    },
+    {
+      "action": "waitFor",
+      "text": "Aluguel escritório",
+      "name": "finance-data-ready"
+    },
+    {
+      "action": "screenshot",
+      "name": "03-pagar-receber-final"
+    },
+    {
+      "action": "click",
+      "testId": "nav-dre",
+      "name": "open-dre"
+    },
+    {
+      "action": "waitFor",
+      "text": "Demonstração de resultado",
+      "name": "dre-ready"
+    },
+    {
+      "action": "waitForTimeout",
+      "name": "dre-data-settle",
+      "timeoutMs": 350
+    },
+    {
+      "action": "screenshot",
+      "name": "04-dre-final"
+    },
+    {
+      "action": "click",
+      "testId": "nav-recurring",
+      "name": "open-recurring"
+    },
+    {
+      "action": "waitFor",
+      "text": "Contas automáticas",
+      "name": "recurring-ready"
+    },
+    {
+      "action": "waitFor",
+      "text": "Aluguel mensal",
+      "name": "recurring-data-ready"
+    },
+    {
+      "action": "screenshot",
+      "name": "05-recorrencias-final"
+    },
+    {
+      "action": "click",
+      "testId": "nav-registry",
+      "name": "open-registry"
+    },
+    {
+      "action": "waitFor",
+      "text": "Clientes, credores e categorias",
+      "name": "registry-ready"
+    },
+    {
+      "action": "waitFor",
+      "text": "Construtora Alpha",
+      "name": "registry-data-ready"
+    },
+    {
+      "action": "screenshot",
+      "name": "06-cadastros-final"
+    },
+    {
+      "action": "click",
+      "role": "button",
+      "name": "Credores"
+    },
+    {
+      "action": "waitFor",
+      "text": "Imobiliária Centro",
+      "name": "creditors-ready"
+    },
+    {
+      "action": "screenshot",
+      "name": "06a-cadastros-credores-final"
+    },
+    {
+      "action": "click",
+      "role": "button",
+      "name": "Categorias"
+    },
+    {
+      "action": "waitFor",
+      "text": "Receita de serviços",
+      "name": "categories-ready"
+    },
+    {
+      "action": "screenshot",
+      "name": "06b-cadastros-categorias-final"
+    },
+    {
+      "action": "click",
+      "testId": "nav-alerts",
+      "name": "open-alerts"
+    },
+    {
+      "action": "waitFor",
+      "text": "Central de avisos",
+      "name": "alerts-ready"
+    },
+    {
+      "action": "waitFor",
+      "text": "Projeto Beta",
+      "name": "alerts-data-ready"
+    },
+    {
+      "action": "screenshot",
+      "name": "07-alertas-final"
+    },
+    {
+      "action": "click",
+      "testId": "nav-reports",
+      "name": "open-reports"
+    },
+    {
+      "action": "waitFor",
+      "text": "Financeiro e exportações",
+      "name": "reports-ready"
+    },
+    {
+      "action": "waitFor",
+      "text": "Energia elétrica",
+      "name": "reports-data-ready"
+    },
+    {
+      "action": "screenshot",
+      "name": "08-relatorios-final"
+    },
+    {
+      "action": "click",
+      "testId": "nav-system",
+      "name": "open-system"
+    },
+    {
+      "action": "waitFor",
+      "text": "Backup e acesso local",
+      "name": "system-ready"
+    },
+    {
+      "action": "waitForTimeout",
+      "name": "system-data-settle",
+      "timeoutMs": 350
+    },
+    {
+      "action": "screenshot",
+      "name": "09-sistema-lan-final"
+    },
+    {
+      "action": "click",
+      "testId": "nav-users",
+      "name": "open-users"
+    },
+    {
+      "action": "waitFor",
+      "text": "Usuários e permissões",
+      "name": "users-ready"
+    },
+    {
+      "action": "waitFor",
+      "text": "Financeiro QA",
+      "name": "users-data-ready"
+    },
+    {
+      "action": "screenshot",
+      "name": "10-acessos-final"
+    },
+    {
+      "action": "click",
+      "testId": "nav-statements",
+      "name": "open-statements"
+    },
+    {
+      "action": "waitFor",
+      "text": "Importação e conciliação bancária",
+      "name": "statements-ready"
+    },
+    {
+      "action": "waitFor",
+      "text": "Nenhum extrato importado",
+      "name": "statements-empty-ready"
+    },
+    {
+      "action": "screenshot",
+      "name": "11-extratos-final"
+    },
+    {
+      "action": "click",
+      "testId": "nav-workspace",
+      "name": "open-workspace"
+    },
+    {
+      "action": "waitFor",
+      "testId": "workspace-page",
+      "name": "personal-workspace-ready"
+    },
+    {
+      "action": "waitFor",
+      "text": "Esta pasta está vazia",
+      "name": "workspace-empty-ready"
+    },
+    {
+      "action": "screenshot",
+      "name": "12-workspace-final"
+    },
+    {
+      "action": "click",
+      "testId": "nav-planning",
+      "name": "open-planning"
+    },
+    {
+      "action": "waitFor",
+      "testId": "page-planning",
+      "name": "planning-ready",
+      "timeoutMs": 20000
+    },
+    {
+      "action": "waitFor",
+      "text": "Novo centro de custo",
+      "name": "planning-centers-ready",
+      "timeoutMs": 15000
+    },
+    {
+      "action": "screenshot",
+      "name": "13-planejamento-centros-final"
+    },
+    {
+      "action": "click",
+      "role": "button",
+      "name": "Orçamento e metas"
+    },
+    {
+      "action": "waitFor",
+      "text": "Planejado",
+      "name": "planning-budget-ready"
+    },
+    {
+      "action": "screenshot",
+      "name": "14-planejamento-orcamento-final"
+    },
+    {
+      "action": "click",
+      "role": "button",
+      "name": "Cenários"
+    },
+    {
+      "action": "waitFor",
+      "text": "Criar cenário",
+      "name": "planning-scenarios-ready"
+    },
+    {
+      "action": "screenshot",
+      "name": "15-planejamento-cenarios-final"
+    },
+    {
+      "action": "click",
+      "role": "button",
+      "name": "Aprovações e lote"
+    },
+    {
+      "action": "waitFor",
+      "text": "Política de aprovação",
+      "name": "planning-approvals-ready"
+    },
+    {
+      "action": "screenshot",
+      "name": "16-planejamento-aprovacoes-final"
+    },
+    {
+      "action": "click",
+      "role": "button",
+      "name": "Projeções"
+    },
+    {
+      "action": "waitFor",
+      "text": "What-if de caixa",
+      "name": "planning-projections-ready"
+    },
+    {
+      "action": "screenshot",
+      "name": "17-planejamento-projecoes-final"
+    }
   ]
 }
