@@ -32,7 +32,7 @@ declare global {
       listAttachments(token:string,entryId:string):Promise<EntryAttachmentRecord[]>;
       addAttachment(token:string,entryId:string,input:Record<string,unknown>):Promise<EntryAttachmentRecord>;
       reviewAttachment(token:string,id:string):Promise<EntryAttachmentRecord>;
-      runAttachmentOcr(token:string,id:string):Promise<AttachmentOcrResult>;
+      runAttachmentOcr(token:string,id:string):Promise<AttachmentOcrResult>; correctAttachmentOcr(token:string,id:string,text:string):Promise<EntryAttachmentRecord>;
       listApprovalPolicies(token:string,filters?:Record<string,unknown>):Promise<ApprovalPolicyRecord[]>;
       saveApprovalPolicy(token:string,input:Record<string,unknown>):Promise<ApprovalPolicyRecord>;
       listApprovals(token:string,filters?:Record<string,unknown>):Promise<ApprovalRequestRecord[]>;
