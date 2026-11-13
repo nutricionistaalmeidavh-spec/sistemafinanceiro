@@ -54,8 +54,9 @@ function createAnalyticsService({ db, finance, cashflow, now = () => new Date().
     return { basis, from: start, to: end, groups: items, totals };
   }
 
-  function getIndicators({ from = null, to = null, asOf = localDay(nowIso()) } = {}) {
-    const summary = finance.getSummary({ from, to, asOf });
+  function getIndicators({ from = null, to = null, summaryTo = to, asOf = localDay(nowIso()) } = {}) {
+    // Future obligations remain in the period summary; cash and DRE stop at as-of.
+    const summary = finance.getSummary({ from, to:summaryTo, asOf });
     const effectiveTo = to && String(to) < String(asOf) ? String(to) : String(asOf);
     const clauses = ['fs.reversed_at IS NULL', "fe.status<>'CANCELLED'"]; const params = [];
     if (from) { clauses.push('fs.occurred_at>=?'); params.push(String(from)); }
@@ -75,7 +76,7 @@ function createAnalyticsService({ db, finance, cashflow, now = () => new Date().
     // Ano anterior e foto de 31/12; ano atual e futuro nunca antecipam disponibilidade.
     const balanceAsOf = range.to < currentDay ? range.to : currentDay;
     const periodTo = range.to < currentDay ? range.to : currentDay;
-    const indicators = getIndicators({ from: range.from, to: periodTo, asOf: balanceAsOf });
+    const indicators = getIndicators({ from: range.from, to: periodTo, summaryTo:range.to, asOf: balanceAsOf });
     const accountBalances = cashflow.getAccountBalances({ asOf: balanceAsOf });
     const buckets = Array.from({ length: 12 }, (_, index) => ({ month: `${year}-${String(index + 1).padStart(2, '0')}`, inCents: 0, outCents: 0, netCents: 0 }));
     const byMonth = new Map(buckets.map((item) => [item.month, item]));
