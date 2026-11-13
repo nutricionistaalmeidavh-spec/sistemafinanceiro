@@ -56,7 +56,7 @@ test('nao sobrescreve banco canonico preexistente nem mistura perfil de licenca 
 });
 
 test('chave publica do app continua correspondente a avaliacao 0.1.0 ja ativada',()=>{
-  const publicKey=fs.readFileSync('electron/services/license-public.pem','utf8');
+  const publicKey=fs.readFileSync('electron/services/license-public.pem','utf8').replace(/\r\n/g,'\n');
   assert.equal(publicKey.trim(),[
     '-----BEGIN PUBLIC KEY-----',
     'MCowBQYDK2VwAyEABzQASNFMzVcOKDon0JtxQq/wID7Ii+NlXBHruSqkNcg=',
