@@ -83,3 +83,25 @@ test('P1 rejects stale totals and rolls back invalid schedules',()=>{
   assert.equal(db.prepare('SELECT COUNT(*) n FROM financial_entries').get().n,0);
   db.close();
 });
+
+test('P0 CSV preview flags duplicates and commits only valid unique leads',()=>{
+ const {db,crm}=setup();
+ crm.saveLead({name:'Existente',email:'ja@empresa.com'},actor);
+ const rows=[
+  {name:'Novo Alpha',email:'alpha@empresa.com',phone:'11999990000',source:'CSV'},
+  {name:'Duplicado',email:'JA@empresa.com'},
+  {name:'Duplicado no arquivo',email:'alpha@empresa.com'},
+  {name:'',email:'semnome@empresa.com'},
+ ];
+ const preview=crm.previewLeadImport(rows);
+ assert.equal(preview.rows.filter(x=>x.status==='READY').length,1);
+ assert.equal(preview.rows.filter(x=>x.status==='DUPLICATE').length,2);
+ assert.equal(preview.rows.filter(x=>x.status==='INVALID').length,1);
+ assert.equal(db.prepare('SELECT COUNT(*) n FROM crm_leads').get().n,1);
+ const result=crm.commitLeadImport(rows,actor);
+ assert.equal(result.created,1);
+ assert.equal(result.skipped,3);
+ assert.equal(crm.listLeads().length,2);
+ assert.equal(crm.commitLeadImport(rows,actor).created,0);
+ db.close();
+});
