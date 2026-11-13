@@ -1,6 +1,7 @@
 'use strict';
 
 const openDocs = require('./open-document-suite.cjs');
+const {splitCents}=require('./allocation-service.cjs');
 
 let printing = null;
 try { printing = require('@artisys/printing'); } catch {}
@@ -10,12 +11,6 @@ function htmlEscape(value) { return String(value ?? '').replace(/&/g, '&amp;').r
 function csvCell(value) { const raw = String(value ?? ''); const safe = /^[\s\u0000-\u001f]*[=+\-@]/u.test(raw) ? `'${raw}` : raw; return `"${safe.replace(/"/g, '""')}"`; }
 function money(cents) { return (Number(cents || 0) / 100).toFixed(2).replace('.', ','); }
 function columnName(index) { let n = index + 1; let name = ''; while (n > 0) { const rem = (n - 1) % 26; name = String.fromCharCode(65 + rem) + name; n = Math.floor((n - 1) / 26); } return name; }
-function proportionalCents(value, total, share) {
-  const denominator = Number(total || 0);
-  if (denominator <= 0) return 0;
-  return Math.round((Number(value || 0) * Number(share || 0)) / denominator);
-}
-
 const CRC_TABLE = (() => {
   const table = new Uint32Array(256);
   for (let n = 0; n < 256; n += 1) {
@@ -123,9 +118,9 @@ function createReportService({ db, finance, analytics = null, now = () => new Da
       if (costCenterId) {
         const allocation = metadata.allocations.find((item) => item.costCenterId === String(costCenterId));
         if (!allocation) continue;
-        amountCents = Number(allocation.amountCents);
-        settledCents = Math.min(amountCents, proportionalCents(entry.settledCents, entry.amountCents, amountCents));
-        openCents = Math.max(amountCents - settledCents, 0);
+        amountCents = splitCents(entry.amountCents,metadata.allocations).get(String(costCenterId))||0;
+        settledCents = entry.settlements.reduce((sum,settlement)=>sum+(splitCents(settlement.amountCents,metadata.allocations).get(String(costCenterId))||0),0);
+        openCents = Math.max(amountCents-settledCents,0);
       }
       const party = counterparty(entry);
       rows.push({
