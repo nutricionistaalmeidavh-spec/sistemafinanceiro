@@ -26,6 +26,6 @@ test('unsupported CNAB workflow is absent from UI, bridge, IPC and banking servi
 test('other offline bank import formats remain available', () => {
   const source = readFileSync(new URL('../src/pages/StatementsPage.tsx', import.meta.url), 'utf8');
   for (const format of ['CSV', 'XLSX', 'ODS', 'QIF', 'OFX', 'PDF']) {
-    assert.match(source, new RegExp(`'\${format}'`), `Missing supported format ${format}`);
+    assert.match(source, new RegExp("'" + format + "'"), `Missing supported format ${format}`);
   }
 });

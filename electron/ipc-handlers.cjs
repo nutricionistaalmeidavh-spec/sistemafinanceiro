@@ -37,7 +37,6 @@ function registerIpcHandlers({ ipcMain, app, dialog, database, auth, finance, re
   ipcMain.handle('finance:summary', (_event, token, filters) => { auth.require(token, 'finance.view'); return finance.getSummary(filters || {}); });
 
   ipcMain.handle('statements:ods:inspect', async (_event,token,dataBase64)=>{auth.require(token,'finance.view');return statements.inspectOds(dataBase64);});
-  ipcMain.handle('statements:cnab:inspect', (_event,token,content)=>{auth.require(token,'finance.view');return statements.inspectCnab(content);});
   ipcMain.handle('statements:xlsx:inspect', async (_event,token,dataBase64) => {
     auth.require(token,'finance.view');
     return statements.inspectXlsx(dataBase64);

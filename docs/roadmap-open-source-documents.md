@@ -28,7 +28,6 @@
 - Texto extraído pode ser corrigido na tela, com log auditável e hashes do antes/depois. Confirmar revisão é ação separada, nunca cria pagamento.
 - Confiança e provedor de OCR persistidos no SQLite (migração 009).
 - QIF de transações bancárias com prévia e deduplicação; ODS com leitura, mapeamento de colunas e exportação.
-- CNAB 240/400: inspeção de tamanho/estrutura e identificação de banco sem criar lançamentos. Remessa/retorno CNAB não constitui extrato bancário genérico; importação financeira específica depende de homologação por banco e convênio.
 
 ## P3 — Planilha controlada, templates e pacotes
 
@@ -46,11 +45,10 @@
 - PDF OCR limitado a 10 páginas / 15 MB / 5 milhões de pixels por página.
 - DOCX por arquivo limitado a 5 mil linhas; XLSX/ODS/CSV e importação de extratos limitados a 50 mil linhas conforme módulo.
 - Importação de pacotes ZIP é de **consulta/referência**, não restauração de lançamentos. A recuperação financeira canônica deve usar o mecanismo de backup SQLite verificado do sistema.
-- CNAB é deliberadamente apenas inspecionado, nunca contabilizado sem contrato/layout homologado; isto evita erro financeiro.
 
 ## Validação
 
-- Testes com fixtures fictícias: arredondamento exato, limites, DRE/caixa DOCX/PDF, formulários com acentos, QIF/ODS, CNAB, OCR corrigido, planilha mapeada e ZIP validado.
+- Testes com fixtures fictícias: arredondamento exato, limites, DRE/caixa DOCX/PDF, formulários com acentos, QIF/ODS, OCR corrigido, planilha mapeada e ZIP validado.
 - `npm test`, `npm run build`, QA de OCR offline e PDF rasterizado no Actions.
 - Gate Windows NSIS: QA Electron real, testes, build, instalador e checksum.
 - Após os checks ficarem verdes e a PR ser revisada, realizar merge; publicação de release é etapa independente.

@@ -131,17 +131,4 @@ function parseQif(content, {dateOrder='AUTO'}={}) {
   if(Object.keys(current).length)throw new TypeError('QIF sem finalizador ^');
   return rows;
 }
-function inspectCnab(content){
-  const raw=String(content||'').replace(/^\uFEFF/,'');
-  if(Buffer.byteLength(raw,'utf8')>MAX_BYTES)throw new RangeError('CNAB maior que 12 MB');
-  const lines=raw.split(/\r?\n/).filter(Boolean);
-  if(lines.length<2||lines.length>MAX_ROWS)throw new TypeError('CNAB inválido: registros insuficientes');
-  const length=lines[0].length;
-  if(![240,400].includes(length)||lines.some(line=>line.length!==length))throw new TypeError('CNAB exige registros fixos de 240 ou 400 posições');
-  if(!/^\d{3}$/.test(lines[0].slice(0,3)))throw new TypeError('CNAB código do banco inválido');
-  if(length===240 && (lines[0][7]!=='0'||lines[lines.length-1][7]!=='9'))throw new TypeError('CNAB 240 sem header/trailer válido');
-  if(length===400 && (lines[0][0]!=='0'||lines[lines.length-1][0]!=='9'))throw new TypeError('CNAB 400 sem header/trailer válido');
-  return {layout:length,bankCode:lines[0].slice(0,3),records:lines.length,transactionImportSupported:false,
-    note:'CNAB de cobrança/remessa/retorno exige homologação por banco e convênio; não é extrato bancário nem gera lançamentos automaticamente.'};
-}
-module.exports={toOdsBuffer,parseStatementOds,inspectStatementOds,parseQif,inspectCnab,normalizeQifDate};
+module.exports={toOdsBuffer,parseStatementOds,inspectStatementOds,parseQif,normalizeQifDate};

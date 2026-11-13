@@ -24,12 +24,3 @@ test('QIF import converts transactions into preview-only canonical rows with cen
   assert.equal(rows[0].amount,'-123,45');
   assert.equal(rows[1].amount,'1.245,67');
 });
-test('CNAB layout inspector rejects malformed records and never pretends to import them as bank statement rows',()=>{
-  const {inspectCnab}=require('../electron/services/open-format-service.cjs');
-  const data=['00100000'+''.padEnd(232,' '),'00100015'+''.padEnd(232,' '),'00199999'+''.padEnd(232,' ')].join('\r\n');
-  const report=inspectCnab(data);
-  assert.equal(report.layout,240);
-  assert.equal(report.records,3);
-  assert.equal(report.transactionImportSupported,false);
-  assert.throws(()=>inspectCnab('arquivo incompleto'),/CNAB|layout/i);
-});

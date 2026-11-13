@@ -17,7 +17,6 @@ type StatementApi = {
   preview(token:string,input:StatementInput):Promise<Preview>;
   inspectXlsx(token:string,dataBase64:string):Promise<{headers:string[];rowCount:number;previewRows:string[][]}>;
   inspectOds(token:string,dataBase64:string):Promise<{headers:string[];rowCount:number;previewRows:string[][]}>;
-  inspectCnab(token:string,content:string):Promise<{layout:number;bankCode:string;records:number;transactionImportSupported:boolean;note:string}>;
   commit(token:string,input:StatementInput):Promise<{batchId:string;inserted:number;duplicates:number;summary:Preview['summary']}>;
   list(token:string,filters?:Record<string,unknown>):Promise<StoredTransaction[]>;
   suggestEntries(token:string,filters?:Record<string,unknown>):Promise<EntrySuggestion[]>;
@@ -56,7 +55,6 @@ export default function StatementsPage({ token, session, onOpenFinance }: Props)
   const [busy,setBusy] = useState(false);
   const [error,setError] = useState('');
   const [notice,setNotice] = useState('');
-  const [cnabReport,setCnabReport]=useState<{layout:number;bankCode:string;records:number;note:string}|null>(null);
 
   const reload = useCallback(async()=>{
     const [nextAccounts,nextStored,nextEntries] = await Promise.all([bridge.finance.listAccounts(token),api.list(token),bridge.finance.listEntries(token)]);
@@ -123,20 +121,10 @@ export default function StatementsPage({ token, session, onOpenFinance }: Props)
     }catch(error){setError(error instanceof Error?error.message:String(error));}}
   }
 
-  async function onCnabFile(event:ChangeEvent<HTMLInputElement>){
-    const selected=event.target.files?.[0];if(!selected)return;
-    try{setCnabReport(await api.inspectCnab(token,await selected.text()));setError('');}
-    catch(err){setError(err instanceof Error?err.message:String(err));}
-  }
   return <section className="page-stack" data-testid="page-statements">
     <div className="page-header"><div><p className="eyebrow">Extratos</p><h2>Importação e conciliação bancária</h2><p className="muted">CSV, XLSX, ODS, QIF, OFX, PDF e lançamento manual entram no mesmo modelo canônico e passam por revisão antes de afetar o financeiro.</p></div><button type="button" className="secondary-button" onClick={()=>void reload()}><RefreshCw size={16}/>Atualizar</button></div>
     {error&&<div className="error-box">{error}</div>}{notice&&<div className="status status-ok">{notice}</div>}
 
-    <div className="panel" style={{padding:16}}><strong>Validar arquivo CNAB 240/400</strong>
-      <p className="muted">Inspeção de layout: CNAB de cobrança/remessa/retorno não é extrato bancário e não gera lançamentos sem homologação do banco.</p>
-      <label>Arquivo CNAB<input type="file" accept=".ret,.rem,.cnab,.txt" onChange={event=>void onCnabFile(event)}/></label>
-      {cnabReport&&<p>{cnabReport.layout} posições · Banco {cnabReport.bankCode} · {cnabReport.records} registros. {cnabReport.note}</p>}
-    </div>
     <form className="panel form-grid" onSubmit={(event)=>void runPreview(event)}>
       <div className="wide panel-title"><div><strong>Analisar extrato</strong><small>O arquivo é analisado localmente. Nada é lançado antes da confirmação.</small></div></div>
       <div className="wide segmented">{(['CSV','XLSX','ODS','QIF','OFX','PDF','MANUAL'] as SourceType[]).map(type=><button key={type} type="button" className={sourceType===type?'active':''} onClick={()=>onSource(type)}>{type==='MANUAL'?'Manual':type}</button>)}</div>
