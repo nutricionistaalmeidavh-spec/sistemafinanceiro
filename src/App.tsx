@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useState } from 'react';
+import { Profiler, type ReactNode, useEffect, useState } from 'react';
 import { ArrowLeftRight, BarChart3, BellRing, Database, FileInput, FileText, Folder, LogOut, Menu, ReceiptText, Repeat2, Settings, Users, WalletCards } from 'lucide-react';
 import AuthScreen from './components/AuthScreen';
 import AlertsPage from './pages/AlertsPage';
@@ -20,6 +20,21 @@ type Page = 'dashboard' | 'finance' | 'statements' | 'cashflow' | 'dre' | 'plann
 
 function Preview() {
   return <main className="app-shell"><section className="hero-card"><div className="brand-mark"><Database size={28}/></div><div><p className="eyebrow">ArtiSys</p><h1>Sistema Financeiro</h1><p className="subtitle">Prévia web local. O aplicativo desktop concentra banco, regras financeiras e segurança.</p></div><span className="status status-ok">Base E01–E24</span></section></main>;
+}
+
+type QaRenderTotals = Record<string,{commits:number;totalMs:number;maxMs:number}>;
+function measureQaRender(id:string, _phase:string, actualDuration:number) {
+  // Development-only diagnostic. Production Electron builds do not mount a Profiler.
+  const host=window as Window & { __ARTISYS_RENDER_STATS?:QaRenderTotals };
+  const metrics=host.__ARTISYS_RENDER_STATS;
+  if(!metrics)return;
+  const previous=metrics[id]||{commits:0,totalMs:0,maxMs:0};
+  metrics[id]={commits:previous.commits+1,totalMs:previous.totalMs+actualDuration,maxMs:Math.max(previous.maxMs,actualDuration)};
+}
+function qaProfile(id:string, component:ReactNode) {
+  return import.meta.env.DEV
+    ? <Profiler id={id} onRender={measureQaRender}>{component}</Profiler>
+    : component;
 }
 
 export default function App() {
@@ -64,7 +79,7 @@ export default function App() {
       <div className="sidebar-footer"><div><strong>{session.user.name}</strong><small>{session.user.role}</small></div><button type="button" title="Sair" aria-label="Sair" data-testid="logout" onClick={()=>void logout()}><LogOut size={17}/></button></div>
     </aside>
     <main className="content">
-      {page==='dashboard' && <DashboardPage token={token}/>} {page==='alerts' && <AlertsPage token={token} session={session}/>} {page==='cashflow' && <CashflowPage token={token} session={session}/>} {page==='finance' && <FinancePage token={token} session={session}/>} {page==='statements' && <StatementsPage token={token} session={session}/>} {page==='dre' && <DrePage token={token}/>} {page==='planning' && <PlanningPage token={token} session={session}/>} {page==='reports' && <ReportsPage token={token}/>} {page==='recurring' && <RecurringPage token={token} session={session}/>} {page==='workspace' && <WorkspacePage token={token} session={session}/>} {page==='registry' && <RegistryPage token={token} session={session}/>} {page==='users' && showUsers && <UsersPage token={token} session={session}/>} {page==='system' && showSystem && <SystemPage token={token}/>} 
+      {page==='dashboard' && qaProfile('dashboard', <DashboardPage token={token}/>)} {page==='alerts' && <AlertsPage token={token} session={session}/>} {page==='cashflow' && <CashflowPage token={token} session={session}/>} {page==='finance' && qaProfile('finance', <FinancePage token={token} session={session}/>)} {page==='statements' && <StatementsPage token={token} session={session}/>} {page==='dre' && <DrePage token={token}/>} {page==='planning' && qaProfile('planning', <PlanningPage token={token} session={session}/>)} {page==='reports' && <ReportsPage token={token}/>} {page==='recurring' && <RecurringPage token={token} session={session}/>} {page==='workspace' && <WorkspacePage token={token} session={session}/>} {page==='registry' && <RegistryPage token={token} session={session}/>} {page==='users' && showUsers && <UsersPage token={token} session={session}/>} {page==='system' && showSystem && <SystemPage token={token}/>} 
     </main>
   </div>;
 }
