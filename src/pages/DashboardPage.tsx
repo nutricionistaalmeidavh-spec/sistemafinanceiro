@@ -43,7 +43,7 @@ export default function DashboardPage({ token, canManage, onOpenGuide, onViewFin
       </ol>
     </section>}
     {needsSetup&&canManage&&onboardingDismissed&&<button type="button" className="secondary-button first-use-resume" onClick={onOpenGuide}>Retomar configuração guiada</button>}
-    {error && <div className="error-box" role="alert">{error} <button type="button" onClick={()=>void reload()}>Tentar novamente</button></div>
+    {error && <div className="error-box" role="alert">{error} <button type="button" onClick={()=>void reload()}>Tentar novamente</button></div>}
     <div className="metric-grid">
       <FinanceMetricCard label="Saldo total das contas" value={brl(data?.cards.totalBalanceCents || 0)} helper={`Bancos: ${brl(data?.cards.bankBalanceCents || 0)} · em ${data?.balanceAsOf||'—'}`} tone="accent"/>
       <FinanceMetricCard label="A receber" value={brl(data?.cards.receivableOpenCents || 0)} helper={overdueReceivable ? `${brl(overdueReceivable)} vencido` : 'Sem valores vencidos'} tone={overdueReceivable ? 'warning' : 'neutral'}/>
