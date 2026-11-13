@@ -1,4 +1,5 @@
 'use strict';
+const { toDreXlsxBuffer } = require('./services/planning-export-service.cjs');
 
 function registerIpcHandlers({ ipcMain, app, dialog, database, auth, finance, registry, cashflow, analytics, recurrence, alerts, reports, backup, lan, documents, statements, workspace }) {
   if (!ipcMain?.handle) throw new TypeError('ipcMain is required');
@@ -67,6 +68,12 @@ function registerIpcHandlers({ ipcMain, app, dialog, database, auth, finance, re
   ipcMain.handle('cashflow:summary', (_event, token, filters) => { auth.require(token, 'finance.view'); return cashflow.getCashflowSummary(filters || {}); });
 
   ipcMain.handle('analytics:dre', (_event, token, filters) => { auth.require(token, 'finance.view'); return analytics.getDre(filters || {}); });
+  ipcMain.handle('analytics:dre-xlsx', async (_event, token, filters) => {
+    auth.require(token, 'finance.view');
+    const report = analytics.getDre(filters || {});
+    const workbook = await toDreXlsxBuffer(report);
+    return { filename:'dre-financeira.xlsx', mime:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', dataBase64:workbook.toString('base64') };
+  });
   ipcMain.handle('analytics:indicators', (_event, token, filters) => { auth.require(token, 'finance.view'); return analytics.getIndicators(filters || {}); });
   ipcMain.handle('analytics:dashboard', (_event, token, filters) => { auth.require(token, 'finance.view'); return analytics.getDashboardSnapshot(filters || {}); });
 
