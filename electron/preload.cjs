@@ -136,6 +136,7 @@ contextBridge.exposeInMainWorld('financeiro', {
     saveLead: (token,input)=>ipcRenderer.invoke('crm:leads:save',token,input),
     previewLeadImport: (token,rows)=>ipcRenderer.invoke('crm:leads:import-preview',token,rows),
     commitLeadImport: (token,rows)=>ipcRenderer.invoke('crm:leads:import-commit',token,rows),
+    setLeadStatus: (token,id,status)=>ipcRenderer.invoke('crm:leads:status',token,id,status),
     convertLead: (token,id,input)=>ipcRenderer.invoke('crm:leads:convert',token,id,input),
     listOpportunities: (token,filters)=>ipcRenderer.invoke('crm:opportunities:list',token,filters),
     saveOpportunity: (token,input)=>ipcRenderer.invoke('crm:opportunities:save',token,input),
