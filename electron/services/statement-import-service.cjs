@@ -2,7 +2,7 @@
 const crypto = require('node:crypto');
 const Papa = require('papaparse');
 const { parseStatementXlsx, inspectStatementXlsx } = require('./open-document-suite.cjs');
-const { parseStatementOds, inspectStatementOds,parseQif,inspectCnab }=require('./open-format-service.cjs');
+const { parseStatementOds, inspectStatementOds,parseQif }=require('./open-format-service.cjs');
 
 function normalizeSourceType(value) {
   const type = String(value || '').trim().toUpperCase();
@@ -302,6 +302,6 @@ function createStatementImportService({ db=null, finance=null, now=()=>new Date(
       return {transactionId,entryId,decision,registerSettlement,settlementId,alreadyRegistered,stats:next};
     });
   }
-  return {preview,commit,listTransactions,suggestTransfers,suggestEntries,recordDecision,inspectXlsx:inspectStatementXlsx, inspectOds:inspectStatementOds, inspectCnab};
+  return {preview,commit,listTransactions,suggestTransfers,suggestEntries,recordDecision,inspectXlsx:inspectStatementXlsx, inspectOds:inspectStatementOds};
 }
 module.exports={createStatementImportService,parseCsv,parseOfx,parsePdfText,parseDate,parseAmount,defaultPdfTextLoader,documentIdentity};

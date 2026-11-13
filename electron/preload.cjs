@@ -28,7 +28,6 @@ contextBridge.exposeInMainWorld('financeiro', {
     preview: (token, input) => ipcRenderer.invoke('statements:preview', token, input),
     inspectXlsx: (token, dataBase64) => ipcRenderer.invoke('statements:xlsx:inspect', token, dataBase64),
     inspectOds: (token, dataBase64) => ipcRenderer.invoke('statements:ods:inspect', token, dataBase64),
-    inspectCnab: (token, content) => ipcRenderer.invoke('statements:cnab:inspect', token, content),
     commit: (token, input) => ipcRenderer.invoke('statements:commit', token, input),
     list: (token, filters) => ipcRenderer.invoke('statements:list', token, filters),
     suggestTransfers: (token, filters) => ipcRenderer.invoke('statements:suggest-transfers', token, filters),
