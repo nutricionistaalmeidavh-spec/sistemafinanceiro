@@ -1,0 +1,31 @@
+name: Canonical finance invariants
+
+on:
+  push:
+    branches:
+      - fix/canonical-recurring-ledger-20261113
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  canonical-qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Bootstrap local open-source modules
+        run: npm run ci:bootstrap
+      - name: Install pinned dependencies
+        run: npm install --no-audit --no-fund
+      - name: All regression and canonical-ledger tests
+        run: npm test
+      - name: Typecheck and production build
+        run: npm run build
