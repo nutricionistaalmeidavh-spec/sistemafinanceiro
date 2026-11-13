@@ -112,7 +112,7 @@ function createAttachmentOcrService({ db, workspaceRoot, executeOcr = defaultExe
     const result = await executeOcr({ source, language: 'por', mode: 'text', environment: 'native', prefer: 'tesseract', preprocess: true });
     const extractedText = String(result?.text || '').trim();
     const timestamp = nowIso();
-    const updated = db.prepare('UPDATE entry_attachments SET extracted_text=?,review_status=\'PENDING\',updated_at=? WHERE id=?').run(extractedText || null, timestamp, id);
+    const updated = db.prepare('UPDATE entry_attachments SET extracted_text=?,review_status=\'PENDING\',updated_at=?,ocr_confidence=?,ocr_provider=? WHERE id=?').run(extractedText || null, timestamp, result?.confidence == null ? null : Math.max(0,Math.min(1,Number(result.confidence))), String(result?.provider||'local'), id);
     if (!updated.changes) throw new Error('attachment not found');
     writeAudit(db, {
       action: 'planning.attachment.ocr', entity: 'entry-attachment', entityId: id, actor,
