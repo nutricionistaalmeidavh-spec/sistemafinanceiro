@@ -128,7 +128,7 @@ function createAttachmentOcrService({ db, workspaceRoot, executeOcr = defaultExe
     };
   }
 
-  return { extract };
+  return { extract, correct: (id,text,actor)=>updateAttachmentExtractedText(db,id,text,actor,nowIso) };
 }
 
 module.exports = { createAttachmentOcrService, resolveWorkspaceFile, recognizeLocal, updateAttachmentExtractedText };
