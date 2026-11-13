@@ -12,12 +12,11 @@ const { createAnalyticsService } = require('../../electron/services/analytics-se
 const { createRecurrenceService } = require('../../electron/services/recurrence-service.cjs');
 const { createStatementImportService } = require('../../electron/services/statement-import-service.cjs');
 
-export function createHarness() {
+export function createHarness({ now = () => '2026-09-12T12:00:00.000Z' } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sistemafinanceiro-e06e09-'));
   const database = new DatabaseService({ dataDir: path.join(root, 'data'), migrationsDir: path.resolve('database/migrations'), databaseFactory: (filename) => new DatabaseSync(filename) });
   database.open();
   const db = database.connection();
-  const now = () => '2026-09-12T12:00:00.000Z';
   const finance = createFinanceService({ db, now });
   const cashflow = createCashflowService({ db, now });
   const analytics = createAnalyticsService({ db, finance, cashflow, now });
