@@ -56,14 +56,21 @@ function createFinanceService({ db, now = () => new Date().toISOString(), idFact
   }
   function mapEntry(row, asOf = localDay(nowIso())) {
     if (!row) return null;
-    const settlements = activeSettlements(row.id).map(mapSettlement);
+    const day=assertDateOnly(String(asOf).slice(0,10),'asOf');
+    // Visao historica nunca antecipa baixas e preserva as baixas estornadas apenas depois do corte.
+    const settlements=db.prepare(`SELECT * FROM financial_settlements WHERE entry_id=? AND occurred_at<=?
+      AND (reversed_at IS NULL OR substr(reversed_at,1,10)>?) ORDER BY occurred_at,created_at,id`)
+      .all(String(row.id),day,day).map(mapSettlement);
     const settledCents = settlements.reduce((sum, item) => sum + Number(item.amountCents || 0), 0);
     const openCents = Math.max(Number(row.amount_cents) - settledCents, 0);
-    const isOverdue = ['OPEN', 'PARTIAL'].includes(row.status) && row.due_at < assertDateOnly(String(asOf).slice(0, 10), 'asOf');
+    const cancelledAt=row.cancelled_at?localDay(row.cancelled_at):null;
+    const isCancelled=row.status==='CANCELLED'&&(!cancelledAt||cancelledAt<=day);
+    const status=isCancelled?'CANCELLED':openCents===0?'SETTLED':settledCents>0?'PARTIAL':'OPEN';
+    const isOverdue = ['OPEN', 'PARTIAL'].includes(status) && row.due_at < day;
     return {
       id: row.id, kind: row.kind, description: row.description, categoryId: row.category_id, accountId: row.account_id,
       customerId: row.customer_id, creditorId: row.creditor_id, amountCents: row.amount_cents, issueAt: row.issue_at,
-      dueAt: row.due_at, status: row.status, sourceType: row.source_type, sourceId: row.source_id, notes: row.notes,
+      dueAt: row.due_at, status, sourceType: row.source_type, sourceId: row.source_id, notes: row.notes,
       recurrenceRuleId: row.recurrence_rule_id || null, recurrenceKey: row.recurrence_key || null,
       createdAt: row.created_at, updatedAt: row.updated_at, cancelledAt: row.cancelled_at,
       settledCents, openCents, isOverdue, settlements, approval: paymentApproval(row),
@@ -154,15 +161,18 @@ function createFinanceService({ db, now = () => new Date().toISOString(), idFact
       const row = requireEntry(entryId);
       if (row.status === 'CANCELLED') throw new Error('cancelled entry cannot be settled');
       const current = getEntry(entryId);
-      if (current.openCents <= 0) throw new Error('entry has no open balance');
+      const settledBooked=activeSettlements(entryId).reduce((sum,item)=>sum+Number(item.amount_cents),0);
+      const bookOpen=Math.max(0,Number(row.amount_cents)-settledBooked);
+      if (bookOpen <= 0) throw new Error('entry has no open balance');
       const amountCents = assertCents(input.amountCents, 'amountCents');
       if (amountCents <= 0) throw new Error('settlement must be greater than zero');
-      if (amountCents > current.openCents) throw new Error('settlement exceeds open balance');
+      if (amountCents > bookOpen) throw new Error('settlement exceeds open balance');
       const approval = paymentApproval(row);
       if (approval.status !== 'NOT_REQUIRED' && approval.status !== 'APPROVED') {
         throw new Error('Pagamento exige aprovação. Solicite ou conclua a aprovação em Planejamento > Aprovações antes de registrar a baixa.');
       }
       const occurredAt = assertDateOnly(input.occurredAt || localDay(nowIso()), 'settlement date');
+      if(occurredAt>localDay(nowIso()))throw new Error('settlement date cannot be in the future');
       const method = String(input.method || 'OTHER').toUpperCase();
       if (!['PIX','CASH','TRANSFER','BOLETO','DEBIT_CARD','CREDIT_CARD','OTHER'].includes(method)) throw new Error('invalid payment method');
       const accountId = String(input.accountId || row.account_id || '').trim();
@@ -221,6 +231,7 @@ function createFinanceService({ db, now = () => new Date().toISOString(), idFact
     if (filters.recurrenceRuleId) { clauses.push('recurrence_rule_id=?'); params.push(String(filters.recurrenceRuleId)); }
     if (filters.query) { clauses.push('LOWER(description) LIKE ?'); params.push(`%${String(filters.query).trim().toLowerCase()}%`); }
     return db.prepare(`SELECT * FROM financial_entries${clauses.length ? ` WHERE ${clauses.join(' AND ')}` : ''} ORDER BY due_at,id`).all(...params)
+      .filter((row) => !filters.asOf || String(row.created_at).slice(0,10)<=String(filters.asOf).slice(0,10))
       .map((row) => mapEntry(row, filters.asOf || localDay(nowIso())))
       .filter((entry) => filters.overdue === true ? entry.isOverdue : true);
   }
