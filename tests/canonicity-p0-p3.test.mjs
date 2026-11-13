@@ -115,3 +115,18 @@ test('failed reconcile-and-pay rolls back both the bank link and the payment fee
     assert.equal(h.db.prepare('SELECT COUNT(*) total FROM financial_settlements').get().total,0);
   } finally {h.cleanup();}
 });
+
+test('dashboard does not mix future-dated payments into today\'s realized DRE and bank balance', () => {
+  const h=createHarness();
+  try {
+    const bank=h.finance.createAccount({name:'Banco',type:'BANK'});
+    const entry=h.finance.createEntry({kind:'PAYABLE',description:'Pagamento agendado',amountCents:10000,dueAt:'2026-09-20',accountId:bank.id});
+    h.finance.settleEntry(entry.id,{amountCents:10000,accountId:bank.id,occurredAt:'2026-09-25'});
+    const dashboard=h.analytics.getDashboardSnapshot({year:2026});
+    assert.equal(dashboard.asOf,'2026-09-12');
+    assert.equal(dashboard.cards.paidCents,0);
+    assert.equal(dashboard.cards.totalBalanceCents,0);
+    assert.equal(dashboard.dre.totals.expenseCents,0);
+    assert.equal(dashboard.monthly[8].outCents,0);
+  } finally {h.cleanup();}
+});
