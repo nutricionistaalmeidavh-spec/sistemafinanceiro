@@ -103,7 +103,7 @@ function createCrmService({db,finance,registry,now=()=>new Date().toISOString(),
   return getOpportunity(id);
  }
  function listStageHistory(opportunityId){
-  return db.prepare('SELECT * FROM crm_stage_history WHERE opportunity_id=? ORDER BY changed_at,id').all(String(opportunityId))
+  return db.prepare('SELECT * FROM crm_stage_history WHERE opportunity_id=? ORDER BY changed_at,rowid').all(String(opportunityId))
    .map(r=>({id:r.id,opportunityId:r.opportunity_id,fromStage:r.from_stage,toStage:r.to_stage,actorId:r.actor_id,changedAt:r.changed_at}));
  }
  function addActivity(input={},actor=null){
