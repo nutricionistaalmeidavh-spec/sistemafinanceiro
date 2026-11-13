@@ -121,6 +121,11 @@ try {
     }
   }
 
+  // Instrument the actual React render/commit cost in QA only (Vite dev).
+  await page.evaluate(() => { window.__ARTISYS_RENDER_STATS = {}; });
+  await page.getByTestId('nav-dashboard').click();
+  await page.getByTestId('nav-planning').click();
+
   // Fluxo real adicional: cadastro -> pagamento parcial -> edicao -> recorrencia.
   // Usa apenas o banco isolado ARTISYS_QA; nunca toca os dados do cliente.
   await page.getByTestId('nav-finance').click();
@@ -154,6 +159,17 @@ try {
   await recurringForm.getByRole('button',{name:'Salvar alterações'}).click();
   await recurringRow.getByText('R$ 99,90').waitFor({timeout:15000});
   console.log('FINANCE_USER_JOURNEY_OK');
+
+  if (!usePackagedApp) {
+    const renders = await page.evaluate(() => window.__ARTISYS_RENDER_STATS || {});
+    for (const view of ['dashboard','planning','finance']) {
+      if (!(renders[view]?.commits > 0)) throw new Error(`React Profiler missing QA commits for ${view}`);
+    }
+    const metricsFolder=path.resolve('qa-artifacts/final/metrics');
+    fs.mkdirSync(metricsFolder,{recursive:true});
+    fs.writeFileSync(path.join(metricsFolder,'react-renders.json'),JSON.stringify(renders,null,2));
+    console.log('REACT_RENDER_PROFILER_OK '+JSON.stringify(renders));
+  }
 
   const files = fs.readdirSync(output).filter((file) => file.endsWith('.png')).sort();
   if (files.length !== 12) throw new Error(`Expected 12 final screenshots, found ${files.length}`);

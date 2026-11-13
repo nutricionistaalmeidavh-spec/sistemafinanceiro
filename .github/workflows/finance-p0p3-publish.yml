@@ -1,0 +1,116 @@
+name: ArtiSys Financeiro 0.1.2 | release comercial e avaliacao
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/finance-p0p3-publish.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: artisys-financeiro-release-012
+  cancel-in-progress: false
+
+jobs:
+  release-012:
+    if: contains(github.event.head_commit.message, '[finance-p0p3-release]')
+    runs-on: windows-latest
+    timeout-minutes: 90
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Preparar dependencias fixadas e open source
+        run: npm run ci:bootstrap
+      - name: Instalar dependencias locais
+        run: npm install --no-audit --no-fund
+      - name: Validar versao e identidade comercial
+        shell: pwsh
+        run: |
+          $pkg=Get-Content package.json -Raw | ConvertFrom-Json
+          if($pkg.version -ne '0.1.2'){ throw "Versao inesperada: $($pkg.version)" }
+          if($pkg.build.appId -ne 'br.com.artisys.sistemafinanceiro'){ throw "AppId comercial inesperado" }
+          if($pkg.main -ne 'electron/main.cjs'){ throw "Entry point comercial inesperado" }
+      - name: Testes de regressao e canonicidade
+        run: npm test
+      - name: Compilar e validar typescript
+        run: npm run build
+      - name: Benchmark sintetico
+        run: npm run qa:perf:smoke
+      - name: Preparar Electron para QA real
+        shell: pwsh
+        run: |
+          if(-not (Test-Path node_modules/electron/dist/electron.exe)){
+            node node_modules/electron/install.js
+          }
+          if(-not (Test-Path node_modules/electron/dist/electron.exe)){throw "Electron nao instalado"}
+      - name: QA visual e funcional comercial
+        run: npm run ci:qa-final
+      - name: Gerar instalador comercial
+        run: npm run dist:package
+      - name: Validar instalador comercial e checksum
+        shell: pwsh
+        run: |
+          $exe='release/ArtiSys-Financeiro-Setup-0.1.2.exe'
+          if(-not (Test-Path $exe)){throw "Instalador comercial ausente"}
+          if((Get-Item $exe).Length -lt 50000000){throw "Arquivo comercial inesperadamente pequeno"}
+          (Get-FileHash -Algorithm SHA256 -Path $exe).Hash.ToLowerInvariant() |
+            Set-Content 'release/ArtiSys-Financeiro-Setup-0.1.2.sha256'
+      - name: Preparar edicao de avaliacao isolada
+        run: node scripts/prepare-trial-package.mjs
+      - name: Validar isolamento da edicao de avaliacao
+        shell: pwsh
+        run: |
+          $pkg=Get-Content package.json -Raw | ConvertFrom-Json
+          if($pkg.build.appId -ne 'br.com.artisys.sistemafinanceiro.trial'){throw 'AppId de avaliacao inesperado'}
+          if($pkg.main -ne 'electron/trial-main.cjs'){throw 'Entry point de avaliacao inesperado'}
+      - name: QA visual e funcional de avaliacao
+        run: npm run ci:qa-final
+      - name: Gerar instalador de avaliacao
+        run: npm run dist:package
+      - name: Validar instalador de avaliacao e checksum
+        shell: pwsh
+        run: |
+          $exe='release/ArtiSys-Financeiro-Avaliacao-Setup-0.1.2.exe'
+          if(-not (Test-Path $exe)){throw "Instalador de avaliacao ausente"}
+          if((Get-Item $exe).Length -lt 50000000){throw "Arquivo de avaliacao inesperadamente pequeno"}
+          (Get-FileHash -Algorithm SHA256 -Path $exe).Hash.ToLowerInvariant() |
+            Set-Content 'release/ArtiSys-Financeiro-Avaliacao-Setup-0.1.2.sha256'
+      - name: Arquivar instaladores e evidencias
+        uses: actions/upload-artifact@v4
+        with:
+          name: financeiro-012-validado-${{ github.sha }}
+          path: |
+            release/ArtiSys-Financeiro-Setup-0.1.2.exe
+            release/ArtiSys-Financeiro-Setup-0.1.2.sha256
+            release/ArtiSys-Financeiro-Avaliacao-Setup-0.1.2.exe
+            release/ArtiSys-Financeiro-Avaliacao-Setup-0.1.2.sha256
+            qa-artifacts/final/screenshots/*.png
+            qa-artifacts/final/metrics/*.json
+            qa-artifacts/performance/*.json
+          if-no-files-found: error
+          retention-days: 90
+      - name: Publicar releases imutaveis apos todos os testes
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $commercialTag='financeiro-v0.1.2'
+          $trialTag='financeiro-avaliacao-v0.1.2-'+'${{ github.sha }}'.Substring(0,7)
+          gh release view $commercialTag --repo "${{ github.repository }}" *> $null
+          if($LASTEXITCODE -eq 0){throw "Release comercial ja existe; nunca sobrescrever"}
+          gh release view $trialTag --repo "${{ github.repository }}" *> $null
+          if($LASTEXITCODE -eq 0){throw "Prerelease de avaliacao ja existe; nunca sobrescrever"}
+          $notes="ArtiSys Financeiro 0.1.2: canonicidade de pagamentos, conciliacao bancaria com baixa explicita, indices/consultas otimizadas, correcoes do dashboard e UX. Banco local SQLite; nenhuma API externa obrigatoria."
+          gh release create $commercialTag "release/ArtiSys-Financeiro-Setup-0.1.2.exe" "release/ArtiSys-Financeiro-Setup-0.1.2.sha256" --repo "${{ github.repository }}" --target "${{ github.sha }}" --title "ArtiSys Financeiro v0.1.2" --notes $notes --latest
+          if($LASTEXITCODE -ne 0){throw 'Falha ao publicar instalador comercial'}
+          $trialNotes="ArtiSys Financeiro Avaliacao v0.1.2. Licenca de teste assinada necessaria. Ambiente separado do comercial. Nenhum codigo de ativacao foi alterado."
+          gh release create $trialTag "release/ArtiSys-Financeiro-Avaliacao-Setup-0.1.2.exe" "release/ArtiSys-Financeiro-Avaliacao-Setup-0.1.2.sha256" --repo "${{ github.repository }}" --target "${{ github.sha }}" --title "ArtiSys Financeiro Avaliacao v0.1.2" --notes $trialNotes --prerelease --latest=false
+          if($LASTEXITCODE -ne 0){throw 'Falha ao publicar instalador de avaliacao'}

@@ -21,6 +21,6 @@ export function createHarness({now=()=> '2026-09-12T12:00:00.000Z'}={}) {
   const cashflow = createCashflowService({ db, now });
   const analytics = createAnalyticsService({ db, finance, cashflow, now });
   const recurrence = createRecurrenceService({ db, finance, now });
-  const statements = createStatementImportService({ db, now });
+  const statements = createStatementImportService({ db, finance, now });
   return { root, database, db, finance, cashflow, analytics, recurrence, statements, cleanup() { database.close(); fs.rmSync(root, { recursive: true, force: true }); } };
 }
