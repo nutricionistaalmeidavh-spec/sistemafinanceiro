@@ -1,5 +1,6 @@
 'use strict';
 const { localDay } = require('./date-utils.cjs');
+const {splitCents}=require('./allocation-service.cjs');
 
 function monthKey(value) { return String(value).slice(0, 7); }
 function yearRange(year) { const y = Number(year); if (!Number.isInteger(y) || y < 2000 || y > 2200) throw new Error('invalid year'); return { from: `${y}-01-01`, to: `${y}-12-31` }; }
@@ -44,8 +45,36 @@ function createAnalyticsService({ db, finance, cashflow, now = () => new Date().
           AND (fe.status<>'CANCELLED' OR (fe.cancelled_at IS NOT NULL AND substr(fe.cancelled_at,1,10)>?))
           AND fs.occurred_at>=? AND fs.occurred_at<=?${tagClause}
         GROUP BY fe.id,COALESCE(fc.dre_group,'UNCLASSIFIED'),fe.kind,fe.amount_cents${center ? ',ea.amount_cents' : ''}`).all(...params)
-        .map((row) => ({ ...row, total: center ? proportionalCents(row.settled_cents, row.entry_amount_cents, row.allocation_amount_cents) : Number(row.settled_cents || 0) }));
+        .map((row) => ({ ...row, total: center ? 0 : Number(row.settled_cents || 0) }));
     } else throw new Error('basis must be realized or accrual');
+    if(center&&rows.length) {
+      // One allocation of every individual payment is the canonical answer.
+      // Summing fractional SQL shares rounds differently and invents/loses cents.
+      const byEntry=new Map(),paymentsByEntry=new Map();
+      const ids=[...new Set(rows.map(row=>String(row.id)))];
+      for(let offset=0;offset<ids.length;offset+=400){
+        const batch=ids.slice(offset,offset+400),params=batch.map(()=>'?').join(',');
+        const allocations=db.prepare(`SELECT entry_id,cost_center_id,amount_cents FROM entry_allocations WHERE entry_id IN (${params})`).all(...batch);
+        for(const allocation of allocations){
+          const list=byEntry.get(allocation.entry_id)||[];list.push(allocation);byEntry.set(allocation.entry_id,list);
+        }
+        if(basis==='realized'){
+          const settlements=db.prepare(`SELECT entry_id,amount_cents FROM financial_settlements
+            WHERE entry_id IN (${params}) AND occurred_at>=? AND occurred_at<=?
+              AND (reversed_at IS NULL OR substr(reversed_at,1,10)>?)`).all(...batch,start,cutoff,cutoff);
+          for(const settlement of settlements){
+            const list=paymentsByEntry.get(settlement.entry_id)||[];list.push(settlement);paymentsByEntry.set(settlement.entry_id,list);
+          }
+        }
+      }
+      rows=rows.map(row=>{
+        const allocations=byEntry.get(row.id)||[];
+        const total=basis==='realized'
+          ? (paymentsByEntry.get(row.id)||[]).reduce((sum,payment)=>sum+(splitCents(Number(payment.amount_cents),allocations).get(center)||0),0)
+          : (splitCents(Number(row.entry_amount_cents),allocations).get(center)||0);
+        return {...row,total};
+      });
+    }
     const groups = new Map();
     for (const row of rows) {
       const group = groups.get(row.dre_group) || { group: row.dre_group, revenueCents: 0, expenseCents: 0, resultCents: 0 };
