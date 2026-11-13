@@ -2,6 +2,10 @@
 
 const { randomUUID } = require('node:crypto');
 const { writeAudit } = require('./audit.cjs');
+const { localDay } = require('./date-utils.cjs');
+const { addMonthsClamped } = require('./recurrence-schedule.cjs');
+const { createFinanceService } = require('./finance-service.cjs');
+const { createRecurrenceService } = require('./recurrence-service.cjs');
 
 function integer(value, label, { min = Number.MIN_SAFE_INTEGER, max = Number.MAX_SAFE_INTEGER } = {}) {
   const number = Number(value);
@@ -89,15 +93,14 @@ function validateBulkSelection(entryIds = []) {
   return normalized;
 }
 function monthKey(value) { return String(value).slice(0, 7); }
-function addMonths(dateText, months) {
-  const date = new Date(`${String(dateText).slice(0, 10)}T00:00:00Z`);
-  date.setUTCMonth(date.getUTCMonth() + months);
-  return date.toISOString().slice(0, 10);
-}
 
-function createPlanningService({ db, cashflow = null, now = () => new Date().toISOString(), idFactory = (prefix) => `${prefix}-${randomUUID()}` } = {}) {
+function createPlanningService({ db, cashflow = null, finance = null, recurrence = null, now = () => new Date().toISOString(), idFactory = (prefix) => `${prefix}-${randomUUID()}` } = {}) {
   if (!db) throw new TypeError('Database is required.');
   const nowIso = () => String(now());
+  // Leituras canonicas compartilhadas com Pagar/Receber e Recorrencias.
+  // Injeção opcional mantem compatibilidade com clientes anteriores deste servico.
+  const ledger = finance || createFinanceService({db,now});
+  const recurring = recurrence || createRecurrenceService({db,finance:ledger,now});
   const requireEntry = (id) => { const row = db.prepare('SELECT * FROM financial_entries WHERE id=?').get(required(id, 'entryId')); if (!row) throw new Error('financial entry not found'); return row; };
   const requireCenter = (id) => { const row = db.prepare('SELECT * FROM cost_centers WHERE id=? AND active=1').get(required(id, 'costCenterId')); if (!row) throw new Error('cost center not found or inactive'); return row; };
   const requireTag = (id) => { const row = db.prepare('SELECT * FROM tags WHERE id=? AND active=1').get(required(id, 'tagId')); if (!row) throw new Error('tag not found or inactive'); return row; };
@@ -183,20 +186,35 @@ function createPlanningService({ db, cashflow = null, now = () => new Date().toI
     return db.prepare('SELECT * FROM financial_goals WHERE id=?').get(id);
   }
   function compareBudget(filters = {}) {
-    const budgets = listBudgets(filters); const entries = db.prepare(`SELECT fe.*,fc.nature category_nature FROM financial_entries fe LEFT JOIN financial_categories fc ON fc.id=fe.category_id WHERE fe.status<>'CANCELLED'`).all();
-    const settlements = db.prepare(`SELECT fs.* FROM financial_settlements fs WHERE fs.reversed_at IS NULL`).all(); const byEntry = new Map(); settlements.forEach((row) => { const list = byEntry.get(row.entry_id) || []; list.push(row); byEntry.set(row.entry_id, list); });
-    const allocations = db.prepare('SELECT * FROM entry_allocations').all(); const allocByEntry = new Map(); allocations.forEach((row) => { const list = allocByEntry.get(row.entry_id) || []; list.push(row); allocByEntry.set(row.entry_id, list); });
-    return budgets.map((budget) => {
-      const period = `${budget.year}-${String(budget.month).padStart(2,'0')}`; let actualCents = 0; let committedCents = 0;
-      for (const entry of entries) {
-        const nature = entry.kind === 'RECEIVABLE' ? 'REVENUE' : 'EXPENSE'; if (nature !== budget.nature) continue; if (budget.category_id && entry.category_id !== budget.category_id) continue;
-        let share = 1; if (budget.cost_center_id) { const allocation = (allocByEntry.get(entry.id) || []).find((row) => row.cost_center_id === budget.cost_center_id); if (!allocation) continue; share = Number(allocation.amount_cents) / Number(entry.amount_cents); }
-        for (const settlement of byEntry.get(entry.id) || []) if (monthKey(settlement.occurred_at) === period) actualCents += Math.round(Number(settlement.amount_cents) * share);
-        if (monthKey(entry.due_at) === period && ['OPEN','PARTIAL'].includes(entry.status)) {
-          const paid = (byEntry.get(entry.id) || []).reduce((sum, row) => sum + Number(row.amount_cents), 0); committedCents += Math.max(0, Math.round((Number(entry.amount_cents) - paid) * share));
+    const budgets=listBudgets(filters);
+    const allocations=db.prepare('SELECT * FROM entry_allocations').all();
+    const allocByEntry=new Map();
+    for(const row of allocations){const list=allocByEntry.get(row.entry_id)||[];list.push(row);allocByEntry.set(row.entry_id,list);}
+    const today=localDay(nowIso());
+    const snapshots=new Map();
+    return budgets.map(budget=>{
+      const period=String(budget.year)+'-'+String(budget.month).padStart(2,'0');
+      const periodEnd=new Date(Date.UTC(Number(budget.year),Number(budget.month),0)).toISOString().slice(0,10);
+      const asOf=periodEnd<today?periodEnd:today;
+      if(!snapshots.has(asOf))snapshots.set(asOf,ledger.listEntries({asOf}));
+      let actualCents=0,committedCents=0;
+      for(const entry of snapshots.get(asOf)){
+        if(entry.status==='CANCELLED'||(entry.kind==='RECEIVABLE'?'REVENUE':'EXPENSE')!==budget.nature)continue;
+        if(budget.category_id&&entry.categoryId!==budget.category_id)continue;
+        let share=1;
+        if(budget.cost_center_id){
+          const allocation=(allocByEntry.get(entry.id)||[]).find(row=>row.cost_center_id===budget.cost_center_id);
+          if(!allocation)continue;
+          share=Number(allocation.amount_cents)/Number(entry.amountCents);
         }
+        for(const settlement of entry.settlements)
+          if(monthKey(settlement.occurredAt)===period)actualCents+=Math.round(settlement.amountCents*share);
+        if(monthKey(entry.dueAt)===period&&entry.openCents>0)committedCents+=Math.round(entry.openCents*share);
       }
-      const plannedCents = Number(budget.amount_cents); return { budgetId: budget.id, scenarioId: budget.scenario_id, year: budget.year, month: budget.month, nature: budget.nature, categoryId: budget.category_id, costCenterId: budget.cost_center_id, plannedCents, actualCents, committedCents, varianceCents: plannedCents - actualCents, projectedCents: actualCents + committedCents };
+      const plannedCents=Number(budget.amount_cents);
+      return {budgetId:budget.id,scenarioId:budget.scenario_id,year:budget.year,month:budget.month,
+        nature:budget.nature,categoryId:budget.category_id,costCenterId:budget.cost_center_id,
+        plannedCents,actualCents,committedCents,varianceCents:plannedCents-actualCents,projectedCents:actualCents+committedCents};
     });
   }
   function addAttachment(entryId, input = {}, actor = null) {
@@ -240,15 +258,28 @@ function createPlanningService({ db, cashflow = null, now = () => new Date().toI
     });
   }
   function getProjection({ months = 12, adjustments = [] } = {}) {
-    const count = integer(months, 'months', { min: 1, max: 60 }); const today = nowIso().slice(0, 10); const monthly = new Map();
-    for (let i = 0; i < count; i += 1) monthly.set(monthKey(addMonths(today, i)), 0);
-    const settlements = db.prepare('SELECT entry_id,SUM(amount_cents) paid FROM financial_settlements WHERE reversed_at IS NULL GROUP BY entry_id').all(); const paid = new Map(settlements.map((row) => [row.entry_id, Number(row.paid)]));
-    const open = db.prepare("SELECT * FROM financial_entries WHERE status IN ('OPEN','PARTIAL') AND due_at>=? ORDER BY due_at").all(today);
-    for (const entry of open) { const month = monthKey(entry.due_at); if (!monthly.has(month)) continue; const outstanding = Math.max(0, Number(entry.amount_cents) - (paid.get(entry.id) || 0)); monthly.set(month, monthly.get(month) + (entry.kind === 'RECEIVABLE' ? outstanding : -outstanding)); }
-    const rules = db.prepare('SELECT * FROM recurring_rules WHERE active=1').all();
-    for (const rule of rules) { let due = String(rule.next_due_at).slice(0,10); let generated = Number(rule.generated_count || 0); while (monthKey(due) <= [...monthly.keys()].at(-1)) { const month = monthKey(due); if (monthly.has(month)) monthly.set(month, monthly.get(month) + (rule.kind === 'RECEIVABLE' ? Number(rule.amount_cents) : -Number(rule.amount_cents))); generated += 1; if (rule.max_occurrences && generated >= Number(rule.max_occurrences)) break; due = addMonths(due, Number(rule.interval_months || 1)); if (rule.end_date && due > String(rule.end_date).slice(0,10)) break; } }
-    const openingBalanceCents = cashflow ? cashflow.getAccountBalances({ asOf: today }).reduce((sum, row) => sum + Number(row.balanceCents), 0) : 0;
-    return projectSeries({ openingBalanceCents, monthly: [...monthly].map(([month, netCents]) => ({ month, netCents })), adjustments });
+    const count=integer(months,'months',{min:1,max:60});
+    const today=localDay(nowIso());
+    const monthly=new Map();
+    for(let i=0;i<count;i++)monthly.set(monthKey(addMonthsClamped(today,i,1)),0);
+    const lastMonth=[...monthly.keys()].at(-1);
+    const horizon=new Date(Date.UTC(Number(lastMonth.slice(0,4)),Number(lastMonth.slice(5,7)),0)).toISOString().slice(0,10);
+    // Obrigações em aberto continuam compromissos: nunca são baixas nem saldo.
+    // Vencidos entram na primeira janela, pois o caixa ainda precisa liquidá-los.
+    for(const entry of ledger.listEntries({asOf:today})){
+      if(entry.status==='CANCELLED'||entry.openCents<=0)continue;
+      const due=entry.dueAt<today?today:entry.dueAt;
+      const month=monthKey(due);
+      if(monthly.has(month))monthly.set(month,monthly.get(month)+(entry.kind==='RECEIVABLE'?entry.openCents:-entry.openCents));
+    }
+    // A mesma agenda e os mesmos centavos que gerarão as parcelas reais.
+    for(const planned of recurring.listUpcoming({from:today,to:horizon,limit:10000})){
+      const month=monthKey(planned.dueAt);
+      if(monthly.has(month))monthly.set(month,monthly.get(month)+(planned.kind==='RECEIVABLE'?planned.amountCents:-planned.amountCents));
+    }
+    const openingBalanceCents=cashflow
+      ? cashflow.getAccountBalances({asOf:today}).reduce((sum,row)=>sum+row.balanceCents,0):0;
+    return projectSeries({openingBalanceCents,monthly:[...monthly].map(([month,netCents])=>({month,netCents})),adjustments});
   }
 
   return { listCostCenters, saveCostCenter, listTags, saveTag, getEntryAllocations, setEntryAllocations, getEntryTags, setEntryTags, listScenarios, saveScenario, listBudgets, saveBudget, listGoals, saveGoal, compareBudget, addAttachment, listAttachments, reviewAttachment, listApprovalPolicies, saveApprovalPolicy, requestApproval, decideApproval, listApprovalRequests, runBulkOperation, getProjection };
