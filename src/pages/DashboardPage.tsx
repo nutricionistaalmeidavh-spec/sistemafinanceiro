@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { FinanceMetricCard } from '../components/finance-ui';
-import { brl } from '../lib/format';
+import { brl, today } from '../lib/format';
 
 type Props = { token: string; onNavigate:(page:'finance'|'cashflow'|'recurring')=>void; onOpenGuide:()=>void };
 
@@ -11,9 +11,10 @@ export default function DashboardPage({ token, onNavigate, onOpenGuide }: Props)
   const [data, setData] = useState<DashboardSnapshot | null>(null);
   const [error, setError] = useState('');
   const [upcoming,setUpcoming] = useState<FinanceEntry[]>([]);
+  const [hasEntries,setHasEntries]=useState(false);
   const reload = useCallback(async () => {
     try { const [snapshot,entries]=await Promise.all([api.analytics.dashboard(token, { year }),api.finance.listEntries(token)]);
-      setData(snapshot);setUpcoming(entries.filter(e=>e.status!=='CANCELLED'&&e.openCents>0&&e.dueAt>=new Date().toLocaleDateString('en-CA')).sort((a,b)=>a.dueAt.localeCompare(b.dueAt)).slice(0,5));setError(''); }
+      setData(snapshot);setHasEntries(entries.length>0);setUpcoming(entries.filter(e=>e.status!=='CANCELLED'&&e.openCents>0&&e.dueAt>=today()).sort((a,b)=>a.dueAt.localeCompare(b.dueAt)).slice(0,5));setError(''); }
     catch (err) { setError(err instanceof Error ? err.message : String(err)); }
   }, [api, token, year]);
   useEffect(() => { void reload(); }, [reload]);
@@ -28,7 +29,7 @@ export default function DashboardPage({ token, onNavigate, onOpenGuide }: Props)
     {error && <div className="error-box" role="alert">{error} <button type="button" onClick={()=>void reload()}>Tentar novamente</button></div>}
     <div className="dashboard-actions" aria-label="Ações rápidas"><button type="button" className="primary-button" onClick={()=>onNavigate('finance')}>Novo lançamento</button><button className="secondary-button" type="button" onClick={()=>onNavigate('cashflow')}>Contas e saldos</button><button className="secondary-button" type="button" onClick={()=>onNavigate('recurring')}>Recorrências</button></div>
     {data&&<p className="dashboard-asof" role="status">Posição financeira até {data.asOf.split('-').reverse().join('/')} · Realizado, sem antecipar movimentações futuras.</p>}
-    {data?.accountBalances.length===0&&<div className="panel first-use-prompt"><strong>Comece cadastrando sua primeira conta financeira.</strong><p className="muted">Depois informe o saldo inicial e registre a primeira despesa ou receita.</p><button className="primary-button" type="button" onClick={onOpenGuide}>Começar configuração guiada</button></div>}
+    {data&&!hasEntries&&<div className="panel first-use-prompt"><strong>{data.accountBalances.length?'Agora registre seu primeiro lançamento.':'Comece cadastrando uma conta financeira.'}</strong><p className="muted">O guia pode ser retomado sem recriar contas já cadastradas.</p><button className="primary-button" type="button" onClick={onOpenGuide}>Abrir guia inicial</button></div>}
     <div className="metric-grid">
       <FinanceMetricCard label="Saldo disponível" value={brl(data?.cards.availableBalanceCents || 0)} helper="Bancos + dinheiro em caixa; data informada acima" tone="accent"/>
       <FinanceMetricCard label="A receber" value={brl(data?.cards.receivableOpenCents || 0)} helper={overdueReceivable ? `${brl(overdueReceivable)} vencido` : 'Sem valores vencidos'} tone={overdueReceivable ? 'warning' : 'neutral'}/>
