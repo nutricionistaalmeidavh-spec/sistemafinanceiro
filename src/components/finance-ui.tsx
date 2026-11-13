@@ -96,6 +96,8 @@ export function FinanceDrawer({
   testId?: string;
 }) {
   const dialogRef=useRef<HTMLElement|null>(null);
+  const closeRef=useRef(onClose);
+  closeRef.current=onClose;
   useEffect(()=>{
     if(!open)return;
     const dialog=dialogRef.current;
@@ -105,7 +107,7 @@ export function FinanceDrawer({
     const focusables=()=>Array.from(dialog.querySelectorAll<HTMLElement>(selector));
     (dialog.querySelector<HTMLElement>('[autofocus]')||focusables()[0])?.focus();
     function onKey(event:KeyboardEvent){
-      if(event.key==='Escape'){event.preventDefault();onClose();return;}
+      if(event.key==='Escape'){event.preventDefault();closeRef.current();return;}
       if(event.key!=='Tab')return;
       const nodes=focusables();
       if(!nodes.length)return;
@@ -115,7 +117,7 @@ export function FinanceDrawer({
     }
     dialog.addEventListener('keydown',onKey);
     return ()=>{dialog.removeEventListener('keydown',onKey);previous?.focus();};
-  },[open,onClose]);
+  },[open]);
   if (!open) return null;
   return <div className="finance-drawer-layer" data-testid={testId}>
     <button className="finance-drawer-backdrop" type="button" aria-label="Fechar painel" onClick={onClose}/>
