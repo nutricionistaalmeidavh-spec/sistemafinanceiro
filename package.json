@@ -28,18 +28,25 @@
     "final:release": "npm run final:prepare && npm run qa:final && npm run dist:package"
   },
   "dependencies": {
-    "lucide-react": "1.28.0",
-    "react": "19.2.8",
-    "react-dom": "19.2.8",
-    "pdfjs-dist": "6.3.289",
+    "@artisys/dashboard": "file:vendor/utilidades/modules/artisys-dashboard",
     "@artisys/desktop-shell": "file:vendor/utilidades/modules/artisys-desktop-shell",
     "@artisys/eventbus": "file:vendor/utilidades/modules/artisys-eventbus",
-    "@artisys/dashboard": "file:vendor/utilidades/modules/artisys-dashboard",
     "@artisys/finance-domain": "file:vendor/utilidades/modules/artisys-finance-domain",
     "@artisys/ocr": "file:vendor/utilidades/modules/artisys-ocr",
     "@artisys/pdf": "file:vendor/utilidades/modules/artisys-pdf",
     "@artisys/printing": "file:vendor/utilidades/modules/artisys-printing",
-    "@artisys/storage": "file:vendor/utilidades/modules/artisys-storage"
+    "@artisys/storage": "file:vendor/utilidades/modules/artisys-storage",
+    "@tesseract.js-data/por": "1.0.0",
+    "docx": "9.15.3",
+    "echarts": "6.1.0",
+    "exceljs": "4.4.0",
+    "lucide-react": "1.28.0",
+    "papaparse": "5.7.0",
+    "pdf-lib": "1.17.1",
+    "pdfjs-dist": "6.3.289",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "tesseract.js": "7.0.0"
   },
   "devDependencies": {
     "@types/react": "19.2.18",
