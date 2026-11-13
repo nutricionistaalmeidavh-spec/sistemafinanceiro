@@ -25,11 +25,12 @@ function createAnalyticsService({ db, finance, cashflow, now = () => new Date().
     if (basis === 'accrual') {
       const params = [];
       if (center) params.push(center);
-      params.push(start, end);
+      params.push(realizedThrough, start, end);
       if (tag) params.push(tag);
       rows = db.prepare(`SELECT fe.id,COALESCE(fc.dre_group,'UNCLASSIFIED') dre_group,fe.kind,fe.amount_cents entry_amount_cents,${center ? 'ea.amount_cents' : 'fe.amount_cents'} scoped_amount_cents
         FROM financial_entries fe LEFT JOIN financial_categories fc ON fc.id=fe.category_id${centerJoin}
-        WHERE fe.status<>'CANCELLED' AND fe.due_at>=? AND fe.due_at<=?${tagClause}`).all(...params)
+        WHERE (fe.status<>'CANCELLED' OR (fe.cancelled_at IS NOT NULL AND substr(fe.cancelled_at,1,10)>?))
+          AND fe.due_at>=? AND fe.due_at<=?${tagClause}`).all(...params)
         .map((row) => ({ ...row, total: Number(row.scoped_amount_cents || 0) }));
     } else if (basis === 'realized') {
       const params = [];
@@ -58,8 +59,8 @@ function createAnalyticsService({ db, finance, cashflow, now = () => new Date().
   }
 
   function getIndicators({ from = null, to = null, asOf = localDay(nowIso()) } = {}) {
-    const summary = finance.getSummary({ from, to, asOf });
     const cutoff = [String(asOf).slice(0,10),String(to||asOf).slice(0,10),localDay(nowIso())].sort()[0];
+    const summary = finance.getSummary({ from, to, asOf:cutoff });
     const clauses = ['(fs.reversed_at IS NULL OR substr(fs.reversed_at,1,10)>?)',
       "(fe.status<>'CANCELLED' OR (fe.cancelled_at IS NOT NULL AND substr(fe.cancelled_at,1,10)>?))",
       'fs.occurred_at<=?']; const params = [cutoff,cutoff,cutoff];
@@ -67,7 +68,7 @@ function createAnalyticsService({ db, finance, cashflow, now = () => new Date().
     const realized = db.prepare(`SELECT fe.kind,SUM(fs.amount_cents) total FROM financial_settlements fs JOIN financial_entries fe ON fe.id=fs.entry_id WHERE ${clauses.join(' AND ')} GROUP BY fe.kind`).all(...params);
     let receivedCents = 0; let paidCents = 0;
     for (const row of realized) row.kind === 'RECEIVABLE' ? receivedCents += Number(row.total || 0) : paidCents += Number(row.total || 0);
-    const balances = cashflow.getAccountBalances({ asOf });
+    const balances = cashflow.getAccountBalances({ asOf:cutoff });
     const bankBalanceCents = balances.filter((item) => item.type === 'BANK').reduce((sum, item) => sum + item.balanceCents, 0);
     const totalBalanceCents = balances.reduce((sum, item) => sum + item.balanceCents, 0);
     return { ...summary, receivedCents, paidCents, resultCents: receivedCents - paidCents, bankBalanceCents, totalBalanceCents };
