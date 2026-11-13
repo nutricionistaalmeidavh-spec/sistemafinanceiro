@@ -107,7 +107,9 @@ function createReportService({ db, finance, analytics = null, now = () => new Da
 
   function financialReport(filters = {}) {
     const { costCenterId = null, tagId = null, ...financeFilters } = filters || {};
-    const entries = finance.listEntries(financeFilters);
+    const nowDate=String(nowIso()).slice(0,10);
+    const effectiveAsOf=financeFilters.asOf||((financeFilters.to&&String(financeFilters.to)<nowDate)?String(financeFilters.to):nowDate);
+    const entries = finance.listEntries({...financeFilters,asOf:effectiveAsOf});
     const rows = [];
     for (const entry of entries) {
       const metadata = planningMetadata(entry.id);
@@ -131,8 +133,9 @@ function createReportService({ db, finance, analytics = null, now = () => new Da
         tags: metadata.tags.map((item) => item.name).join(', '),
       });
     }
-    const totals = rows.reduce((acc, row) => ({ amountCents: acc.amountCents + row.amountCents, settledCents: acc.settledCents + row.settledCents, openCents: acc.openCents + row.openCents }), { amountCents: 0, settledCents: 0, openCents: 0 });
-    const report = { kind: 'FINANCIAL_REPORT', generatedAt: nowIso(), filters: { ...filters }, rows, totals };
+    // Cancelled entries remain visible for audit but never contribute active totals.
+    const totals = rows.filter(row=>row.status!=='CANCELLED').reduce((acc, row) => ({ amountCents: acc.amountCents + row.amountCents, settledCents: acc.settledCents + row.settledCents, openCents: acc.openCents + row.openCents }), { amountCents: 0, settledCents: 0, openCents: 0 });
+    const report = { kind: 'FINANCIAL_REPORT', generatedAt: nowIso(), filters: { ...filters, asOf:effectiveAsOf }, rows, totals };
     if (analytics && filters.from && filters.to && !costCenterId && !tagId) report.indicators = analytics.getIndicators({ from: filters.from, to: filters.to, asOf: filters.to });
     return report;
   }
