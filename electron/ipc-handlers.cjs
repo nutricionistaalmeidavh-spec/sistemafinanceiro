@@ -5,6 +5,7 @@ const crypto=require('node:crypto');
 const { dreHtml,cashflowHtml,toDreDocxBuffer,toCashflowDocxBuffer }=require('./services/financial-documents.cjs');
 const { verifyAndPreviewPackage }=require('./services/open-document-suite.cjs');
 const { writeAudit }=require('./services/audit.cjs');
+const {toOdsBuffer}=require('./services/open-format-service.cjs');
 const { toDreXlsxBuffer } = require('./services/planning-export-service.cjs');
 
 function registerIpcHandlers({ ipcMain, app, dialog, database, auth, finance, registry, cashflow, analytics, recurrence, alerts, reports, backup, lan, documents, statements, workspace }) {
@@ -35,6 +36,8 @@ function registerIpcHandlers({ ipcMain, app, dialog, database, auth, finance, re
   ipcMain.handle('finance:entries:cancel', (event, token, entryId, reason) => { const actor = auth.require(token, 'finance.manage'); return broadcast(event, finance.cancelEntry(entryId, { reason, actor })); });
   ipcMain.handle('finance:summary', (_event, token, filters) => { auth.require(token, 'finance.view'); return finance.getSummary(filters || {}); });
 
+  ipcMain.handle('statements:ods:inspect', async (_event,token,dataBase64)=>{auth.require(token,'finance.view');return statements.inspectOds(dataBase64);});
+  ipcMain.handle('statements:cnab:inspect', (_event,token,content)=>{auth.require(token,'finance.view');return statements.inspectCnab(content);});
   ipcMain.handle('statements:xlsx:inspect', async (_event,token,dataBase64) => {
     auth.require(token,'finance.view');
     return statements.inspectXlsx(dataBase64);
@@ -125,6 +128,13 @@ function registerIpcHandlers({ ipcMain, app, dialog, database, auth, finance, re
 
   ipcMain.handle('reports:financial', (_event, token, filters) => { auth.require(token, 'finance.view'); return reports.financialReport(filters || {}); });
   ipcMain.handle('reports:receipt', (_event, token, settlementId) => { auth.require(token, 'finance.view'); return reports.settlementReceipt(settlementId); });
+  ipcMain.handle('reports:ods', (_event,token,filters)=>{
+    auth.require(token,'finance.view');
+    const report=reports.financialReport(filters||{});
+    const rows=report.rows.map(r=>[r.dueAt,r.kind,r.description,r.status,r.amountCents/100,r.settledCents/100,r.openCents/100,r.account,r.category,r.counterparty]);
+    const bytes=toOdsBuffer({sheetName:'Lançamentos',headers:['Vencimento','Tipo','Descrição','Status','Valor (R$)','Baixado (R$)','Em aberto (R$)','Conta','Categoria','Contraparte'],rows});
+    return {filename:'relatorio-financeiro.ods',mime:'application/vnd.oasis.opendocument.spreadsheet',dataBase64:bytes.toString('base64')};
+  });
   ipcMain.handle('reports:csv', (_event, token, filters) => { auth.require(token, 'finance.view'); const report = reports.financialReport(filters || {}); return { filename: 'relatorio-financeiro.csv', mime: 'text/csv;charset=utf-8', data: reports.toCsv(report) }; });
   ipcMain.handle('reports:xlsx', async (_event, token, filters) => { auth.require(token, 'finance.view'); const report = reports.financialReport(filters || {}); return { filename: 'relatorio-financeiro.xlsx', mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', dataBase64: (await reports.toStyledXlsxBuffer(report)).toString('base64') }; });
   ipcMain.handle('reports:docx', async (_event, token, filters) => { auth.require(token, 'finance.view'); const report = reports.financialReport(filters || {}); return { filename: 'relatorio-financeiro.docx', mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', dataBase64: (await reports.toDocxBuffer(report)).toString('base64') }; });
