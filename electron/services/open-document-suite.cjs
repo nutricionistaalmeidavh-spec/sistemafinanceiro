@@ -3,7 +3,7 @@
 const crypto = require('node:crypto');
 const ExcelJS = require('exceljs');
 const Docx = require('docx');
-const { PDFDocument } = require('pdf-lib');
+const { PDFDocument, PDFTextField, PDFCheckBox, PDFDropdown, PDFRadioGroup, PDFOptionList } = require('pdf-lib');
 const { unzipSync } = require('fflate');
 
 const HEADERS = Object.freeze(['Vencimento','Tipo','Descrição','Status','Valor','Baixado','Em aberto','Conta','Categoria','Contraparte','Centros de custo','Tags']);
@@ -119,6 +119,68 @@ function verifyReportPackageBuffer(buffer) {
   }
   return { valid:true, fileCount:manifest.files.length, generatedAt:manifest.generatedAt };
 }
+function verifyAndPreviewPackage(bytes) {
+  const raw=Buffer.from(bytes||[]);
+  const verified=verifyReportPackageBuffer(raw);
+  const files=unzipSync(new Uint8Array(raw));
+  if (!Object.prototype.hasOwnProperty.call(files,'relatorio.json')) throw new TypeError('relatório JSON não encontrado');
+  const document=JSON.parse(Buffer.from(files['relatorio.json']).toString('utf8'));
+  if (document.schema!=='br.com.artisys.financeiro.report'||document.version!==1||
+      !Array.isArray(document.rows)||document.rows.length>MAX_REPORT_ROWS||!document.totals) {
+    throw new TypeError('arquivo financeiro JSON inválido');
+  }
+  const totals=document.totals;
+  for(const n of ['amountCents','settledCents','openCents']) if(!Number.isSafeInteger(totals[n]))throw new TypeError('total financeiro não é inteiro seguro');
+  for(const row of document.rows) {
+    for(const field of ['amountCents','settledCents','openCents'])if(!Number.isSafeInteger(row[field]))throw new TypeError('lançamento JSON inválido');
+  }
+  if(document.rows.reduce((sum,row)=>sum+row.amountCents,0)!==totals.amountCents ||
+    document.rows.reduce((sum,row)=>sum+row.settledCents,0)!==totals.settledCents ||
+    document.rows.reduce((sum,row)=>sum+row.openCents,0)!==totals.openCents)throw new TypeError('pacote possui totais divergentes');
+  return Object.freeze({valid:verified.valid,sha256:sha256(raw),fileCount:verified.fileCount,
+    generatedAt:verified.generatedAt,summary:{rows:document.rows.length,...totals},
+    filters:document.filters||{},rows:document.rows.slice(0,100)});
+}
+function pdfFields(form) {
+  return form.getFields().map(field => {
+    const type=field instanceof PDFTextField?'text':field instanceof PDFCheckBox?'checkbox':
+      field instanceof PDFDropdown?'select':field instanceof PDFRadioGroup?'radio':
+      field instanceof PDFOptionList?'select':'unsupported';
+    const options=type==='select'||type==='radio'?field.getOptions():[];
+    return {name:field.getName(),type,options};
+  });
+}
+async function inspectPdfFormBuffer(source) {
+  const bytes=Buffer.from(source||[]);
+  if(!bytes.length||bytes.length>20*1024*1024)throw new RangeError('PDF vazio ou maior que 20 MB');
+  const pdf=await PDFDocument.load(bytes,{ignoreEncryption:false});
+  return pdfFields(pdf.getForm());
+}
+async function fillPdfFormBuffer(source,values) {
+  const bytes=Buffer.from(source||[]);
+  if(!bytes.length||bytes.length>20*1024*1024)throw new RangeError('PDF vazio ou maior que 20 MB');
+  if(!values||typeof values!=='object'||Array.isArray(values)||Object.keys(values).length>100)throw new TypeError('valores de PDF inválidos');
+  const pdf=await PDFDocument.load(bytes,{ignoreEncryption:false});
+  const form=pdf.getForm();
+  const fields=new Map(pdfFields(form).map(item=>[item.name,item]));
+  for(const [name,value] of Object.entries(values)){
+    if(!fields.has(name))throw new TypeError('campo PDF inexistente: '+name);
+    const entry=fields.get(name);
+    if(entry.type==='unsupported')throw new TypeError('tipo de campo PDF não editável');
+    if(entry.type==='checkbox') {
+      if(typeof value!=='boolean')throw new TypeError('checkbox deve receber booleano');
+      const field=form.getCheckBox(name);value?field.check():field.uncheck();
+    }else{
+      if(typeof value!=='string'||value.length>4000)throw new TypeError('texto PDF inválido ou longo demais');
+      if(entry.type==='text')form.getTextField(name).setText(value);
+      else if(entry.type==='select'){if(!entry.options.includes(value))throw new TypeError('opção PDF inválida');form.getDropdown(name).select(value);}
+      else if(entry.type==='radio'){if(!entry.options.includes(value))throw new TypeError('opção PDF inválida');form.getRadioGroup(name).select(value);}
+    }
+  }
+  pdf.setAuthor('ArtiSys Financeiro');
+  pdf.setProducer('ArtiSys Financeiro / pdf-lib');
+  return Buffer.from(await pdf.save());
+}
 async function annotatePdfBuffer(source, title = 'ArtiSys Financeiro') {
   const pdf = await PDFDocument.load(source, { updateMetadata: false });
   pdf.setTitle(title);
@@ -188,5 +250,6 @@ async function parseStatementXlsx(dataBase64) {
 
 module.exports = {
   HEADERS, toStyledXlsxBuffer, toDocxBuffer, toJsonBuffer, toPackageBuffer,
-  annotatePdfBuffer, mergePdfBuffers, parseStatementXlsx, verifyReportPackageBuffer
+  annotatePdfBuffer, mergePdfBuffers, parseStatementXlsx, verifyReportPackageBuffer,
+  verifyAndPreviewPackage, inspectPdfFormBuffer, fillPdfFormBuffer
 };
