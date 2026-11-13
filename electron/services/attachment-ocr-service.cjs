@@ -2,11 +2,52 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { execFile } = require('node:child_process');
-const { promisify } = require('node:util');
+const { createWorker } = require('tesseract.js');
+const { createCanvas } = require('@napi-rs/canvas');
 const { writeAudit } = require('./audit.cjs');
 
-const execFileAsync = promisify(execFile);
+const MAX_PDF_BYTES = 15 * 1024 * 1024;
+const MAX_PDF_PAGES = 10;
+function offlineLanguageDirectory() {
+  const candidates = [
+    path.join(process.resourcesPath || '', 'ocr-data'),
+    path.resolve(__dirname, '../../resources/ocr-data'),
+  ];
+  const location = candidates.find(dir => fs.existsSync(path.join(dir, 'por.traineddata.gz')));
+  if (!location) throw new Error('Modelo OCR português offline indisponível. Reinstale uma versão que inclua o arquivo por.traineddata.gz.');
+  return location;
+}
+async function recognizeLocal(source, language) {
+  if (language !== 'por') throw new TypeError('Idioma OCR não empacotado: ' + language);
+  const worker = await createWorker('por', 1, { langPath: offlineLanguageDirectory(), cacheMethod: 'none' });
+  try {
+    if (path.extname(source).toLowerCase() !== '.pdf') {
+      const result = (await worker.recognize(source)).data;
+      return { text: result.text || '', confidence: Number(result.confidence ?? 0) / 100, blocks: [] };
+    }
+    if (fs.statSync(source).size > MAX_PDF_BYTES) throw new RangeError('PDF OCR excede 15 MB');
+    const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+    const pdf = await pdfjs.getDocument({ data: new Uint8Array(fs.readFileSync(source)), useSystemFonts: true }).promise;
+    try {
+      if (pdf.numPages > MAX_PDF_PAGES) throw new RangeError('PDF OCR limitado a 10 páginas');
+      const texts = []; const confidences = [];
+      for (let n = 1; n <= pdf.numPages; n++) {
+        const page = await pdf.getPage(n);
+        const viewport = page.getViewport({ scale: 1.5 });
+        if (viewport.width * viewport.height > 5_000_000) throw new RangeError('Página PDF muito grande para OCR');
+        const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
+        const ctx = canvas.getContext('2d');
+        await page.render({ canvasContext: ctx, viewport, canvas }).promise;
+        const result = (await worker.recognize(canvas.toBuffer('image/png'))).data;
+        texts.push(result.text || '');
+        confidences.push(Number(result.confidence || 0) / 100);
+        page.cleanup();
+      }
+      return { text: texts.join('\n\n'), confidence: confidences.reduce((a,b)=>a+b,0) / (confidences.length || 1), blocks: [] };
+    } finally { await pdf.destroy(); }
+  } finally { await worker.terminate(); }
+}
+
 
 function resolveWorkspaceFile(workspaceRoot, relativePath) {
   const root = path.resolve(String(workspaceRoot || ''));
@@ -25,11 +66,9 @@ async function defaultExecuteOcr(request) {
     tesseract: {
       recognize: async (normalizedRequest) => {
         try {
-          const result = await execFileAsync('tesseract', [String(normalizedRequest.source), 'stdout', '-l', String(normalizedRequest.language || 'por')], {
-            windowsHide: true,
-            maxBuffer: 16 * 1024 * 1024,
-          });
-          return { text: result.stdout || '', confidence: null, blocks: [] };
+          return await recognizeLocal(String(normalizedRequest.source), String(normalizedRequest.language || 'por'));
+        } catch (error) {
+          throw error;
         } catch (error) {
           if (error?.code === 'ENOENT') throw new Error('OCR local indisponível: instale o Tesseract OCR para usar esta opção.');
           throw error;
@@ -52,9 +91,12 @@ function createAttachmentOcrService({ db, workspaceRoot, executeOcr = defaultExe
     if (!attachment) throw new Error('attachment not found');
     const source = resolveWorkspaceFile(workspaceRoot, attachment.workspace_path);
     if (!fs.existsSync(source) || !fs.statSync(source).isFile()) throw new Error('workspace attachment file not found');
+    const realSource = fs.realpathSync(source);
+    const realRoot = fs.realpathSync(workspaceRoot);
+    if (realSource !== realRoot && !realSource.startsWith(realRoot + path.sep)) throw new Error('attachment path outside workspace');
     const extension = path.extname(source).toLowerCase();
-    if (!['.png','.jpg','.jpeg','.bmp','.tif','.tiff','.webp'].includes(extension)) {
-      throw new Error('OCR local suporta anexos de imagem; PDF escaneado exige um adaptador local de conversão opcional.');
+    if (!['.png','.jpg','.jpeg','.bmp','.tif','.tiff','.webp','.pdf'].includes(extension)) {
+      throw new Error('OCR local aceita PNG, JPG, BMP, TIFF, WEBP ou PDF.');
     }
     const result = await executeOcr({ source, language: 'por', mode: 'text', environment: 'native', prefer: 'tesseract', preprocess: true });
     const extractedText = String(result?.text || '').trim();
