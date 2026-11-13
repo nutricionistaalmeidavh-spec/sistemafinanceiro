@@ -23,3 +23,10 @@ test('drawer permite Escape, armadilha de Tab e devolve foco ao acionador',()=>{
   assert.match(kit,/event\.key!=='Tab'/);
   assert.match(kit,/previous\?\.focus\(\)/);
 });
+
+test('recorrencias permitem localizar parcelas realmente geradas, sem duplicacao',()=>{
+  const page=read('src/pages/RecurringPage.tsx');
+  assert.match(page,/api\.finance\.listEntries\(token,\{recurrenceRuleId:rule\.id\}\)/);
+  assert.match(page,/Ver lançamentos/);
+  assert.match(page,/history\.map/);
+});
