@@ -13,10 +13,11 @@ test('planning export renders budget, comparison and projection from canonical i
   });
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.load(bytes);
-  assert.deepEqual(wb.worksheets.map(s=>s.name),['Orçamento','Planejado x Realizado','Projeção']);
+  assert.deepEqual(wb.worksheets.map(s=>s.name),['Orçamento','Planejado x Realizado','Projeção','Modelo conciliação']);
   assert.equal(wb.worksheets[0].getCell('G2').value,123.45);
   assert.equal(wb.worksheets[1].getCell('E2').value,70);
   assert.equal(wb.worksheets[2].getCell('E2').value,115);
+  assert.equal(wb.worksheets[3].getCell('B1').value,'Descrição');
 });
 
 test('DRE workbook uses canonical totals and no formulas',async()=>{
