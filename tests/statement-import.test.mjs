@@ -2,6 +2,17 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createHarness } from './helpers/test-harness.mjs';
 
+test('decimal parser rejects fractional cents and unsafe integer amounts',async()=>{
+  const {createRequire}=await import('node:module'); const localRequire=createRequire(import.meta.url);
+  const {parseAmount}=localRequire('../electron/services/statement-import-service.cjs');
+  assert.equal(parseAmount('1.234,56').amountCents,123456);
+  assert.equal(parseAmount('-1,234.56').amountCents,123456);
+  assert.equal(parseAmount('0,01').amountCents,1);
+  assert.equal(parseAmount('1.000').amountCents,100000);
+  assert.throws(()=>parseAmount('12,3456'),/decimal|centavo|valor|amount/i);
+  assert.throws(()=>parseAmount('999999999999999,99'),/limite|valor|amount/i);
+});
+
 test('CSV, OFX, PDF text and manual input converge to the canonical bank transaction model', async () => {
   const ctx = createHarness();
   try {
