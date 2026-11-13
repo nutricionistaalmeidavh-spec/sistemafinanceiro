@@ -26,9 +26,9 @@ test('PDF form filling supports text and checkboxes, refuses fields not in the t
   form.createCheckBox('aprovado').addToPage(pdf.getPage(0),{x:20,y:200,width:16,height:16});
   const bytes = Buffer.from(await pdf.save());
   assert.deepEqual((await inspectPdfFormBuffer(bytes)).map(x=>x.name),['cliente','aprovado']);
-  const filled = await fillPdfFormBuffer(bytes,{cliente:'Teste local',aprovado:true});
+  const filled = await fillPdfFormBuffer(bytes,{cliente:'João D’Ávila — ação',aprovado:true});
   const reloaded = await PDFDocument.load(filled);
-  assert.equal(reloaded.getForm().getTextField('cliente').getText(),'Teste local');
+  assert.equal(reloaded.getForm().getTextField('cliente').getText(),'João D’Ávila — ação');
   assert.equal(reloaded.getForm().getCheckBox('aprovado').isChecked(),true);
   await assert.rejects(fillPdfFormBuffer(bytes,{segredo:'x'}),/não encontrado|unknown|inexistente/i);
 });
