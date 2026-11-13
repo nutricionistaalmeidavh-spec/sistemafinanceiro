@@ -38,6 +38,7 @@ export default function App() {
   const [page, setPage] = useState<Page>('dashboard');
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [showGuide,setShowGuide] = useState(false);
+  const [onboardingAccountId,setOnboardingAccountId]=useState('');
   const [dashboardVersion,setDashboardVersion] = useState(0);
 
   useEffect(() => {
@@ -50,11 +51,12 @@ export default function App() {
   useEffect(() => {
     if (!api || !session || !token || !can(session,'finance.manage')) return;
     const key=guideKey(session.user.id);
-    if (localStorage.getItem(key)==='done')return;
     let active=true;
     Promise.all([api.finance.listAccounts(token),api.finance.listEntries(token)]).then(([accounts,entries])=>{
-      if(active && accounts.length===0 && entries.length===0)setShowGuide(true);
-    }).catch(()=>{ /* Problema de rede local ou sessao: o usuario ainda pode navegar normalmente. */ });
+      if(!active)return;
+      setOnboardingAccountId(accounts[0]?.id||'');
+      if(entries.length===0 && localStorage.getItem(key)!=='done')setShowGuide(true);
+    }).catch(()=>{ /* O usuario ainda pode operar se a verificacao inicial falhar. */ });
     return ()=>{active=false;};
   },[api,session,token]);
   function closeGuide(){
@@ -90,8 +92,8 @@ export default function App() {
       <div className="sidebar-footer"><div><strong>{session.user.name}</strong><small>{session.user.role}</small></div><button type="button" title="Sair" aria-label="Sair" data-testid="logout" onClick={()=>void logout()}><LogOut size={17}/></button></div>
     </aside>
     <main className="content">
-      {page==='dashboard' && <DashboardPage key={dashboardVersion} token={token} onNavigate={(target)=>setPage(target)} onOpenGuide={()=>setShowGuide(true)}/>} {page==='alerts' && <AlertsPage token={token} session={session}/>} {page==='cashflow' && <CashflowPage token={token} session={session}/>} {page==='finance' && <FinancePage token={token} session={session}/>} {page==='statements' && <StatementsPage token={token} session={session}/>} {page==='dre' && <DrePage token={token}/>} {page==='planning' && <PlanningPage token={token} session={session}/>} {page==='reports' && <ReportsPage token={token}/>} {page==='recurring' && <RecurringPage token={token} session={session} onNavigate={()=>setPage('finance')}/>} {page==='workspace' && <WorkspacePage token={token} session={session}/>} {page==='registry' && <RegistryPage token={token} session={session}/>} {page==='users' && showUsers && <UsersPage token={token} session={session}/>} {page==='system' && showSystem && <SystemPage token={token}/>} 
+      {page==='dashboard' && <DashboardPage key={dashboardVersion} token={token} onNavigate={(target)=>setPage(target)} onOpenGuide={()=>{void api.finance.listAccounts(token).then(xs=>setOnboardingAccountId(xs[0]?.id||'')).finally(()=>setShowGuide(true));}}/>} {page==='alerts' && <AlertsPage token={token} session={session}/>} {page==='cashflow' && <CashflowPage token={token} session={session}/>} {page==='finance' && <FinancePage token={token} session={session}/>} {page==='statements' && <StatementsPage token={token} session={session}/>} {page==='dre' && <DrePage token={token}/>} {page==='planning' && <PlanningPage token={token} session={session}/>} {page==='reports' && <ReportsPage token={token}/>} {page==='recurring' && <RecurringPage token={token} session={session} onNavigate={()=>setPage('finance')}/>} {page==='workspace' && <WorkspacePage token={token} session={session}/>} {page==='registry' && <RegistryPage token={token} session={session}/>} {page==='users' && showUsers && <UsersPage token={token} session={session}/>} {page==='system' && showSystem && <SystemPage token={token}/>} 
     </main>
-    {showGuide && <FirstUseGuide token={token} userId={session.user.id} onDone={closeGuide} onSkip={closeGuide}/>}
+    {showGuide && <FirstUseGuide token={token} userId={session.user.id} existingAccountId={onboardingAccountId} onDone={closeGuide} onSkip={closeGuide}/>}
   </div>;
 }
