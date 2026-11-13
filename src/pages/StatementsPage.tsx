@@ -3,7 +3,7 @@ import { Check, FileUp, Link2, RefreshCw, UploadCloud, X } from 'lucide-react';
 import { brl, can, toCents, today } from '../lib/format';
 
 type Props = { token: string; session: FinanceiroSession; onOpenFinance?:()=>void };
-type SourceType = 'CSV'|'OFX'|'PDF'|'MANUAL';
+type SourceType = 'CSV'|'OFX'|'PDF'|'XLSX'|'MANUAL';
 type StatementTransaction = {
   id:string; accountId:string; date:string; description:string; amountCents:number; direction:'credit'|'debit';
   counterparty?:string; normalized?:string; category?:string; sourceFingerprint:string; businessFingerprint:string;
@@ -64,7 +64,7 @@ export default function StatementsPage({ token, session, onOpenFinance }: Props)
     if(sourceType==='MANUAL') return {sourceType,accountId,documentId:`manual-${Date.now()}`,rows:[{date:manual.date,description:manual.description,amountCents:toCents(manual.amount),direction:manual.direction}]};
     if(!file) throw new Error('Selecione um arquivo para analisar.');
     const base = {sourceType,accountId,documentId:`${file.name}:${file.size}:${file.lastModified}`,filename:file.name};
-    if(sourceType==='PDF') return {...base,dataBase64:await fileToBase64(file)};
+    if(sourceType==='PDF'||sourceType==='XLSX') { if(file.size>12*1024*1024)throw new Error('Arquivo maior que 12 MB.'); return {...base,dataBase64:await fileToBase64(file)}; }
     return {...base,content:await file.text()};
   }
   async function runPreview(event?:FormEvent){
@@ -110,14 +110,14 @@ export default function StatementsPage({ token, session, onOpenFinance }: Props)
   function onFile(event:ChangeEvent<HTMLInputElement>){setFile(event.target.files?.[0]||null);setPreview(null);setPendingInput(null);}
 
   return <section className="page-stack" data-testid="page-statements">
-    <div className="page-header"><div><p className="eyebrow">Extratos</p><h2>Importação e conciliação bancária</h2><p className="muted">CSV, OFX, PDF e lançamento manual entram no mesmo modelo canônico e passam por revisão antes de afetar o financeiro.</p></div><button type="button" className="secondary-button" onClick={()=>void reload()}><RefreshCw size={16}/>Atualizar</button></div>
+    <div className="page-header"><div><p className="eyebrow">Extratos</p><h2>Importação e conciliação bancária</h2><p className="muted">CSV, XLSX, OFX, PDF e lançamento manual entram no mesmo modelo canônico e passam por revisão antes de afetar o financeiro.</p></div><button type="button" className="secondary-button" onClick={()=>void reload()}><RefreshCw size={16}/>Atualizar</button></div>
     {error&&<div className="error-box">{error}</div>}{notice&&<div className="status status-ok">{notice}</div>}
 
     <form className="panel form-grid" onSubmit={(event)=>void runPreview(event)}>
       <div className="wide panel-title"><div><strong>Analisar extrato</strong><small>O arquivo é analisado localmente. Nada é lançado antes da confirmação.</small></div></div>
-      <div className="wide segmented">{(['CSV','OFX','PDF','MANUAL'] as SourceType[]).map(type=><button key={type} type="button" className={sourceType===type?'active':''} onClick={()=>onSource(type)}>{type==='MANUAL'?'Manual':type}</button>)}</div>
+      <div className="wide segmented">{(['CSV','XLSX','OFX','PDF','MANUAL'] as SourceType[]).map(type=><button key={type} type="button" className={sourceType===type?'active':''} onClick={()=>onSource(type)}>{type==='MANUAL'?'Manual':type}</button>)}</div>
       <label><span>Conta</span><select value={accountId} onChange={(e)=>setAccountId(e.target.value)} required><option value="">Selecione</option>{accounts.map(account=><option key={account.id} value={account.id}>{account.name}</option>)}</select></label>
-      {sourceType!=='MANUAL'&&<label><span>Arquivo {sourceType}</span><input type="file" accept={sourceType==='CSV'?'.csv,text/csv':sourceType==='OFX'?'.ofx,.qfx,application/x-ofx':'.pdf,application/pdf'} onChange={onFile}/></label>}
+      {sourceType!=='MANUAL'&&<label><span>Arquivo {sourceType}</span><input type="file" accept={sourceType==='CSV'?'.csv,text/csv':sourceType==='OFX'?'.ofx,.qfx,application/x-ofx':sourceType==='XLSX'?'.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':'.pdf,application/pdf'} onChange={onFile}/></label>}
       {sourceType==='MANUAL'&&<><label><span>Data</span><input type="date" value={manual.date} onChange={(e)=>setManual({...manual,date:e.target.value})} required/></label><label><span>Descrição</span><input value={manual.description} onChange={(e)=>setManual({...manual,description:e.target.value})} required/></label><label><span>Valor</span><input inputMode="decimal" placeholder="0,00" value={manual.amount} onChange={(e)=>setManual({...manual,amount:e.target.value})} required/></label><label><span>Tipo</span><select value={manual.direction} onChange={(e)=>setManual({...manual,direction:e.target.value as 'debit'|'credit'})}><option value="debit">Saída</option><option value="credit">Entrada</option></select></label></>}
       {file&&<p className="wide muted"><FileUp size={15}/> {file.name} — {(file.size/1024).toFixed(1)} KB</p>}
       <button className="primary-button" type="submit" disabled={busy}><UploadCloud size={16}/>{busy?'Analisando…':'Gerar prévia'}</button>

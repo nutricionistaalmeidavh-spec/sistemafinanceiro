@@ -1,4 +1,5 @@
 'use strict';
+const { toPlanningXlsxBuffer } = require('./services/planning-export-service.cjs');
 
 function registerPlanningIpcHandlers({ ipcMain, auth, planning, attachmentOcr = null }) {
   if (!ipcMain?.handle || !auth || !planning) throw new TypeError('planning IPC dependencies are required');
@@ -19,6 +20,17 @@ function registerPlanningIpcHandlers({ ipcMain, auth, planning, attachmentOcr = 
   ipcMain.handle('planning:budgets:list', (_event, token, filters) => { view(token); return planning.listBudgets(filters || {}); });
   ipcMain.handle('planning:budgets:save', (_event, token, input) => planning.saveBudget(input || {}, manage(token)));
   ipcMain.handle('planning:budgets:compare', (_event, token, filters) => { view(token); return planning.compareBudget(filters || {}); });
+  ipcMain.handle('planning:export:xlsx', async (_event, token, filters = {}) => {
+    view(token);
+    const year = Number(filters.year || new Date().getFullYear());
+    if (!Number.isInteger(year) || year < 2000 || year > 2200) throw new TypeError('ano inválido');
+    const workbook = await toPlanningXlsxBuffer({
+      budgets: planning.listBudgets({ year }),
+      comparisons: planning.compareBudget({ year, scenarioId: filters.scenarioId || 'base' }),
+      projection: planning.getProjection({ months: 12 }),
+    });
+    return { filename: `planejamento-${year}.xlsx`, mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', dataBase64: workbook.toString('base64') };
+  });
   ipcMain.handle('planning:goals:list', (_event, token, filters) => { view(token); return planning.listGoals(filters || {}); });
   ipcMain.handle('planning:goals:save', (_event, token, input) => planning.saveGoal(input || {}, manage(token)));
 

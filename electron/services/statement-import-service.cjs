@@ -1,9 +1,11 @@
 'use strict';
 const crypto = require('node:crypto');
+const Papa = require('papaparse');
+const { parseStatementXlsx } = require('./open-document-suite.cjs');
 
 function normalizeSourceType(value) {
   const type = String(value || '').trim().toUpperCase();
-  if (!['CSV','OFX','PDF','MANUAL'].includes(type)) throw new TypeError('unsupported sourceType');
+  if (!['CSV','OFX','PDF','MANUAL','XLSX'].includes(type)) throw new TypeError('unsupported sourceType');
   return type;
 }
 function parseDate(value) {
@@ -26,24 +28,23 @@ function parseAmount(value) {
   if (!Number.isFinite(number)) throw new TypeError(`invalid amount: ${value}`);
   return { amountCents: Math.round(Math.abs(number) * 100), negative };
 }
-function parseDelimited(content, delimiter) {
-  const rows=[]; let row=[]; let field=''; let quoted=false;
-  const text=String(content||'').replace(/^\uFEFF/,'');
-  for(let i=0;i<text.length;i++){
-    const ch=text[i];
-    if(ch==='"') { if(quoted && text[i+1]==='"'){field+='"';i++;} else quoted=!quoted; continue; }
-    if(ch===delimiter && !quoted){row.push(field);field='';continue;}
-    if((ch==='\n'||ch==='\r')&&!quoted){ if(ch==='\r'&&text[i+1]==='\n')i++; row.push(field);field=''; if(row.some(v=>v!==''))rows.push(row); row=[]; continue; }
-    field+=ch;
-  }
-  row.push(field); if(row.some(v=>v!==''))rows.push(row); return rows;
+function parseDelimited(content, delimiter = '') {
+  const raw = String(content || '').replace(/^\uFEFF/, '');
+  if (Buffer.byteLength(raw, 'utf8') > 12 * 1024 * 1024) throw new RangeError('CSV maior que 12 MB');
+  const parsed = Papa.parse(raw, {
+    delimiter,
+    delimitersToGuess: [';', ',', '\t', '|'],
+    skipEmptyLines: 'greedy',
+    dynamicTyping: false,
+  });
+  if (parsed.errors.length) throw new TypeError('CSV malformado: ' + parsed.errors[0].message);
+  if (parsed.data.length > 50001) throw new RangeError('CSV excede 50 mil linhas');
+  return parsed.data;
 }
 function headerKey(value){return String(value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().replace(/[^A-Z0-9]/g,'');}
 function pickColumn(headers, aliases){const keys=headers.map(headerKey); for(const alias of aliases){const idx=keys.indexOf(alias); if(idx>=0)return idx;} return -1;}
 function parseCsv(content) {
-  const first=String(content||'').split(/\r?\n/,1)[0]||'';
-  const delimiter=(first.match(/;/g)||[]).length >= (first.match(/,/g)||[]).length ? ';' : ',';
-  const rows=parseDelimited(content,delimiter); if(rows.length<2)return [];
+  const rows=parseDelimited(content); if(rows.length<2)return [];
   const headers=rows[0];
   const dateI=pickColumn(headers,['DATA','DATE','DTPOSTED']);
   const descI=pickColumn(headers,['DESCRICAO','DESCRICAOOPERACAO','HISTORICO','MEMO','DESCRIPTION','NAME']);
@@ -107,6 +108,7 @@ function rowTotal(db,sql,...args){return Number(db.prepare(sql).get(...args)?.to
 function createStatementImportService({ db=null, finance=null, now=()=>new Date().toISOString(), idFactory=(prefix)=>`${prefix}-${crypto.randomUUID()}`, domainLoader=()=>import('@artisys/finance-domain'), pdfTextLoader=defaultPdfTextLoader }={}) {
   async function parseInput(input, sourceType) {
     if(sourceType==='CSV')return parseCsv(input.content);
+    if(sourceType==='XLSX')return parseStatementXlsx(input.dataBase64);
     if(sourceType==='OFX')return parseOfx(input.content);
     if(sourceType==='PDF'){
       const text=input.text || (input.dataBase64 ? await pdfTextLoader(input.dataBase64) : input.content);
@@ -147,7 +149,7 @@ function createStatementImportService({ db=null, finance=null, now=()=>new Date(
     if(!db)throw new Error('database is required to commit imports');
     const result=await preview(input); const createdAt=now(); const batchId=idFactory('bank-batch');
     return withTransaction(db,()=>{
-      db.prepare('INSERT INTO bank_import_batches(id,source_type,document_id,filename,account_id,parsed_count,accepted_count,duplicate_count,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)').run(batchId,result.sourceType,result.documentId,input.filename||null,input.accountId,result.summary.parsed,result.summary.accepted,result.summary.duplicates,actor?.id||null,createdAt);
+      db.prepare('INSERT INTO bank_import_batches(id,source_type,document_id,filename,account_id,parsed_count,accepted_count,duplicate_count,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)').run(batchId,result.sourceType==='XLSX'?'MANUAL':result.sourceType,result.documentId,input.filename||null,input.accountId,result.summary.parsed,result.summary.accepted,result.summary.duplicates,actor?.id||null,createdAt);
       const insert=db.prepare('INSERT OR IGNORE INTO bank_transactions(id,batch_id,account_id,occurred_at,description,normalized_description,counterparty,amount_cents,direction,category_label,source_fingerprint,business_fingerprint,rule_id,rule_reason,rule_confidence,review_status,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
       let inserted=0;
       for(const tx of result.transactions){const info=insert.run(idFactory('bank-tx'),batchId,tx.accountId,tx.date,tx.description,tx.normalized,tx.counterparty||null,tx.amountCents,tx.direction,tx.category||null,tx.sourceFingerprint,tx.businessFingerprint,tx.classification?.ruleId||null,tx.classification?.reason||null,Number(tx.classification?.confidence||0),tx.classification?.matched?'AUTO_CLASSIFIED':'PENDING',createdAt); inserted+=Number(info.changes||0);}

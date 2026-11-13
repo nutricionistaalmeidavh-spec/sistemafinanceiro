@@ -1,6 +1,7 @@
 'use strict';
 
 const fs = require('node:fs');
+const { annotatePdfBuffer, mergePdfBuffers } = require('./open-document-suite.cjs');
 
 function createDocumentService({ BrowserWindow, dialog } = {}) {
   if (!BrowserWindow || !dialog) throw new TypeError('BrowserWindow and dialog are required');
@@ -21,8 +22,9 @@ function createDocumentService({ BrowserWindow, dialog } = {}) {
       const pdf = await win.webContents.printToPDF({ printBackground: true, preferCSSPageSize: true });
       const result = await dialog.showSaveDialog({ title: 'Salvar PDF', defaultPath: defaultName, filters: [{ name: 'PDF', extensions: ['pdf'] }] });
       if (result.canceled || !result.filePath) return { canceled: true };
-      fs.writeFileSync(result.filePath, pdf);
-      return { canceled: false, path: result.filePath, bytes: pdf.length };
+      const finalized = await annotatePdfBuffer(pdf, defaultName.replace(/\.pdf$/i, ''));
+      fs.writeFileSync(result.filePath, finalized);
+      return { canceled: false, path: result.filePath, bytes: finalized.length };
     });
   }
 
@@ -35,7 +37,31 @@ function createDocumentService({ BrowserWindow, dialog } = {}) {
     }));
   }
 
-  return { savePdf, printHtml };
+  async function mergeSelectedPdfs() {
+    const selected = await dialog.showOpenDialog({
+      title: 'Unir PDFs locais', properties: ['openFile', 'multiSelections'],
+      filters: [{ name: 'Documentos PDF', extensions: ['pdf'] }],
+    });
+    if (selected.canceled || !selected.filePaths?.length) return { canceled: true };
+    if (selected.filePaths.length < 2 || selected.filePaths.length > 10) throw new RangeError('selecione entre 2 e 10 PDFs');
+    let combinedSize = 0;
+    const buffers = selected.filePaths.map(file => {
+      const size = fs.statSync(file).size;
+      combinedSize += size;
+      if (combinedSize > 60 * 1024 * 1024) throw new RangeError('PDFs excedem 60 MB');
+      return fs.readFileSync(file);
+    });
+    const merged = await mergePdfBuffers(buffers);
+    const destination = await dialog.showSaveDialog({
+      title: 'Salvar PDF reunido', defaultPath: 'documentos-reunidos.pdf',
+      filters: [{ name: 'PDF', extensions: ['pdf'] }]
+    });
+    if (destination.canceled || !destination.filePath) return { canceled: true };
+    fs.writeFileSync(destination.filePath, merged);
+    return { canceled: false, path: destination.filePath, bytes: merged.length };
+  }
+
+  return { savePdf, printHtml, mergeSelectedPdfs };
 }
 
 module.exports = { createDocumentService };

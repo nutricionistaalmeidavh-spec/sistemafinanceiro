@@ -26,7 +26,7 @@ declare global {
       saveScenario(token:string,input:Record<string,unknown>):Promise<BudgetScenario>;
       listBudgets(token:string,filters?:Record<string,unknown>):Promise<PlanningBudget[]>;
       saveBudget(token:string,input:Record<string,unknown>):Promise<PlanningBudget>;
-      compareBudget(token:string,filters?:Record<string,unknown>):Promise<BudgetComparison[]>;
+      compareBudget(token:string,filters?:Record<string,unknown>):Promise<BudgetComparison[]>; exportXlsx(token:string,filters?:Record<string,unknown>):Promise<{filename:string;mime:string;dataBase64:string}>;
       listGoals(token:string,filters?:Record<string,unknown>):Promise<FinancialGoalRecord[]>;
       saveGoal(token:string,input:Record<string,unknown>):Promise<FinancialGoalRecord>;
       listAttachments(token:string,entryId:string):Promise<EntryAttachmentRecord[]>;
