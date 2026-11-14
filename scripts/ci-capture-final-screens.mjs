@@ -156,8 +156,9 @@ try {
   // P2: exercita a agenda, indicadores, metas e configuração de funis no Electron real.
   await page.getByRole('tab',{name:'Agenda'}).click();
   await page.getByTestId('crm-p2-agenda').waitFor();
-  await page.getByLabel('Oportunidade',{exact:true}).selectOption({label:'Oportunidade QA Comercial'});
-  await page.getByLabel('Assunto').fill('Reunião P2 QA');
+  await page.screenshot({path:path.join(crmFolder,'crm-p2-agenda-inicial.png'),fullPage:true});
+  await page.getByTestId('crm-p2-opportunity-select').selectOption({label:'Oportunidade QA Comercial'});
+  await page.getByTestId('crm-p2-appointment-form').locator('input').first().fill('Reunião P2 QA');
   await page.getByRole('button',{name:'Salvar compromisso'}).click();
   await page.getByText('Reunião P2 QA').first().waitFor({timeout:15000});
   await page.screenshot({path:path.join(crmFolder,'crm-p2-agenda.png'),fullPage:true});
