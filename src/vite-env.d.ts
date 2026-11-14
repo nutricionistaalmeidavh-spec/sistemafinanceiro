@@ -13,8 +13,17 @@ declare global {
   type CrmQuoteStatus = 'DRAFT'|'SENT'|'ACCEPTED'|'REJECTED';
   interface CrmImportRow {name:string;email?:string;phone?:string;document?:string;source?:string;notes?:string}
   interface CrmImportPreview {rows:Array<CrmImportRow&{index:number;status:'INVALID'|'DUPLICATE'|'READY';reason:string}>;ready:number;duplicates:number;invalid:number}
+  interface CrmPipelineStage {id:string;pipelineId:string;name:string;legacyStage:CrmStage;probabilityBps:number;position:number;active:boolean}
+  interface CrmPipeline {id:string;name:string;isDefault:boolean;active:boolean;stages:CrmPipelineStage[]}
+  interface CrmOwner {id:string;name:string;role:FinanceiroRole}
+  interface CrmGoalProgress {id:string;ownerId:string;ownerName:string;month:string;targetCents:number;actualCents:number;achievementBps:number;remainingCents:number}
+  interface CrmAppointment {id:string;opportunityId:string;title:string;scheduledDate:string;scheduledTime:string;durationMinutes:number;kind:'MEETING'|'CALL'|'FOLLOWUP'|'OTHER';status:'PLANNED'|'DONE'|'CANCELLED';ownerId:string|null;notes:string|null;createdAt:string;updatedAt:string}
+  interface CrmAgendaItem {id:string;type:'TASK'|'APPOINTMENT';opportunityId:string;title:string;date:string;time:string|null;status:string;ownerId:string|null;kind?:string}
+  interface CrmFollowups {overdue:CrmAgendaItem[];today:CrmAgendaItem[];upcoming:CrmAgendaItem[]}
+  interface CrmSalesReport {from:string;to:string;ownerId:string|null;pipelineId:string|null;leadCount:number;leadConvertedCount:number;createdCount:number;wonCount:number;lostCount:number;winRateBps:number;leadConversionBps:number;wonCents:number;lostCents:number;openPipelineCents:number;lossReasons:Array<{reason:string;count:number;amountCents:number}>}
+  interface CrmForecast {from:string;to:string;openCents:number;weightedCents:number;unscheduledCents:number;months:Array<{month:string;openCents:number;weightedCents:number;count:number}>}
   interface CrmLead {id:string;name:string;document:string|null;phone:string|null;email:string|null;source:string;status:'NEW'|'QUALIFIED'|'CONVERTED'|'DISCARDED';customerId:string|null;notes:string|null;ownerId:string|null;createdAt:string;updatedAt:string}
-  interface CrmOpportunity {id:string;leadId:string|null;customerId:string|null;title:string;amountCents:number;stage:CrmStage;ownerId:string|null;lossReason:string|null;closedAt:string|null;createdAt:string;updatedAt:string}
+  interface CrmOpportunity {id:string;leadId:string|null;customerId:string|null;title:string;amountCents:number;stage:CrmStage;pipelineId:string|null;stageId:string|null;expectedCloseAt:string|null;ownerId:string|null;lossReason:string|null;closedAt:string|null;createdAt:string;updatedAt:string}
   interface CrmStageHistory {id:string;opportunityId:string;fromStage:CrmStage|null;toStage:CrmStage;actorId:string|null;changedAt:string}
   interface CrmActivity {id:string;opportunityId:string;kind:'CALL'|'EMAIL'|'WHATSAPP'|'MEETING'|'NOTE';note:string;occurredAt:string;createdAt:string}
   interface CrmTask {id:string;opportunityId:string;title:string;dueAt:string|null;doneAt:string|null;done:boolean;createdAt:string;updatedAt:string}
@@ -85,6 +94,28 @@ declare global {
       reports:{ financial(token:string,filters?:Record<string,unknown>):Promise<FinancialReport>; receipt(token:string,settlementId:string):Promise<SettlementReceipt>; csv(token:string,filters?:Record<string,unknown>):Promise<{filename:string;mime:string;data:string}>; xlsx(token:string,filters?:Record<string,unknown>):Promise<{filename:string;mime:string;dataBase64:string}>; ods(token:string,filters?:Record<string,unknown>):Promise<{filename:string;mime:string;dataBase64:string}>; docx(token:string,filters?:Record<string,unknown>):Promise<{filename:string;mime:string;dataBase64:string}>; json(token:string,filters?:Record<string,unknown>):Promise<{filename:string;mime:string;data:string}>; package(token:string,filters?:Record<string,unknown>):Promise<{filename:string;mime:string;dataBase64:string}>; selectArchive(token:string):Promise<{canceled:boolean;archiveId?:string;filename?:string;preview?:{valid:boolean;summary:{rows:number;amountCents:number;settledCents:number;openCents:number}}}>; importArchive(token:string,id:string):Promise<{imported:boolean;sha256:string;rows:number;mode:string}>; selectPdfForm(token:string):Promise<{canceled:boolean;formId?:string;filename?:string;fields?:Array<{name:string;type:string;options:string[]}>}>; fillPdfForm(token:string,id:string,values:Record<string,string|boolean>):Promise<{canceled:boolean;path?:string;bytes?:number}>; mergePdf(token:string):Promise<{canceled:boolean;path?:string;bytes?:number}>; savePdf(token:string,filters?:Record<string,unknown>):Promise<{canceled:boolean;path?:string;bytes?:number}>; print(token:string,filters?:Record<string,unknown>):Promise<{printed:boolean}>; saveReceiptPdf(token:string,settlementId:string):Promise<{canceled:boolean;path?:string;bytes?:number}>; printReceipt(token:string,settlementId:string):Promise<{printed:boolean}> };
       backup:{ list(token:string,filters?:Record<string,unknown>):Promise<BackupRecord[]>; create(token:string):Promise<BackupRecord>; verify(token:string,filePath:string):Promise<{valid:boolean;reason:string;sha256?:string;bytes?:number;schemaVersion?:number}>; restoreSelect(token:string):Promise<{canceled:boolean;restored?:boolean;restarting?:boolean;safetyBackup?:string}> };
       lan:{ status(token:string):Promise<LanStatus>; configure(token:string,input:{enabled:boolean;host:string;port:number}):Promise<LanStatus>; pairingCode(token:string):Promise<LanPairingCode> };
+      crmIntelligence:{
+        listOwners(token:string):Promise<CrmOwner[]>;
+        listPipelines(token:string,filters?:{includeInactive?:boolean}):Promise<CrmPipeline[]>;
+        savePipeline(token:string,input:{id?:string;name:string;active?:boolean}):Promise<CrmPipeline>;
+        setDefaultPipeline(token:string,id:string):Promise<CrmPipeline>;
+        saveStage(token:string,input:{id?:string;pipelineId:string;name:string;legacyStage?:CrmStage;probabilityBps?:number;position?:number;active?:boolean}):Promise<CrmPipelineStage>;
+        assignPipeline(token:string,id:string,pipelineId:string):Promise<CrmOpportunity>;
+        moveToStage(token:string,id:string,stageId:string,options?:{lossReason?:string}):Promise<CrmOpportunity>;
+        setExpectedClose(token:string,id:string,date:string|null):Promise<CrmOpportunity>;
+        assignOwner(token:string,id:string,ownerId:string|null):Promise<CrmOpportunity>;
+        listStageMovements(token:string,id:string):Promise<Array<{id:string;fromStageId:string|null;stageId:string|null;fromStage:CrmStage;toStage:CrmStage;changedAt:string}>>;
+        listGoals(token:string,filters?:{month?:string;ownerId?:string}):Promise<CrmGoalProgress[]>;
+        saveGoal(token:string,input:{ownerId:string;month:string;targetCents:number}):Promise<CrmGoalProgress>;
+        listAppointments(token:string,filters?:{from?:string;to?:string;opportunityId?:string;ownerId?:string}):Promise<CrmAppointment[]>;
+        saveAppointment(token:string,input:{id?:string;opportunityId:string;title:string;scheduledDate:string;scheduledTime:string;durationMinutes?:number;kind?:CrmAppointment['kind'];ownerId?:string;notes?:string}):Promise<CrmAppointment>;
+        setAppointmentStatus(token:string,id:string,status:'PLANNED'|'DONE'|'CANCELLED'):Promise<CrmAppointment>;
+        agenda(token:string,filters:{from:string;to:string;ownerId?:string}):Promise<CrmAgendaItem[]>;
+        followups(token:string,filters?:{asOf?:string;ownerId?:string}):Promise<CrmFollowups>;
+        report(token:string,filters:{from:string;to:string;ownerId?:string;pipelineId?:string}):Promise<CrmSalesReport>;
+        forecast(token:string,filters:{from:string;to:string;ownerId?:string;pipelineId?:string}):Promise<CrmForecast>;
+        exportCsv(token:string,filters:{from:string;to:string;ownerId?:string;pipelineId?:string}):Promise<{filename:string;mime:string;data:string}>;
+      };
       crm:{
         listLeads(token:string,filters?:{query?:string;status?:string}):Promise<CrmLead[]>;
         saveLead(token:string,input:{id?:string;name:string;document?:string;phone?:string;email?:string;source?:string;notes?:string}):Promise<CrmLead>;
@@ -93,7 +124,7 @@ declare global {
         setLeadStatus(token:string,id:string,status:'NEW'|'QUALIFIED'|'DISCARDED'):Promise<CrmLead>;
         convertLead(token:string,id:string,input?:{customerId?:string}):Promise<PartyRecord>;
         listOpportunities(token:string,filters?:{query?:string;stage?:CrmStage}):Promise<CrmOpportunity[]>;
-        saveOpportunity(token:string,input:{id?:string;leadId?:string;customerId?:string;title:string;amountCents:number}):Promise<CrmOpportunity>;
+        saveOpportunity(token:string,input:{id?:string;leadId?:string;customerId?:string;title:string;amountCents:number;ownerId?:string;expectedCloseAt?:string}):Promise<CrmOpportunity>;
         moveOpportunity(token:string,id:string,stage:CrmStage,options?:{lossReason?:string}):Promise<CrmOpportunity>;
         listStageHistory(token:string,opportunityId:string):Promise<CrmStageHistory[]>;
         listActivities(token:string,opportunityId:string):Promise<CrmActivity[]>;
