@@ -8,7 +8,7 @@ const { writeAudit }=require('./services/audit.cjs');
 const {toOdsBuffer}=require('./services/open-format-service.cjs');
 const { toDreXlsxBuffer } = require('./services/planning-export-service.cjs');
 
-function registerIpcHandlers({ ipcMain, app, dialog, database, auth, finance, registry, crm, cashflow, analytics, recurrence, alerts, reports, backup, lan, documents, statements, workspace }) {
+function registerIpcHandlers({ ipcMain, app, dialog, database, auth, finance, registry, crm, crmIntelligence, cashflow, analytics, recurrence, alerts, reports, backup, lan, documents, statements, workspace }) {
   if (!ipcMain?.handle) throw new TypeError('ipcMain is required');
   const broadcast = (event, result) => {
     // Notify the renderer only after the canonical SQLite operation succeeds.
@@ -27,6 +27,28 @@ function registerIpcHandlers({ ipcMain, app, dialog, database, auth, finance, re
   ipcMain.handle('auth:users:set-active', (_event, token, userId, active) => auth.setUserActive(token, userId, active));
 
   // CRM is an isolated commercial domain; only confirmation calls FinanceService.
+  // Intelligence is read-only against financial tables, with explicit CRM permissions.
+  ipcMain.handle('crm:p2:owners',(_e,token)=>{auth.require(token,'crm.view');return crmIntelligence.listOwners();});
+  ipcMain.handle('crm:p2:pipelines',(_e,token,input)=>{auth.require(token,'crm.view');return crmIntelligence.listPipelines(input||{});});
+  ipcMain.handle('crm:p2:pipeline:save',(_e,token,input)=>{const actor=auth.require(token,'crm.pipeline.manage');return crmIntelligence.savePipeline(input||{},actor);});
+  ipcMain.handle('crm:p2:pipeline:default',(_e,token,id)=>{const actor=auth.require(token,'crm.pipeline.manage');return crmIntelligence.setDefaultPipeline(id,actor);});
+  ipcMain.handle('crm:p2:stage:save',(_e,token,input)=>{const actor=auth.require(token,'crm.pipeline.manage');return crmIntelligence.savePipelineStage(input||{},actor);});
+  ipcMain.handle('crm:p2:opportunity:pipeline',(_e,token,id,pipelineId)=>{const actor=auth.require(token,'crm.manage');return crmIntelligence.assignPipeline(id,pipelineId,actor);});
+  ipcMain.handle('crm:p2:opportunity:stage',(_e,token,id,stageId,options)=>{const actor=auth.require(token,'crm.manage');return crmIntelligence.moveToStage(id,stageId,actor,options||{});});
+  ipcMain.handle('crm:p2:opportunity:expected',(_e,token,id,date)=>{const actor=auth.require(token,'crm.manage');return crmIntelligence.setExpectedClose(id,date,actor);});
+  ipcMain.handle('crm:p2:opportunity:owner',(_e,token,id,ownerId)=>{const actor=auth.require(token,'crm.manage');return crmIntelligence.assignOwner(id,ownerId,actor);});
+  ipcMain.handle('crm:p2:stage:history',(_e,token,id)=>{auth.require(token,'crm.view');return crmIntelligence.listStageMovements(id);});
+  ipcMain.handle('crm:p2:goals:list',(_e,token,filters)=>{auth.require(token,'crm.view');return crmIntelligence.getGoalProgress(filters||{});});
+  ipcMain.handle('crm:p2:goals:save',(_e,token,input)=>{const actor=auth.require(token,'crm.goals.manage');return crmIntelligence.saveGoal(input||{},actor);});
+  ipcMain.handle('crm:p2:appointments:list',(_e,token,filters)=>{auth.require(token,'crm.view');return crmIntelligence.listAppointments(filters||{});});
+  ipcMain.handle('crm:p2:appointments:save',(_e,token,input)=>{const actor=auth.require(token,'crm.manage');return crmIntelligence.saveAppointment(input||{},actor);});
+  ipcMain.handle('crm:p2:appointments:status',(_e,token,id,status)=>{const actor=auth.require(token,'crm.manage');return crmIntelligence.setAppointmentStatus(id,status,actor);});
+  ipcMain.handle('crm:p2:agenda',(_e,token,filters)=>{auth.require(token,'crm.view');return crmIntelligence.getAgenda(filters||{});});
+  ipcMain.handle('crm:p2:followups',(_e,token,filters)=>{auth.require(token,'crm.view');return crmIntelligence.getFollowups(filters||{});});
+  ipcMain.handle('crm:p2:report',(_e,token,filters)=>{auth.require(token,'crm.view');return crmIntelligence.getSalesReport(filters||{});});
+  ipcMain.handle('crm:p2:forecast',(_e,token,filters)=>{auth.require(token,'crm.view');return crmIntelligence.getForecast(filters||{});});
+  ipcMain.handle('crm:p2:csv',(_e,token,filters)=>{auth.require(token,'crm.view');return crmIntelligence.exportSalesCsv(filters||{});});
+
   ipcMain.handle('crm:leads:list',(_e,token,filters)=>{auth.require(token,'crm.view');return crm.listLeads(filters||{});});
   ipcMain.handle('crm:leads:import-preview',(_e,token,rows)=>{auth.require(token,'crm.view');return crm.previewLeadImport(rows);});
   ipcMain.handle('crm:leads:import-commit',(_e,token,rows)=>{const actor=auth.require(token,'crm.manage');return crm.commitLeadImport(rows,actor);});
