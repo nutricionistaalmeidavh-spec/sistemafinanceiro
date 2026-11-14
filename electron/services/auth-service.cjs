@@ -5,9 +5,9 @@ const { writeAudit } = require('./audit.cjs');
 
 const ROLE_PERMISSIONS = Object.freeze({
   ADMIN: ['*'],
-  FINANCE: ['finance.view', 'finance.manage', 'registry.view', 'registry.manage'],
-  MANAGER: ['finance.view', 'finance.manage', 'registry.view', 'registry.manage', 'users.view'],
-  READONLY: ['finance.view', 'registry.view'],
+  FINANCE: ['finance.view', 'finance.manage', 'registry.view', 'registry.manage', 'crm.view', 'crm.billing.confirm'],
+  MANAGER: ['finance.view', 'finance.manage', 'registry.view', 'registry.manage', 'users.view', 'crm.view', 'crm.manage', 'crm.quotes', 'crm.convert', 'crm.billing.confirm'],
+  READONLY: ['finance.view', 'registry.view', 'crm.view'],
 });
 
 function normalizeLogin(value) { return String(value ?? '').trim().toLowerCase(); }

@@ -8,6 +8,22 @@ declare global {
   type CashMovementType = 'OPENING' | 'DEPOSIT' | 'WITHDRAWAL' | 'TRANSFER' | 'ADJUSTMENT' | 'SETTLEMENT';
   type StatementSourceType = 'CSV' | 'OFX' | 'PDF' | 'MANUAL' | 'XLSX' | 'ODS' | 'QIF';
 
+
+  type CrmStage = 'NEW'|'QUALIFIED'|'PROPOSAL'|'WON'|'LOST';
+  type CrmQuoteStatus = 'DRAFT'|'SENT'|'ACCEPTED'|'REJECTED';
+  interface CrmImportRow {name:string;email?:string;phone?:string;document?:string;source?:string;notes?:string}
+  interface CrmImportPreview {rows:Array<CrmImportRow&{index:number;status:'INVALID'|'DUPLICATE'|'READY';reason:string}>;ready:number;duplicates:number;invalid:number}
+  interface CrmLead {id:string;name:string;document:string|null;phone:string|null;email:string|null;source:string;status:'NEW'|'QUALIFIED'|'CONVERTED'|'DISCARDED';customerId:string|null;notes:string|null;ownerId:string|null;createdAt:string;updatedAt:string}
+  interface CrmOpportunity {id:string;leadId:string|null;customerId:string|null;title:string;amountCents:number;stage:CrmStage;ownerId:string|null;lossReason:string|null;closedAt:string|null;createdAt:string;updatedAt:string}
+  interface CrmStageHistory {id:string;opportunityId:string;fromStage:CrmStage|null;toStage:CrmStage;actorId:string|null;changedAt:string}
+  interface CrmActivity {id:string;opportunityId:string;kind:'CALL'|'EMAIL'|'WHATSAPP'|'MEETING'|'NOTE';note:string;occurredAt:string;createdAt:string}
+  interface CrmTask {id:string;opportunityId:string;title:string;dueAt:string|null;doneAt:string|null;done:boolean;createdAt:string;updatedAt:string}
+  interface CrmQuoteItem {id:string;description:string;quantity:number;unitPriceCents:number;totalCents:number;position:number}
+  interface CrmQuote {id:string;opportunityId:string;version:number;status:CrmQuoteStatus;totalCents:number;notes:string|null;createdAt:string;items:CrmQuoteItem[]}
+  interface CrmBillingPreview {quoteId:string;quoteVersion:number;opportunityId:string;customerId:string;customerName:string;totalCents:number;installments:Array<{number:number;amountCents:number;dueAt:string}>}
+  interface CrmBillingLink {id:string;quote_id:string;opportunity_id:string;installment_no:number;financial_entry_id:string;amount_cents:number;due_at:string;entry:FinanceEntry|null}
+  interface CrmMetrics {stageTotalsCents:Record<CrmStage,number>;wonCount:number;leadCount:number;overdueTasks:number}
+
   interface FinanceiroUser { id:string; login:string; name:string; role:FinanceiroRole; active:boolean; createdAt?:string; updatedAt?:string }
   interface FinanceiroSession { user:FinanceiroUser; permissions:string[] }
   interface FinanceiroLicenseStatus { active:boolean; reason:string; mode:'licensed'; message?:string; type?:'TRIAL'|'TERM'|'PERPETUAL'; licenseId?:string; customer?:string; expiresAt?:string; daysRemaining?:number }
@@ -69,6 +85,31 @@ declare global {
       reports:{ financial(token:string,filters?:Record<string,unknown>):Promise<FinancialReport>; receipt(token:string,settlementId:string):Promise<SettlementReceipt>; csv(token:string,filters?:Record<string,unknown>):Promise<{filename:string;mime:string;data:string}>; xlsx(token:string,filters?:Record<string,unknown>):Promise<{filename:string;mime:string;dataBase64:string}>; ods(token:string,filters?:Record<string,unknown>):Promise<{filename:string;mime:string;dataBase64:string}>; docx(token:string,filters?:Record<string,unknown>):Promise<{filename:string;mime:string;dataBase64:string}>; json(token:string,filters?:Record<string,unknown>):Promise<{filename:string;mime:string;data:string}>; package(token:string,filters?:Record<string,unknown>):Promise<{filename:string;mime:string;dataBase64:string}>; selectArchive(token:string):Promise<{canceled:boolean;archiveId?:string;filename?:string;preview?:{valid:boolean;summary:{rows:number;amountCents:number;settledCents:number;openCents:number}}}>; importArchive(token:string,id:string):Promise<{imported:boolean;sha256:string;rows:number;mode:string}>; selectPdfForm(token:string):Promise<{canceled:boolean;formId?:string;filename?:string;fields?:Array<{name:string;type:string;options:string[]}>}>; fillPdfForm(token:string,id:string,values:Record<string,string|boolean>):Promise<{canceled:boolean;path?:string;bytes?:number}>; mergePdf(token:string):Promise<{canceled:boolean;path?:string;bytes?:number}>; savePdf(token:string,filters?:Record<string,unknown>):Promise<{canceled:boolean;path?:string;bytes?:number}>; print(token:string,filters?:Record<string,unknown>):Promise<{printed:boolean}>; saveReceiptPdf(token:string,settlementId:string):Promise<{canceled:boolean;path?:string;bytes?:number}>; printReceipt(token:string,settlementId:string):Promise<{printed:boolean}> };
       backup:{ list(token:string,filters?:Record<string,unknown>):Promise<BackupRecord[]>; create(token:string):Promise<BackupRecord>; verify(token:string,filePath:string):Promise<{valid:boolean;reason:string;sha256?:string;bytes?:number;schemaVersion?:number}>; restoreSelect(token:string):Promise<{canceled:boolean;restored?:boolean;restarting?:boolean;safetyBackup?:string}> };
       lan:{ status(token:string):Promise<LanStatus>; configure(token:string,input:{enabled:boolean;host:string;port:number}):Promise<LanStatus>; pairingCode(token:string):Promise<LanPairingCode> };
+      crm:{
+        listLeads(token:string,filters?:{query?:string;status?:string}):Promise<CrmLead[]>;
+        saveLead(token:string,input:{id?:string;name:string;document?:string;phone?:string;email?:string;source?:string;notes?:string}):Promise<CrmLead>;
+        previewLeadImport(token:string,rows:CrmImportRow[]):Promise<CrmImportPreview>;
+        commitLeadImport(token:string,rows:CrmImportRow[]):Promise<{created:number;skipped:number}>;
+        setLeadStatus(token:string,id:string,status:'NEW'|'QUALIFIED'|'DISCARDED'):Promise<CrmLead>;
+        convertLead(token:string,id:string,input?:{customerId?:string}):Promise<PartyRecord>;
+        listOpportunities(token:string,filters?:{query?:string;stage?:CrmStage}):Promise<CrmOpportunity[]>;
+        saveOpportunity(token:string,input:{id?:string;leadId?:string;customerId?:string;title:string;amountCents:number}):Promise<CrmOpportunity>;
+        moveOpportunity(token:string,id:string,stage:CrmStage,options?:{lossReason?:string}):Promise<CrmOpportunity>;
+        listStageHistory(token:string,opportunityId:string):Promise<CrmStageHistory[]>;
+        listActivities(token:string,opportunityId:string):Promise<CrmActivity[]>;
+        addActivity(token:string,input:{opportunityId:string;kind:CrmActivity['kind'];note:string}):Promise<CrmActivity>;
+        listTasks(token:string,filters?:{opportunityId?:string;pending?:boolean}):Promise<CrmTask[]>;
+        saveTask(token:string,input:{opportunityId:string;title:string;dueAt?:string}):Promise<CrmTask>;
+        setTaskDone(token:string,id:string,done:boolean):Promise<CrmTask>;
+        listQuotes(token:string,opportunityId:string):Promise<CrmQuote[]>;
+        createQuote(token:string,input:{opportunityId:string;items:Array<{description:string;quantity:number;unitPriceCents:number}>;notes?:string}):Promise<CrmQuote>;
+        setQuoteStatus(token:string,id:string,status:CrmQuoteStatus):Promise<CrmQuote>;
+        saveQuotePdf(token:string,id:string):Promise<{canceled:boolean;path?:string;bytes?:number}>;
+        previewReceivables(token:string,input:{quoteId:string;installments:number;firstDueAt:string}):Promise<CrmBillingPreview>;
+        confirmReceivables(token:string,input:{quoteId:string;installments:number;firstDueAt:string;expectedTotalCents:number;accountId?:string;categoryId?:string}):Promise<{alreadyConfirmed:boolean;entries:FinanceEntry[]}>;
+        listBillingLinks(token:string,opportunityId:string):Promise<CrmBillingLink[]>;
+        metrics(token:string):Promise<CrmMetrics>;
+      };
       registry:{ listCustomers(token:string,filters?:Record<string,unknown>):Promise<PartyRecord[]>; saveCustomer(token:string,input:Partial<PartyRecord>&{name:string}):Promise<PartyRecord>; setCustomerActive(token:string,id:string,active:boolean):Promise<PartyRecord>; listCreditors(token:string,filters?:Record<string,unknown>):Promise<PartyRecord[]>; saveCreditor(token:string,input:Partial<PartyRecord>&{name:string}):Promise<PartyRecord>; setCreditorActive(token:string,id:string,active:boolean):Promise<PartyRecord>; listCategories(token:string,filters?:{nature?:CategoryNature;includeInactive?:boolean}):Promise<FinancialCategory[]>; saveCategory(token:string,input:Partial<FinancialCategory>&{name:string;nature:CategoryNature}):Promise<FinancialCategory>; setCategoryActive(token:string,id:string,active:boolean):Promise<FinancialCategory> };
     };
   }

@@ -9,6 +9,7 @@ const { createUpdateService } = require('./services/update-service.cjs');
 const { migrateLegacyTrialData } = require('./services/migrate-license-data.cjs');
 const { createFinanceService } = require('./services/finance-service.cjs');
 const { createRegistryService } = require('./services/registry-service.cjs');
+const { createCrmService } = require('./services/crm-service.cjs');
 const { createCashflowService } = require('./services/cashflow-service.cjs');
 const { createAnalyticsService } = require('./services/analytics-service.cjs');
 const { createRecurrenceService } = require('./services/recurrence-service.cjs');
@@ -79,6 +80,7 @@ app.whenReady().then(async () => {
   if (qaMode) seedQaFixture({ db, auth });
   const finance = createFinanceService({ db });
   const registry = createRegistryService({ db });
+  const crm = createCrmService({ db, finance, registry });
   const cashflow = createCashflowService({ db });
   const analytics = createAnalyticsService({ db, finance, cashflow });
   const recurrence = createRecurrenceService({ db, finance });
@@ -112,7 +114,7 @@ app.whenReady().then(async () => {
   const licensedIpc={handle(channel,handler){
     ipcMain.handle(channel,(...args)=>{license.requireActive();return handler(...args);});
   }};
-  registerIpcHandlers({ ipcMain:licensedIpc, app, dialog, database, auth, finance, registry, cashflow, analytics, recurrence, alerts, reports, backup, lan: lanService, documents, statements, workspace: workspaceService });
+  registerIpcHandlers({ ipcMain:licensedIpc, app, dialog, database, auth, finance, registry, crm, cashflow, analytics, recurrence, alerts, reports, backup, lan: lanService, documents, statements, workspace: workspaceService });
   registerPlanningIpcHandlers({ ipcMain:licensedIpc, auth, planning, attachmentOcr });
   const updates=createUpdateService({
     ipcMain,app,BrowserWindow,

@@ -1,11 +1,12 @@
 import { Profiler, type ReactNode, useEffect, useState } from 'react';
-import { ArrowLeftRight, BarChart3, BellRing, Database, FileInput, FileText, Folder, LogOut, Menu, ReceiptText, Repeat2, Settings, Users, WalletCards } from 'lucide-react';
+import { ArrowLeftRight, BarChart3, BellRing, Database, FileInput, FileText, Folder, LogOut, Menu, ReceiptText, Repeat2, Settings, Users, WalletCards, Briefcase } from 'lucide-react';
 import AuthScreen from './components/AuthScreen';
 import LicenseScreen from './components/LicenseScreen';
 import UpdateNotice from './components/UpdateNotice';
 import FirstUseGuide from './components/FirstUseGuide';
 import AlertsPage from './pages/AlertsPage';
 import CashflowPage from './pages/CashflowPage';
+import CrmPage from './pages/CrmPage';
 import DashboardPage from './pages/DashboardPage';
 import DrePage from './pages/DrePage';
 import FinancePage from './pages/FinancePage';
@@ -19,7 +20,7 @@ import UsersPage from './pages/UsersPage';
 import WorkspacePage from './pages/WorkspacePage';
 import { can } from './lib/format';
 
-type Page = 'dashboard' | 'finance' | 'statements' | 'cashflow' | 'dre' | 'planning' | 'recurring' | 'alerts' | 'reports' | 'workspace' | 'registry' | 'users' | 'system';
+type Page = 'crm' | 'dashboard' | 'finance' | 'statements' | 'cashflow' | 'dre' | 'planning' | 'recurring' | 'alerts' | 'reports' | 'workspace' | 'registry' | 'users' | 'system';
 
 function Preview() {
   return <main className="app-shell"><section className="hero-card"><div className="brand-mark"><Database size={28}/></div><div><p className="eyebrow">ArtiSys</p><h1>Sistema Financeiro</h1><p className="subtitle">Prévia web local. O aplicativo desktop concentra banco, regras financeiras e segurança.</p></div><span className="status status-ok">Base E01–E24</span></section></main>;
@@ -104,6 +105,7 @@ export default function App() {
       <div className="sidebar-brand"><div className="brand-mark mini"><WalletCards size={20}/></div><div><strong>ArtiSys</strong><small>Financeiro</small></div></div>
       <nav aria-label="Navegação principal">
         {group('Visão geral', <>{nav('dashboard','Dashboard',<Database size={18}/>)}{nav('alerts','Alertas',<BellRing size={18}/>)}</>)}
+        {group('Comercial', <>{nav('crm','CRM e Vendas',<Briefcase size={18}/>)}</>)}
         {group('Lançamentos', <>{nav('finance','Pagar / Receber',<ReceiptText size={18}/>)}{nav('recurring','Recorrências',<Repeat2 size={18}/>)}</>)}
         {group('Contas e caixa', <>{nav('cashflow','Contas e saldos',<ArrowLeftRight size={18}/>)}{nav('statements','Extratos',<FileInput size={18}/>)}</>)}
         {group('Análises', <>{nav('dre','DRE',<BarChart3 size={18}/>)}{nav('reports','Relatórios',<FileText size={18}/>)}</>)}
@@ -114,7 +116,7 @@ export default function App() {
     </aside>
     <main className="content">
       {firstUseError&&<div role="alert" className="error-box">Não foi possível abrir o guia: {firstUseError} <button type="button" onClick={()=>void openFirstUse()}>Tentar novamente</button></div>}
-      {page==='dashboard' && qaProfile('dashboard', <DashboardPage key={dashboardVersion} token={token} canManage={can(session,'finance.manage')} onOpenGuide={()=>void openFirstUse()} onViewFinance={(kind)=>{setFinanceIntent(null);setBrowseFinanceKind(kind);setPage('finance');}} onOpenFinance={(kind)=>{setFinanceIntent(kind);setPage('finance');}} onOpenCashflow={()=>setPage('cashflow')}/>)} {page==='alerts' && <AlertsPage token={token} session={session}/>} {page==='cashflow' && <CashflowPage token={token} session={session}/>} {page==='finance' && qaProfile('finance', <FinancePage token={token} session={session} intent={financeIntent} browseKind={browseFinanceKind} onBrowseHandled={()=>setBrowseFinanceKind(null)} onIntentHandled={()=>setFinanceIntent(null)} onOpenPlanning={(entryId)=>{setApprovalEntryIntent(entryId);setPage('planning');}} focusEntry={focusedFinanceEntry}/>)} {page==='statements' && <StatementsPage token={token} session={session} onOpenFinance={()=>setPage('finance')}/>} {page==='dre' && <DrePage token={token}/>} {page==='planning' && qaProfile('planning', <PlanningPage token={token} session={session} focusApprovalEntryId={approvalEntryIntent} onApprovalFocusHandled={()=>setApprovalEntryIntent(null)}/>)} {page==='reports' && <ReportsPage token={token}/>} {page==='recurring' && <RecurringPage token={token} session={session} onOpenEntry={entry=>{setFocusedFinanceEntry(entry);setBrowseFinanceKind(entry.kind);setPage('finance');}}/>} {page==='workspace' && <WorkspacePage token={token} session={session}/>} {page==='registry' && <RegistryPage token={token} session={session}/>} {page==='users' && showUsers && <UsersPage token={token} session={session}/>} {page==='system' && showSystem && <SystemPage token={token}/>} 
+      {page==='crm' && can(session,'crm.view') && <CrmPage token={token} session={session}/>} {page==='dashboard' && qaProfile('dashboard', <DashboardPage key={dashboardVersion} token={token} canManage={can(session,'finance.manage')} onOpenGuide={()=>void openFirstUse()} onViewFinance={(kind)=>{setFinanceIntent(null);setBrowseFinanceKind(kind);setPage('finance');}} onOpenFinance={(kind)=>{setFinanceIntent(kind);setPage('finance');}} onOpenCashflow={()=>setPage('cashflow')}/>)} {page==='alerts' && <AlertsPage token={token} session={session}/>} {page==='cashflow' && <CashflowPage token={token} session={session}/>} {page==='finance' && qaProfile('finance', <FinancePage token={token} session={session} intent={financeIntent} browseKind={browseFinanceKind} onBrowseHandled={()=>setBrowseFinanceKind(null)} onIntentHandled={()=>setFinanceIntent(null)} onOpenPlanning={(entryId)=>{setApprovalEntryIntent(entryId);setPage('planning');}} focusEntry={focusedFinanceEntry}/>)} {page==='statements' && <StatementsPage token={token} session={session} onOpenFinance={()=>setPage('finance')}/>} {page==='dre' && <DrePage token={token}/>} {page==='planning' && qaProfile('planning', <PlanningPage token={token} session={session} focusApprovalEntryId={approvalEntryIntent} onApprovalFocusHandled={()=>setApprovalEntryIntent(null)}/>)} {page==='reports' && <ReportsPage token={token}/>} {page==='recurring' && <RecurringPage token={token} session={session} onOpenEntry={entry=>{setFocusedFinanceEntry(entry);setBrowseFinanceKind(entry.kind);setPage('finance');}}/>} {page==='workspace' && <WorkspacePage token={token} session={session}/>} {page==='registry' && <RegistryPage token={token} session={session}/>} {page==='users' && showUsers && <UsersPage token={token} session={session}/>} {page==='system' && showSystem && <SystemPage token={token}/>} 
     </main>
     {showFirstUse&&<FirstUseGuide token={token} userId={session.user.id} existingAccountId={firstUseContext.existingAccountId} hasOpening={firstUseContext.hasOpening} onDone={closeFirstUse} onSkip={closeFirstUse}/>}
   </div></>;
