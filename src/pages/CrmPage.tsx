@@ -2,9 +2,10 @@ import {useCallback,useEffect,useMemo,useState,type FormEvent,type DragEvent,typ
 import {ArrowRight,Check,Clock,FileDown,Handshake,Plus,Search,Users} from 'lucide-react';
 import {brl,toCents,today,can} from '../lib/format';
 import Papa from 'papaparse';
+import CrmIntelligencePanel from './CrmIntelligencePanel';
 
 type Props={token:string;session:FinanceiroSession};
-type Tab='pipeline'|'leads'|'tasks'|'quotes';
+type Tab='pipeline'|'leads'|'tasks'|'quotes'|'agenda'|'reports'|'goals'|'pipelines';
 const stages:CrmStage[]=['NEW','QUALIFIED','PROPOSAL','WON','LOST'];
 const names:Record<CrmStage,string>={NEW:'Contato',QUALIFIED:'Qualificado',PROPOSAL:'Proposta',WON:'Ganho',LOST:'Perdido'};
 const emptyLead={name:'',document:'',phone:'',email:'',source:'MANUAL',notes:''};
@@ -19,6 +20,9 @@ export default function CrmPage({token,session}:Props){
  const convertible=can(session,'crm.convert'),billingAllowed=can(session,'crm.billing.confirm');
  const [tab,setTab]=useState<Tab>('pipeline');
  const [leads,setLeads]=useState<CrmLead[]>([]);
+ const [pipelines,setPipelines]=useState<CrmPipeline[]>([]);
+ const [owners,setOwners]=useState<CrmOwner[]>([]);
+ const [pipelineFilter,setPipelineFilter]=useState('');
  const [opportunities,setOpportunities]=useState<CrmOpportunity[]>([]);
  const [tasks,setTasks]=useState<CrmTask[]>([]);
  const [customers,setCustomers]=useState<PartyRecord[]>([]);
@@ -37,7 +41,7 @@ export default function CrmPage({token,session}:Props){
  const [editingLeadId,setEditingLeadId]=useState<string|null>(null);
  const [importRows,setImportRows]=useState<CrmImportRow[]>([]);
  const [importPreview,setImportPreview]=useState<CrmImportPreview|null>(null);
- const [dealForm,setDealForm]=useState({party:'',title:'',amount:'0'});
+ const [dealForm,setDealForm]=useState({party:'',title:'',amount:'0',ownerId:'',expectedCloseAt:'',pipelineId:''});
  const [note,setNote]=useState('');
  const [activityKind,setActivityKind]=useState<CrmActivity['kind']>('NOTE');
  const [taskForm,setTaskForm]=useState({title:'',dueAt:''});
@@ -47,15 +51,18 @@ export default function CrmPage({token,session}:Props){
  const [message,setMessage]=useState(''),[error,setError]=useState(''),[busy,setBusy]=useState(false);
  const deal=useMemo(()=>opportunities.find(o=>o.id===selectedId)||null,[opportunities,selectedId]);
  const selectedQuote=quotes.find(q=>q.id===selectedQuoteId)||quotes[0]||null;
+ const activePipeline=pipelines.find(p=>p.id===pipelineFilter)||pipelines.find(p=>p.isDefault)||pipelines[0];
+ const activeStages=useMemo(()=>(activePipeline?.stages||[]).filter(s=>s.active).sort((a,b)=>a.position-b.position),[activePipeline]);
 
  const load=useCallback(async()=>{
-  const [l,o,t,c,a,cats,m]=await Promise.all([
+  const [l,o,t,c,a,cats,m,pipelinesData,ownersData]=await Promise.all([
    api.crm.listLeads(token),api.crm.listOpportunities(token),api.crm.listTasks(token),
    api.registry.listCustomers(token),api.finance.listAccounts(token),api.registry.listCategories(token),
-   api.crm.metrics(token)
+   api.crm.metrics(token),api.crmIntelligence.listPipelines(token),api.crmIntelligence.listOwners(token)
   ]);
   setLeads(l);setOpportunities(o);setTasks(t);setCustomers(c);setAccounts(a);
   setCategories(cats.filter(x=>x.nature==='REVENUE'));setMetrics(m);
+  setPipelines(pipelinesData);setOwners(ownersData);
  },[api,token]);
  const loadDetail=useCallback(async(id:string)=>{
   const [a,q,b,h]=await Promise.all([
@@ -111,9 +118,10 @@ export default function CrmPage({token,session}:Props){
    const [kind,id]=dealForm.party.split(':');
    const created=await api.crm.saveOpportunity(token,{
     ...(kind==='lead'?{leadId:id}:{customerId:id}),
-    title:dealForm.title,amountCents:dealForm.amount.trim()?toCents(dealForm.amount):0
+    title:dealForm.title,amountCents:dealForm.amount.trim()&&dealForm.amount.trim()!=='0'?toCents(dealForm.amount):0,
+    ownerId:dealForm.ownerId||undefined,expectedCloseAt:dealForm.expectedCloseAt||undefined,pipelineId:dealForm.pipelineId||activePipeline?.id
    });
-   setSelectedId(created.id);setDealForm({party:'',title:'',amount:'0'});setTab('pipeline');
+   setSelectedId(created.id);setDealForm({party:'',title:'',amount:'0',ownerId:'',expectedCloseAt:'',pipelineId:''});setTab('pipeline');
   },'Oportunidade criada.');
  }
  async function changeStage(id:string,stage:CrmStage){
@@ -166,10 +174,25 @@ export default function CrmPage({token,session}:Props){
   },'Recebíveis vinculados ao Financeiro.');
  }
  function dragStart(e:DragEvent<HTMLElement>,id:string){e.dataTransfer.setData('text/plain',id);e.dataTransfer.effectAllowed='move';}
- function dropStage(e:DragEvent<HTMLElement>,stage:CrmStage){e.preventDefault();if(!editable)return;const id=e.dataTransfer.getData('text/plain');if(opportunities.some(x=>x.id===id))void changeStage(id,stage);}
+ async function changeCustomStage(id:string,stage:CrmPipelineStage){
+  const item=opportunities.find(o=>o.id===id);
+  if(!item||item.stageId===stage.id)return;
+  let lossReason='';
+  if(stage.legacyStage==='LOST'){
+   const reason=window.prompt('Qual o motivo da perda?');if(!reason?.trim())return;
+   lossReason=reason;
+  }
+  await run(()=>api.crmIntelligence.moveToStage(token,id,stage.id,{lossReason}),
+   stage.legacyStage==='WON'?'Venda ganha. Confirme o recebível apenas quando desejar.':'Etapa comercial atualizada.');
+ }
+ function dropStage(e:DragEvent<HTMLElement>,stage:CrmPipelineStage){
+  e.preventDefault();if(!editable)return;
+  const id=e.dataTransfer.getData('text/plain');
+  if(opportunities.some(x=>x.id===id))void changeCustomStage(id,stage);
+ }
  const filtered=opportunities.filter(o=>{
   const lead=leads.find(l=>l.id===o.leadId);
-  return [o.title,lead?.name,customers.find(c=>c.id===o.customerId)?.name].some(s=>String(s||'').toLowerCase().includes(query.toLowerCase()));
+  return (!activePipeline||o.pipelineId===activePipeline.id)&&[o.title,lead?.name,customers.find(c=>c.id===o.customerId)?.name].some(s=>String(s||'').toLowerCase().includes(query.toLowerCase()));
  });
  return <section className="page-stack crm-page" data-testid="page-crm">
   <div className="page-header"><div><p className="eyebrow">Comercial</p><h2>CRM — Vendas e prospecção</h2><p className="muted">Relacionamentos e propostas conectados ao Financeiro, sem gerar recebíveis automaticamente.</p></div></div>
@@ -183,10 +206,12 @@ export default function CrmPage({token,session}:Props){
   </div>
   <div className="page-toolbar crm-toolbar">
    <div className="segmented" role="tablist" aria-label="Áreas do CRM">
-    {([['pipeline','Funil'],['leads','Leads'],['tasks','Tarefas'],['quotes','Propostas']] as const).map(([value,label])=><button key={value} type="button" role="tab" aria-selected={tab===value} className={tab===value?'active':''} onClick={()=>setTab(value)}>{label}</button>)}
+    {([['pipeline','Funil'],['leads','Leads'],['tasks','Tarefas'],['quotes','Propostas'],['agenda','Agenda'],['reports','Indicadores'],['goals','Metas'],['pipelines','Configurar funis']] as const).map(([value,label])=><button key={value} type="button" role="tab" aria-selected={tab===value} className={tab===value?'active':''} onClick={()=>setTab(value)}>{label}</button>)}
    </div>
    <label className="search-control"><Search size={16}/><input aria-label="Buscar oportunidades" value={query} onChange={e=>setQuery(e.target.value)} placeholder="Buscar oportunidades"/></label>
   </div>
+  {(['agenda','reports','goals','pipelines'] as const).includes(tab as 'agenda'|'reports'|'goals'|'pipelines')&&
+   <CrmIntelligencePanel mode={tab as 'agenda'|'reports'|'goals'|'pipelines'} token={token} session={session} opportunities={opportunities} pipelines={pipelines} owners={owners} refresh={load}/>}
   {tab==='leads'&&<div className="panel crm-import">
    <div><h3>Importar leads por CSV</h3><p className="muted">Colunas aceitas: nome, email, telefone, cpfcnpj, origem e observacoes. Prévia antes de qualquer cadastro.</p></div>
    <input type="file" accept=".csv,text/csv" aria-label="Arquivo CSV de leads" onChange={e=>void loadCsv(e)}/>
@@ -223,13 +248,16 @@ export default function CrmPage({token,session}:Props){
     <label>Lead ou cliente<select required value={dealForm.party} onChange={e=>setDealForm({...dealForm,party:e.target.value})}><option value="">Selecione</option><optgroup label="Leads">{leads.map(l=><option key={l.id} value={'lead:'+l.id}>{l.name}</option>)}</optgroup><optgroup label="Clientes">{customers.map(c=><option key={c.id} value={'customer:'+c.id}>{c.name}</option>)}</optgroup></select></label>
     <label>Nome da oportunidade<input required value={dealForm.title} onChange={e=>setDealForm({...dealForm,title:e.target.value})}/></label>
     <label>Estimativa (R$)<input value={dealForm.amount} onChange={e=>setDealForm({...dealForm,amount:e.target.value})} inputMode="decimal"/></label>
+    <label>Responsável<select value={dealForm.ownerId} onChange={e=>setDealForm({...dealForm,ownerId:e.target.value})}><option value="">Sem responsável</option>{owners.map(o=><option key={o.id} value={o.id}>{o.name}</option>)}</select></label>
+    <label>Fechamento previsto<input type="date" value={dealForm.expectedCloseAt} onChange={e=>setDealForm({...dealForm,expectedCloseAt:e.target.value})}/></label>
     <button className="primary-button" disabled={busy}>Adicionar</button>
    </form>}
+   <label className="crm-pipeline-picker">Funil comercial <select aria-label="Filtrar funil comercial" value={activePipeline?.id||''} onChange={e=>{setPipelineFilter(e.target.value);setSelectedId(null);}}>{pipelines.map(p=><option key={p.id} value={p.id}>{p.name}{p.isDefault?' (principal)':''}</option>)}</select></label>
    <div className="crm-kanban" aria-label="Funil de vendas">
-    {stages.map(stage=><section key={stage} className="crm-stage" aria-label={names[stage]} onDragOver={e=>{if(editable)e.preventDefault();}} onDrop={e=>dropStage(e,stage)}>
-     <header><strong>{names[stage]}</strong><span>{filtered.filter(o=>o.stage===stage).length}</span></header>
-     <small>{brl(filtered.filter(o=>o.stage===stage).reduce((s,o)=>s+o.amountCents,0))}</small>
-     {filtered.filter(o=>o.stage===stage).map(o=><button key={o.id} type="button" draggable={editable} onDragStart={e=>dragStart(e,o.id)} className={'crm-deal '+(selectedId===o.id?'crm-deal-selected':'')} onClick={()=>setSelectedId(o.id)}>
+    {activeStages.map(stage=><section key={stage.id} className="crm-stage" aria-label={stage.name} onDragOver={e=>{if(editable)e.preventDefault();}} onDrop={e=>dropStage(e,stage)}>
+     <header><strong>{stage.name}</strong><span>{filtered.filter(o=>o.stageId===stage.id).length}</span></header>
+     <small>{brl(filtered.filter(o=>o.stageId===stage.id).reduce((s,o)=>s+o.amountCents,0))}</small>
+     {filtered.filter(o=>o.stageId===stage.id).map(o=><button key={o.id} type="button" draggable={editable} onDragStart={e=>dragStart(e,o.id)} className={'crm-deal '+(selectedId===o.id?'crm-deal-selected':'')} onClick={()=>setSelectedId(o.id)}>
       <strong>{o.title}</strong><span>{brl(o.amountCents)}</span><small>{leads.find(l=>l.id===o.leadId)?.name||customers.find(c=>c.id===o.customerId)?.name||'Cliente'}</small>
      </button>)}
     </section>)}
@@ -242,12 +270,16 @@ export default function CrmPage({token,session}:Props){
    <div className="crm-quote-list">{opportunities.filter(o=>o.stage==='PROPOSAL'||o.stage==='WON').map(o=><button type="button" className="crm-quote-row" key={o.id} onClick={()=>{setSelectedId(o.id);setTab('pipeline');}}>{o.title}<span>{brl(o.amountCents)} <ArrowRight size={15}/></span></button>)}</div>
   </div>}
   {deal&&tab==='pipeline'&&<div className="panel crm-detail" data-testid="crm-opportunity-detail">
-   <div className="crm-detail-heading"><div><p className="eyebrow">Oportunidade</p><h3>{deal.title}</h3><p className="muted">{brl(deal.amountCents)} · {names[deal.stage]}</p></div><button type="button" className="secondary-button small" onClick={()=>setSelectedId(null)}>Fechar</button></div>
+   <div className="crm-detail-heading"><div><p className="eyebrow">Oportunidade</p><h3>{deal.title}</h3><p className="muted">{brl(deal.amountCents)} · {activeStages.find(s=>s.id===deal.stageId)?.name||names[deal.stage]}</p></div><button type="button" className="secondary-button small" onClick={()=>setSelectedId(null)}>Fechar</button></div>
    <div className="crm-detail-grid">
     <div className="crm-detail-left">
      <div className="crm-section">
       <h3><Handshake size={18}/> Etapa comercial</h3>
       <label>Mover oportunidade<select value={deal.stage} disabled={!editable||busy} onChange={e=>void changeStage(deal.id,e.target.value as CrmStage)}>{stages.map(s=><option key={s} value={s}>{names[s]}</option>)}</select></label>
+      {activeStages.length>5&&<label>Etapa personalizada<select aria-label="Mover para etapa personalizada" value={deal.stageId||''} disabled={!editable||busy} onChange={e=>{const stage=activeStages.find(s=>s.id===e.target.value);if(stage)void changeCustomStage(deal.id,stage);}}>{activeStages.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select></label>}
+      <label>Responsável comercial<select aria-label="Responsável comercial" value={deal.ownerId||''} disabled={!editable||busy} onChange={e=>void run(()=>api.crmIntelligence.assignOwner(token,deal.id,e.target.value||null),'Responsável atualizado.')}><option value="">Sem responsável</option>{owners.map(o=><option key={o.id} value={o.id}>{o.name}</option>)}</select></label>
+      <label>Previsão de fechamento<input type="date" aria-label="Previsão de fechamento" value={deal.expectedCloseAt||''} disabled={!editable||busy} onChange={e=>void run(()=>api.crmIntelligence.setExpectedClose(token,deal.id,e.target.value||null),'Previsão atualizada.')} /></label>
+      <label>Transferir para funil<select aria-label="Transferir funil" value={deal.pipelineId||''} disabled={!editable||busy} onChange={e=>void run(()=>api.crmIntelligence.assignPipeline(token,deal.id,e.target.value),'Funil alterado.')} >{pipelines.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
       {deal.stage==='WON'&&<p className="success-box">Venda ganha. Nenhum recebível é criado sem sua confirmação.</p>}
       {history.length>0&&<div className="crm-stage-history"><strong>Histórico do funil</strong>{history.map(h=><p key={h.id}>{h.fromStage?names[h.fromStage]:'Novo'} → {names[h.toStage]} · {niceDate(h.changedAt)}</p>)}</div>}
       {deal.leadId&&!deal.customerId&&convertible&&<button type="button" disabled={busy} className="secondary-button" onClick={()=>void run(()=>api.crm.convertLead(token,deal.leadId!,{}),'Cliente vinculado ao Financeiro.')}>Converter lead em cliente</button>}
