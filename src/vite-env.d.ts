@@ -124,7 +124,7 @@ declare global {
         setLeadStatus(token:string,id:string,status:'NEW'|'QUALIFIED'|'DISCARDED'):Promise<CrmLead>;
         convertLead(token:string,id:string,input?:{customerId?:string}):Promise<PartyRecord>;
         listOpportunities(token:string,filters?:{query?:string;stage?:CrmStage}):Promise<CrmOpportunity[]>;
-        saveOpportunity(token:string,input:{id?:string;leadId?:string;customerId?:string;title:string;amountCents:number;ownerId?:string;expectedCloseAt?:string}):Promise<CrmOpportunity>;
+        saveOpportunity(token:string,input:{id?:string;leadId?:string;customerId?:string;title:string;amountCents:number;ownerId?:string;expectedCloseAt?:string;pipelineId?:string}):Promise<CrmOpportunity>;
         moveOpportunity(token:string,id:string,stage:CrmStage,options?:{lossReason?:string}):Promise<CrmOpportunity>;
         listStageHistory(token:string,opportunityId:string):Promise<CrmStageHistory[]>;
         listActivities(token:string,opportunityId:string):Promise<CrmActivity[]>;
