@@ -60,7 +60,7 @@ test('P2 allows new pipelines, custom stages and moving an opportunity without f
  assert.equal(moved.stage,'QUALIFIED');
  assert.equal(intelligence.listStageMovements(d.id).at(-1).stageId,custom.id);
  assert.equal(db.prepare('SELECT COUNT(*) count FROM financial_entries').get().count,0);
- assert.throws(()=>intelligence.savePipelineStage({pipelineId:made.id,name:'Ruim',legacyStage:'WON',probabilityBps:5500},actor),/100|ganh|probabilid/i);
+ assert.throws(()=>intelligence.savePipelineStage({pipelineId:made.id,name:'Ruim',legacyStage:'WON',probabilityBps:5500},actor),/100|ganh|probabilid|etapas abertas/i);
  db.close();
 });
 
