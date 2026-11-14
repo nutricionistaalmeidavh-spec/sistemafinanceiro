@@ -98,9 +98,9 @@ export default function CrmIntelligencePanel({mode,token,session,opportunities,p
     <div className="metric-card"><span>Próximos retornos</span><strong>{followups?.upcoming.length||0}</strong></div>
    </div>
    <div className="crm-p2-columns">
-    {editable&&<form className="panel crm-p2-form" onSubmit={e=>void saveAppointment(e)}>
+    {editable&&<form data-testid="crm-p2-appointment-form" className="panel crm-p2-form" onSubmit={e=>void saveAppointment(e)}>
      <h3><CalendarDays size={18}/> Agendar compromisso</h3>
-     <label>Oportunidade<select required value={appointment.opportunityId} onChange={e=>setAppointment({...appointment,opportunityId:e.target.value})}><option value="">Selecione</option>{opportunities.map(o=><option key={o.id} value={o.id}>{o.title}</option>)}</select></label>
+     <label>Oportunidade<select data-testid="crm-p2-opportunity-select" required value={appointment.opportunityId} onChange={e=>setAppointment({...appointment,opportunityId:e.target.value})}><option value="">Selecione</option>{opportunities.map(o=><option key={o.id} value={o.id}>{o.title}</option>)}</select></label>
      <label>Assunto<input required maxLength={240} value={appointment.title} onChange={e=>setAppointment({...appointment,title:e.target.value})}/></label>
      <div className="crm-p2-two">
       <label>Data<input required type="date" value={appointment.scheduledDate} onChange={e=>setAppointment({...appointment,scheduledDate:e.target.value})}/></label>
