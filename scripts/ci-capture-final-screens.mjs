@@ -153,6 +153,26 @@ try {
   await page.screenshot({path:path.join(crmFolder,'crm-comercial-funil-recebiveis.png'),fullPage:true});
   console.log('CRM_LEAD_QUOTE_BILLING_CONFIRMATION_OK');
 
+  // P2: exercita a agenda, indicadores, metas e configuração de funis no Electron real.
+  await page.getByRole('tab',{name:'Agenda'}).click();
+  await page.getByTestId('crm-p2-agenda').waitFor();
+  await page.getByLabel('Oportunidade',{exact:true}).selectOption({label:'Oportunidade QA Comercial'});
+  await page.getByLabel('Assunto').fill('Reunião P2 QA');
+  await page.getByRole('button',{name:'Salvar compromisso'}).click();
+  await page.getByText('Reunião P2 QA').first().waitFor({timeout:15000});
+  await page.screenshot({path:path.join(crmFolder,'crm-p2-agenda.png'),fullPage:true});
+  await page.getByRole('tab',{name:'Indicadores'}).click();
+  await page.getByTestId('crm-p2-reports').waitFor();
+  await page.getByText('Taxa de fechamento').waitFor();
+  await page.screenshot({path:path.join(crmFolder,'crm-p2-relatorios.png'),fullPage:true});
+  await page.getByRole('tab',{name:'Metas'}).click();
+  await page.getByTestId('crm-p2-goals').waitFor();
+  await page.getByText('Meta por vendedor').waitFor();
+  await page.getByRole('tab',{name:'Configurar funis'}).click();
+  await page.getByTestId('crm-p2-pipelines').waitFor();
+  await page.getByText('Etapas e probabilidades').waitFor();
+  console.log('CRM_P2_AGENDA_REPORTS_PIPELINES_OK');
+
   // Instrument the actual React render/commit cost in QA only (Vite dev).
   await page.evaluate(() => { window.__ARTISYS_RENDER_STATS = {}; });
   await page.getByTestId('nav-dashboard').click();
