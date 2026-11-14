@@ -84,10 +84,13 @@ function createCrmService({db,finance,registry,now=()=>new Date().toISOString(),
   }else{
    const defaultPipeline=db.prepare('SELECT id FROM crm_pipelines WHERE is_default=1 AND active=1').get();
    if(!defaultPipeline)throw new Error('Funil principal indisponível');
-   const firstStage=db.prepare("SELECT id FROM crm_pipeline_stages WHERE pipeline_id=? AND legacy_stage='NEW' AND active=1 ORDER BY position,id LIMIT 1").get(defaultPipeline.id);
-   if(!firstStage)throw new Error('Funil principal sem etapa inicial');
+   const pipelineId=input.pipelineId||defaultPipeline.id;
+   const selectedPipeline=db.prepare('SELECT id FROM crm_pipelines WHERE id=? AND active=1').get(pipelineId);
+   if(!selectedPipeline)throw new Error('Funil comercial indisponível');
+   const firstStage=db.prepare("SELECT id FROM crm_pipeline_stages WHERE pipeline_id=? AND legacy_stage='NEW' AND active=1 ORDER BY position,id LIMIT 1").get(selectedPipeline.id);
+   if(!firstStage)throw new Error('Funil selecionado sem etapa inicial');
    db.prepare('INSERT INTO crm_opportunities(id,title,amount_cents,lead_id,customer_id,owner_id,pipeline_id,stage_id,expected_close_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)')
-    .run(id,title,amountCents,leadId,customerId,ownerId,defaultPipeline.id,firstStage.id,expectedCloseAt,at(),at());
+    .run(id,title,amountCents,leadId,customerId,ownerId,selectedPipeline.id,firstStage.id,expectedCloseAt,at(),at());
   }
   audit(old?'crm.opportunity.update':'crm.opportunity.create','crm-opportunity',id,actor,{title});
   return getOpportunity(id);
