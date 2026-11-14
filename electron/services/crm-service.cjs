@@ -23,7 +23,7 @@ function createCrmService({db,finance,registry,now=()=>new Date().toISOString(),
  const audit=(action,entity,entityId,actor,context={})=>writeAudit(db,{action,entity,entityId,actor,context},at);
  const lookup=(table,id,label)=>{const row=db.prepare('SELECT * FROM '+table+' WHERE id=?').get(String(id));if(!row)throw new Error((label||table)+' não encontrado');return row;};
  const person=row=>row?{id:row.id,name:row.name,document:row.document,phone:row.phone,email:row.email,source:row.source,status:row.status,customerId:row.customer_id,notes:row.notes,ownerId:row.owner_id,createdAt:row.created_at,updatedAt:row.updated_at}:null;
- const deal=row=>row?{id:row.id,leadId:row.lead_id,customerId:row.customer_id,title:row.title,amountCents:row.amount_cents,stage:row.stage,ownerId:row.owner_id,lossReason:row.loss_reason,closedAt:row.closed_at,createdAt:row.created_at,updatedAt:row.updated_at}:null;
+ const deal=row=>row?{id:row.id,leadId:row.lead_id,customerId:row.customer_id,title:row.title,amountCents:row.amount_cents,stage:row.stage,ownerId:row.owner_id,lossReason:row.loss_reason,closedAt:row.closed_at,pipelineId:row.pipeline_id||null,stageId:row.stage_id||null,expectedCloseAt:row.expected_close_at||null,createdAt:row.created_at,updatedAt:row.updated_at}:null;
  const task=row=>row?{id:row.id,opportunityId:row.opportunity_id,title:row.title,dueAt:row.due_at,doneAt:row.done_at,done:!!row.done_at,createdAt:row.created_at,updatedAt:row.updated_at}:null;
  const activity=row=>row?{id:row.id,opportunityId:row.opportunity_id,kind:row.kind,note:row.note,occurredAt:row.occurred_at,createdAt:row.created_at}:null;
  const getLead=id=>person(lookup('crm_leads',id,'Lead'));
@@ -73,16 +73,21 @@ function createCrmService({db,finance,registry,now=()=>new Date().toISOString(),
   if(leadId){const lead=getLead(leadId);if(lead.customerId){if(customerId && customerId!==lead.customerId)throw new Error('Cliente conflitante');customerId=lead.customerId;}}
   if(customerId)lookup('customers',customerId,'Cliente');
   if(!leadId&&!customerId)throw new Error('Lead ou cliente necessário');
+  const expectedCloseAt=input.expectedCloseAt===undefined?(old?.expected_close_at||null):(input.expectedCloseAt?dateOnly(input.expectedCloseAt):null);
   const ownerId=input.ownerId??old?.owner_id??null;
   if(ownerId)lookup('users',ownerId,'Responsável');
   if(old){
    if(db.prepare('SELECT 1 FROM crm_billing_links WHERE opportunity_id=? LIMIT 1').get(id)&&Number(old.amount_cents)!==amountCents)
     throw new Error('Oportunidade faturada não permite alterar valor da venda');
-   db.prepare('UPDATE crm_opportunities SET title=?,amount_cents=?,lead_id=?,customer_id=?,owner_id=?,updated_at=? WHERE id=?')
-    .run(title,amountCents,leadId,customerId,ownerId,at(),id);
+   db.prepare('UPDATE crm_opportunities SET title=?,amount_cents=?,lead_id=?,customer_id=?,owner_id=?,expected_close_at=?,updated_at=? WHERE id=?')
+    .run(title,amountCents,leadId,customerId,ownerId,expectedCloseAt,at(),id);
   }else{
-   db.prepare('INSERT INTO crm_opportunities(id,title,amount_cents,lead_id,customer_id,owner_id,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)')
-    .run(id,title,amountCents,leadId,customerId,ownerId,at(),at());
+   const defaultPipeline=db.prepare('SELECT id FROM crm_pipelines WHERE is_default=1 AND active=1').get();
+   if(!defaultPipeline)throw new Error('Funil principal indisponível');
+   const firstStage=db.prepare("SELECT id FROM crm_pipeline_stages WHERE pipeline_id=? AND legacy_stage='NEW' AND active=1 ORDER BY position,id LIMIT 1").get(defaultPipeline.id);
+   if(!firstStage)throw new Error('Funil principal sem etapa inicial');
+   db.prepare('INSERT INTO crm_opportunities(id,title,amount_cents,lead_id,customer_id,owner_id,pipeline_id,stage_id,expected_close_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)')
+    .run(id,title,amountCents,leadId,customerId,ownerId,defaultPipeline.id,firstStage.id,expectedCloseAt,at(),at());
   }
   audit(old?'crm.opportunity.update':'crm.opportunity.create','crm-opportunity',id,actor,{title});
   return getOpportunity(id);
@@ -95,10 +100,14 @@ function createCrmService({db,finance,registry,now=()=>new Date().toISOString(),
   if(db.prepare('SELECT 1 FROM crm_billing_links WHERE opportunity_id=? LIMIT 1').get(id)&&to!=='WON')
    throw new Error('Venda com recebíveis já emitidos exige revisão financeira antes de reabrir');
   const reason=to==='LOST'?required(lossReason,'Motivo da perda',800):null;
+  const next=db.prepare('SELECT id FROM crm_pipeline_stages WHERE pipeline_id=? AND legacy_stage=? AND active=1 ORDER BY position,id LIMIT 1')
+   .get(current.pipeline_id,to);
+  if(!next)throw new Error('Funil não possui etapa correspondente');
   const changed=at();
-  db.prepare('UPDATE crm_opportunities SET stage=?,loss_reason=?,closed_at=?,updated_at=? WHERE id=?').run(to,reason,['WON','LOST'].includes(to)?changed:null,changed,id);
-  db.prepare('INSERT INTO crm_stage_history(id,opportunity_id,from_stage,to_stage,actor_id,changed_at) VALUES (?,?,?,?,?,?)')
-   .run(idFactory('crm-stage'),id,current.stage,to,actor?.id||null,changed);
+  db.prepare('UPDATE crm_opportunities SET stage=?,stage_id=?,loss_reason=?,closed_at=?,updated_at=? WHERE id=?')
+   .run(to,next.id,reason,['WON','LOST'].includes(to)?changed:null,changed,id);
+  db.prepare('INSERT INTO crm_stage_history(id,opportunity_id,from_stage,to_stage,actor_id,changed_at,from_custom_stage_id,to_custom_stage_id) VALUES (?,?,?,?,?,?,?,?)')
+   .run(idFactory('crm-stage'),id,current.stage,to,actor?.id||null,changed,current.stage_id,next.id);
   audit('crm.opportunity.move','crm-opportunity',id,actor,{from:current.stage,to});
   return getOpportunity(id);
  }
