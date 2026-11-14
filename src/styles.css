@@ -76,3 +76,49 @@
 .crm-page .crm-stage-history{background:#f8f9fd;padding:10px;border:1px solid #e5e9f2;border-radius:9px}
 .crm-page .crm-stage-history strong{font-size:12px}
 .crm-page .crm-stage-history p{font-size:12px;margin:7px 0 0;color:#657289}
+
+/* P2 — inteligência comercial; classes encapsuladas para não interferir no Financeiro. */
+.crm-page .crm-p2{display:grid;gap:16px}
+.crm-page .crm-p2-filters{display:flex;gap:12px;align-items:end;flex-wrap:wrap}
+.crm-page .crm-p2-filters label{min-width:150px;flex:1}
+.crm-page .crm-p2-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.crm-page .crm-p2-columns{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.35fr);gap:14px;align-items:start}
+.crm-page .crm-p2-form{display:grid;gap:12px;align-content:start}
+.crm-page .crm-p2-form h3{font-size:15px}
+.crm-page .crm-p2-two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.crm-page .crm-p2-agenda{display:grid;gap:9px;margin-top:12px;max-height:520px;overflow:auto}
+.crm-page .crm-p2-event{border:1px solid #e4e8f1;background:#fafbff;border-radius:11px;padding:12px;display:flex;flex-wrap:wrap;gap:9px;align-items:center;justify-content:space-between}
+.crm-page .crm-p2-event>div{display:grid;gap:4px;flex:1 1 170px}
+.crm-page .crm-p2-event>div small{color:#78849a}
+.crm-page .crm-p2-warning{background:#fff8e3;color:#78510c;padding:10px;border-radius:10px}
+.crm-page .crm-p2-forecast{display:grid;gap:15px;margin:18px 0}
+.crm-page .crm-p2-forecast-head{display:flex;justify-content:space-between;gap:10px;font-size:13px;flex-wrap:wrap}
+.crm-page .crm-p2-progress{height:9px;background:#e6e9f4;border-radius:20px;overflow:hidden;margin-top:7px}
+.crm-page .crm-p2-progress i{height:100%;display:block;max-width:100%;background:#665cf6;border-radius:20px}
+.crm-page .crm-p2-tally{padding:10px 0;border-bottom:1px solid #e6eaf1;display:flex;justify-content:space-between;gap:10px;font-size:13px}
+.crm-page .crm-p2-tally>span{color:#6d788e}
+.crm-page .crm-p2-goal{display:grid;gap:5px;padding:12px 0;border-bottom:1px solid #e9edf2}
+.crm-page .crm-p2-goal small{color:#7b8699}
+.crm-page .crm-p2-stage{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:12px;border:1px solid #e2e6f0;border-radius:10px}
+.crm-page .crm-p2-stage>div{display:grid;gap:5px}
+.crm-page .crm-p2-stage small{color:#79849a}
+.crm-page .crm-pipeline-picker{max-width:350px}
+.crm-page .crm-newdeal{grid-template-columns:repeat(3,minmax(0,1fr));align-items:end}
+.crm-page .crm-newdeal h3{grid-column:1/-1}
+.crm-page .crm-newdeal button{justify-self:start}
+.crm-page .crm-toolbar .segmented{flex-wrap:wrap;width:auto}
+.crm-page .crm-toolbar .segmented button{font-size:12px}
+@media(max-width:1150px){
+ .crm-page .crm-p2-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .crm-page .crm-p2-columns{grid-template-columns:1fr}
+}
+@media(max-width:650px){
+ .crm-page .crm-p2-metrics{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+ .crm-page .crm-p2-metrics .metric-card{padding:11px}
+ .crm-page .crm-p2-metrics .metric-card strong{font-size:18px}
+ .crm-page .crm-p2-two{grid-template-columns:1fr}
+ .crm-page .crm-newdeal{grid-template-columns:1fr}
+ .crm-page .crm-toolbar .segmented{display:flex}
+ .crm-page .crm-toolbar .segmented button{flex:0 0 auto}
+ .crm-page .crm-p2-filters label{min-width:100%}
+}
