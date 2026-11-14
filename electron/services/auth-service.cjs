@@ -6,7 +6,7 @@ const { writeAudit } = require('./audit.cjs');
 const ROLE_PERMISSIONS = Object.freeze({
   ADMIN: ['*'],
   FINANCE: ['finance.view', 'finance.manage', 'registry.view', 'registry.manage', 'crm.view', 'crm.billing.confirm'],
-  MANAGER: ['finance.view', 'finance.manage', 'registry.view', 'registry.manage', 'users.view', 'crm.view', 'crm.manage', 'crm.quotes', 'crm.convert', 'crm.billing.confirm'],
+  MANAGER: ['finance.view', 'finance.manage', 'registry.view', 'registry.manage', 'users.view', 'crm.view', 'crm.manage', 'crm.quotes', 'crm.convert', 'crm.billing.confirm', 'crm.pipeline.manage', 'crm.goals.manage'],
   READONLY: ['finance.view', 'registry.view', 'crm.view'],
 });
 
