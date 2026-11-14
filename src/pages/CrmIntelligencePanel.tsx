@@ -8,7 +8,7 @@ const messageOf=(error:unknown)=>error instanceof Error?error.message:String(err
 const dateRange=()=>{
  const date=today(),month=date.slice(0,7);
  const [year,mon]=month.split('-').map(Number);
- return {from:month+'-01',to:new Date(year,mon,0).toLocaleDateString('en-CA')};
+ return {from:month+'-01',to:month+'-'+String(new Date(year,mon,0).getDate()).padStart(2,'0')};
 };
 const formatDay=(date:string)=>date?date.split('-').reverse().join('/'):'—';
 export default function CrmIntelligencePanel({mode,token,session,opportunities,pipelines,owners,refresh}:Props){
