@@ -141,3 +141,28 @@ test('P2 CSV report escapes formulas and cells and does not create financial ent
  assert.equal(db.prepare('SELECT COUNT(*) count FROM financial_entries').get().count,0);
  db.close();
 });
+
+test('P2 legacy stage moves remain synchronized with the canonical custom stage and the FK guard',()=>{
+ const {db,crm}=setup();
+ const d=deal(crm,'Compatibilidade',15000);
+ assert.equal(crm.getOpportunity(d.id).stageId,'crm-stage-new');
+ const moved=crm.moveOpportunity(d.id,'QUALIFIED',actor);
+ assert.equal(moved.stageId,'crm-stage-qualified');
+ assert.equal(moved.pipelineId,'crm-pipeline-default');
+ assert.throws(()=>db.prepare("UPDATE crm_opportunities SET stage='NEW' WHERE id=?").run(d.id),/mismatch/i);
+ assert.equal(db.prepare('PRAGMA foreign_key_check').all().length,0);
+ db.close();
+});
+
+test('P2 disallows moving invoiced opportunities back into negotiation',()=>{
+ const {db,crm,intelligence}=setup();
+ const d=deal(crm,'Venda faturada',12000);
+ const quote=crm.createQuote({opportunityId:d.id,items:[{description:'Serviço',quantity:1,unitPriceCents:12000}]},actor);
+ crm.moveOpportunity(d.id,'WON',actor);
+ crm.convertLead(d.leadId,{},actor);
+ const preview=crm.previewReceivables({quoteId:quote.id,installments:1,firstDueAt:'2026-12-10'});
+ crm.confirmReceivables({quoteId:quote.id,installments:1,firstDueAt:'2026-12-10',expectedTotalCents:preview.totalCents},actor);
+ assert.throws(()=>intelligence.moveToStage(d.id,'crm-stage-qualified',actor),/financeira/i);
+ assert.equal(db.prepare('SELECT COUNT(*) n FROM financial_entries').get().n,1);
+ db.close();
+});
