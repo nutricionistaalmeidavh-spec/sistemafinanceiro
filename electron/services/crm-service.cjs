@@ -22,14 +22,24 @@ function createCrmService({db,finance,registry,now=()=>new Date().toISOString(),
  const at=()=>String(now());
  const audit=(action,entity,entityId,actor,context={})=>writeAudit(db,{action,entity,entityId,actor,context},at);
  const lookup=(table,id,label)=>{const row=db.prepare('SELECT * FROM '+table+' WHERE id=?').get(String(id));if(!row)throw new Error((label||table)+' não encontrado');return row;};
- const person=row=>row?{id:row.id,name:row.name,document:row.document,phone:row.phone,email:row.email,source:row.source,status:row.status,customerId:row.customer_id,notes:row.notes,ownerId:row.owner_id,createdAt:row.created_at,updatedAt:row.updated_at}:null;
+ const person=row=>{
+  if(!row)return null;
+  // Once converted, customer identity lives in the customer registry. The lead
+  // preserves its original record for history, but must not shadow later edits.
+  const canonical=row.customer_id?db.prepare('SELECT name,document,phone,email FROM customers WHERE id=?').get(row.customer_id):null;
+  return {id:row.id,name:canonical?canonical.name:row.name,
+   document:canonical?canonical.document:row.document,phone:canonical?canonical.phone:row.phone,
+   email:canonical?canonical.email:row.email,source:row.source,status:row.status,
+   customerId:row.customer_id,notes:row.notes,ownerId:row.owner_id,
+   createdAt:row.created_at,updatedAt:row.updated_at};
+ };
  const deal=row=>row?{id:row.id,leadId:row.lead_id,customerId:row.customer_id,title:row.title,amountCents:row.amount_cents,stage:row.stage,ownerId:row.owner_id,lossReason:row.loss_reason,closedAt:row.closed_at,pipelineId:row.pipeline_id||null,stageId:row.stage_id||null,expectedCloseAt:row.expected_close_at||null,createdAt:row.created_at,updatedAt:row.updated_at}:null;
  const task=row=>row?{id:row.id,opportunityId:row.opportunity_id,title:row.title,dueAt:row.due_at,doneAt:row.done_at,done:!!row.done_at,createdAt:row.created_at,updatedAt:row.updated_at}:null;
  const activity=row=>row?{id:row.id,opportunityId:row.opportunity_id,kind:row.kind,note:row.note,occurredAt:row.occurred_at,createdAt:row.created_at}:null;
  const getLead=id=>person(lookup('crm_leads',id,'Lead'));
  function listLeads({query='',status=''}={}){
   const q='%'+String(query).trim().toLowerCase()+'%';
-  return db.prepare("SELECT * FROM crm_leads WHERE (LOWER(name) LIKE ? OR LOWER(COALESCE(email,'')) LIKE ? OR LOWER(COALESCE(phone,'')) LIKE ?) AND (?='' OR status=?) ORDER BY updated_at DESC,id DESC").all(q,q,q,status,status).map(person);
+  return db.prepare("SELECT l.* FROM crm_leads l LEFT JOIN customers c ON c.id=l.customer_id WHERE (LOWER(CASE WHEN c.id IS NOT NULL THEN c.name ELSE l.name END) LIKE ? OR LOWER(COALESCE(CASE WHEN c.id IS NOT NULL THEN c.email ELSE l.email END,'')) LIKE ? OR LOWER(COALESCE(CASE WHEN c.id IS NOT NULL THEN c.phone ELSE l.phone END,'')) LIKE ?) AND (?='' OR l.status=?) ORDER BY l.updated_at DESC,l.id DESC").all(q,q,q,status,status).map(person);
  }
  function saveLead(input={},actor=null){
   const name=required(input.name,'Nome');const rawDocument=optional(input.document,40);const document=rawDocument?rawDocument.replace(/\D/g,''):null;
@@ -39,7 +49,7 @@ function createCrmService({db,finance,registry,now=()=>new Date().toISOString(),
   const ownerId=input.ownerId||null;
   if(ownerId)lookup('users',ownerId,'Responsável');
   const id=input.id?String(input.id):idFactory('crm-lead'),old=input.id?lookup('crm_leads',id,'Lead'):null;
-  if(old?.status==='CONVERTED' && document!==old.document)throw new Error('Documento de lead convertido deve ser atualizado no cliente canônico');
+  if(old?.status==='CONVERTED')throw new Error('Lead convertido: altere os dados do cliente canônico em Cadastros > Clientes.');
   const existing=db.prepare('SELECT id FROM crm_leads WHERE id<>? AND ((? IS NOT NULL AND document=?) OR (? IS NOT NULL AND LOWER(email)=?)) LIMIT 1').get(id,document,document,email,email);
   if(existing)throw new Error('Lead duplicado: contato já existente');
   if(old) db.prepare('UPDATE crm_leads SET name=?,document=?,phone=?,email=?,source=?,notes=?,owner_id=?,updated_at=? WHERE id=?')
@@ -73,12 +83,15 @@ function createCrmService({db,finance,registry,now=()=>new Date().toISOString(),
   if(leadId){const lead=getLead(leadId);if(lead.customerId){if(customerId && customerId!==lead.customerId)throw new Error('Cliente conflitante');customerId=lead.customerId;}}
   if(customerId)lookup('customers',customerId,'Cliente');
   if(!leadId&&!customerId)throw new Error('Lead ou cliente necessário');
+  // Billed deals retain the original commercial identity and amount.
+  // Changing contract terms requires an explicit financial revision, never a silent rewrite.
+  if(old && db.prepare('SELECT 1 FROM crm_billing_links WHERE opportunity_id=? LIMIT 1').get(id) &&
+    (Number(old.amount_cents)!==amountCents || old.lead_id!==leadId || old.customer_id!==customerId))
+   throw new Error('Oportunidade com recebíveis vinculados: revise as condições no Financeiro antes de alterar valor, lead ou cliente.');
   const expectedCloseAt=input.expectedCloseAt===undefined?(old?.expected_close_at||null):(input.expectedCloseAt?dateOnly(input.expectedCloseAt):null);
   const ownerId=input.ownerId??old?.owner_id??null;
   if(ownerId)lookup('users',ownerId,'Responsável');
   if(old){
-   if(db.prepare('SELECT 1 FROM crm_billing_links WHERE opportunity_id=? LIMIT 1').get(id)&&Number(old.amount_cents)!==amountCents)
-    throw new Error('Oportunidade faturada não permite alterar valor da venda');
    db.prepare('UPDATE crm_opportunities SET title=?,amount_cents=?,lead_id=?,customer_id=?,owner_id=?,expected_close_at=?,updated_at=? WHERE id=?')
     .run(title,amountCents,leadId,customerId,ownerId,expectedCloseAt,at(),id);
   }else{
@@ -184,6 +197,8 @@ function createCrmService({db,finance,registry,now=()=>new Date().toISOString(),
  function createQuote(input={},actor=null){
   const opp=lookup('crm_opportunities',required(input.opportunityId,'Oportunidade'));
   if(opp.stage==='LOST')throw new Error('Não é possível propor em uma oportunidade perdida');
+  if(db.prepare('SELECT 1 FROM crm_billing_links WHERE opportunity_id=? LIMIT 1').get(opp.id))
+   throw new Error('Esta oportunidade já possui recebíveis. Revise as condições no Financeiro antes de emitir nova proposta.');
   const items=input.items;
   if(!Array.isArray(items)||items.length<1||items.length>100)throw new Error('A proposta exige entre 1 e 100 itens');
   const parts=items.map((line,i)=>{
@@ -211,7 +226,8 @@ function createCrmService({db,finance,registry,now=()=>new Date().toISOString(),
  function setQuoteStatus(id,status,actor=null){
   const quote=getQuote(id),s=String(status).toUpperCase();
   if(!QUOTE_STATUSES.has(s))throw new Error('Status da proposta inválido');
-  if(db.prepare('SELECT 1 FROM crm_billing_links WHERE quote_id=? LIMIT 1').get(id)&&s==='REJECTED')throw new Error('Proposta com recebível não pode ser rejeitada silenciosamente');
+  if(db.prepare('SELECT 1 FROM crm_billing_links WHERE quote_id=? LIMIT 1').get(id)&&s==='REJECTED')
+   throw new Error('Proposta com recebível não pode ser rejeitada silenciosamente');
   db.prepare('UPDATE crm_quotes SET status=? WHERE id=?').run(s,id);
   audit('crm.quote.status','crm-quote',id,actor,{status:s});
   return getQuote(id);

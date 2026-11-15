@@ -122,3 +122,13 @@
  .crm-page .crm-toolbar .segmented button{flex:0 0 auto}
  .crm-page .crm-p2-filters label{min-width:100%}
 }
+
+/* Commercial receivables: show canonical state and keep the action reachable on mobile. */
+.crm-page .crm-billing-row{gap:10px;flex-wrap:wrap;align-items:center}
+.crm-page .crm-billing-row>span{min-width:0;overflow-wrap:anywhere}
+.crm-page .crm-billing-actions{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:9px}
+.crm-page .crm-billing-actions .secondary-button{white-space:nowrap}
+@media(max-width:650px){
+ .crm-page .crm-billing-actions{width:100%;justify-content:space-between}
+ .crm-page .crm-billing-actions .secondary-button{max-width:100%;white-space:normal}
+}
