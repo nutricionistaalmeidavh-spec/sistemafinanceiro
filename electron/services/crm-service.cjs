@@ -207,6 +207,22 @@ function listOpportunitiesPage({query='',stage='',pipelineId='',cursor=null,limi
   const sql="SELECT * FROM crm_tasks WHERE (?='' OR opportunity_id=?) AND (?=0 OR done_at IS NULL) ORDER BY CASE WHEN due_at IS NULL THEN 1 ELSE 0 END,due_at,created_at";
   return db.prepare(sql).all(opportunityId,opportunityId,pending?1:0).map(task);
  }
+function listTasksPage({opportunityId='',pending=false,cursor=null,limit=100}={}){
+ const size=pageSize(limit),opp=String(opportunityId||''),unfinished=pending===true;
+ const scope=JSON.stringify({resource:'crm-tasks',opp,unfinished}),position=decodeCursor(cursor,scope,3);
+ const where=[],params=[];
+ if(opp){where.push('opportunity_id=?');params.push(opp);}
+ if(unfinished)where.push('done_at IS NULL');
+ const base=where.length?' WHERE '+where.join(' AND '):'';
+ const total=Number(db.prepare('SELECT COUNT(*) n FROM crm_tasks'+base).get(...params).n);
+ if(position){
+  where.push("(COALESCE(due_at,'9999-12-31')>? OR (COALESCE(due_at,'9999-12-31')=? AND created_at>?) OR (COALESCE(due_at,'9999-12-31')=? AND created_at=? AND id>?))");
+  params.push(position[0],position[0],position[1],position[0],position[1],position[2]);
+ }
+ const rows=db.prepare("SELECT * FROM crm_tasks"+(where.length?' WHERE '+where.join(' AND '):'')+" ORDER BY COALESCE(due_at,'9999-12-31'),created_at,id LIMIT ?").all(...params,size+1);
+ const hasMore=rows.length>size,selected=rows.slice(0,size),last=selected.at(-1);
+ return {items:selected.map(task),total,hasMore,nextCursor:hasMore&&last?encodeCursor([last.due_at||'9999-12-31',last.created_at,last.id],scope):null};
+}
  function convertLead(leadId,{customerId=null}={},actor=null){
   return tx(db,()=>{
    const lead=lookup('crm_leads',leadId,'Lead');
@@ -374,7 +390,7 @@ function listOpportunitiesPage({query='',stage='',pipelineId='',cursor=null,limi
   return '<!doctype html><html lang="pt-BR"><meta charset="utf-8"><style>body{font-family:Arial,sans-serif;padding:36px;color:#222}h1{color:#4f46e5}table{width:100%;border-collapse:collapse;margin-top:28px}td,th{border-bottom:1px solid #ddd;padding:12px;text-align:left}.total{text-align:right;font-size:22px;font-weight:bold;margin-top:24px}small{color:#777}</style><h1>Proposta comercial</h1><p>ArtiSys Financeiro — Proposta v'+q.version+'</p><p><b>Cliente:</b> '+escape(customer?.name||lead?.name||'Não identificado')+'</p><p><b>Negócio:</b> '+escape(opp.title)+'</p><table><thead><tr><th>Descrição</th><th>Qtd.</th><th>Unitário</th><th>Total</th></tr></thead><tbody>'+trs+'</tbody></table><p class="total">'+money(q.totalCents)+'</p><p>'+escape(q.notes||'')+'</p><small>Documento comercial. Não representa pagamento ou recibo.</small></html>';
  }
  return {listLeads,listLeadsPage,saveLead,setLeadStatus,previewLeadImport,commitLeadImport,getLead,listOpportunities,listOpportunitiesPage,getOpportunity,saveOpportunity,moveOpportunity,
-  listStageHistory,addActivity,listActivities,saveTask,setTaskDone,listTasks,convertLead,createQuote,getQuote,listQuotes,
+  listStageHistory,addActivity,listActivities,saveTask,setTaskDone,listTasks,listTasksPage,convertLead,createQuote,getQuote,listQuotes,
   setQuoteStatus,previewReceivables,confirmReceivables,listBillingLinks,getMetrics,quoteHtml};
 }
 module.exports={createCrmService};
