@@ -212,7 +212,13 @@ export default function CrmPage({token,session,onOpenFinance}:Props){
   </div>
   <div className="page-toolbar crm-toolbar">
    <div className="segmented" role="tablist" aria-label="Áreas do CRM">
-    {([['pipeline','Funil'],['leads','Leads'],['tasks','Tarefas'],['quotes','Propostas'],['agenda','Agenda'],['reports','Indicadores'],['goals','Metas'],['pipelines','Configurar funis']] as const).map(([value,label])=><button key={value} type="button" role="tab" aria-selected={tab===value} className={tab===value?'active':''} onClick={()=>{setTab(value);setQuery('');}}>{label}</button>)}
+    {([['pipeline','Funil'],['leads','Leads'],['tasks','Tarefas'],['quotes','Propostas'],['agenda','Agenda'],['reports','Indicadores'],['goals','Metas'],['pipelines','Configurar funis']] as const).map(([value,label])=><button key={value} type="button" role="tab" aria-selected={tab===value} tabIndex={tab===value?0:-1} className={tab===value?'active':''} onClick={()=>{setTab(value);setQuery('');}} onKeyDown={e=>{
+     if(!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;
+     const items=Array.from(e.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="tab"]')||[]);
+     const index=items.indexOf(e.currentTarget);
+     const next=e.key==='Home'?0:e.key==='End'?items.length-1:(index+(e.key==='ArrowRight'?1:-1)+items.length)%items.length;
+     e.preventDefault();items[next]?.focus();items[next]?.click();
+    }}>{label}</button>)}
    </div>
    {(tab==='pipeline'||tab==='leads')&&<label className="search-control"><Search size={16}/><input aria-label={tab==='pipeline'?'Buscar oportunidades':'Buscar leads'} value={query} onChange={e=>setQuery(e.target.value)} placeholder={tab==='pipeline'?'Buscar oportunidades':'Buscar leads'}/></label>}
   </div>
@@ -307,7 +313,7 @@ export default function CrmPage({token,session,onOpenFinance}:Props){
       {selectedQuote&&<div className="crm-quote-actions">
        <strong>{brl(selectedQuote.totalCents)}</strong>
        <button type="button" className="secondary-button small" disabled={busy} onClick={()=>void run(()=>api.crm.saveQuotePdf(token,selectedQuote.id),'PDF processado; confira a janela de salvamento.')}><FileDown size={16}/> Salvar PDF</button>
-       {quotesAllowed&&<select aria-label="Situação da proposta" disabled={busy||selectedQuoteBilled} value={selectedQuote.status} onChange={e=>void run(()=>api.crm.setQuoteStatus(token,selectedQuote.id,e.target.value as CrmQuoteStatus),'Status da proposta atualizado.')}>{(['DRAFT','SENT','ACCEPTED','REJECTED'] as const).map(status=><option key={status} value={status}>{quoteNames[status]}</option>)}</select>}
+       {quotesAllowed&&<select aria-label="Situação da proposta" disabled={busy} value={selectedQuote.status} onChange={e=>void run(()=>api.crm.setQuoteStatus(token,selectedQuote.id,e.target.value as CrmQuoteStatus),'Status da proposta atualizado.')}>{(['DRAFT','SENT','ACCEPTED','REJECTED'] as const).map(status=><option key={status} value={status}>{quoteNames[status]}</option>)}</select>}
       </div>}
       {selectedQuoteBilled&&<p className="muted" role="status">Proposta já vinculada a recebíveis. Valores e condições estão preservados; uma nova versão exige revisão financeira explícita.</p>}
       {quotesAllowed&&!billingLinks.length&&<form className="crm-form" onSubmit={e=>void createQuote(e)}>
