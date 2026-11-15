@@ -4,7 +4,7 @@ import {brl,toCents,today,can} from '../lib/format';
 import Papa from 'papaparse';
 import CrmIntelligencePanel from './CrmIntelligencePanel';
 
-type Props={token:string;session:FinanceiroSession;onOpenFinance:(entry:FinanceEntry)=>void;onOpenRegistry:()=>void};
+type Props={token:string;session:FinanceiroSession;onOpenFinance:(entry:FinanceEntry)=>void;onOpenRegistry:()=>void;tourActive:boolean;tourRun:number;onStartTour:()=>void;onCloseTour:()=>void};
 type Tab='pipeline'|'leads'|'tasks'|'quotes'|'agenda'|'reports'|'goals'|'pipelines';
 const stages:CrmStage[]=['NEW','QUALIFIED','PROPOSAL','WON','LOST'];
 const names:Record<CrmStage,string>={NEW:'Contato',QUALIFIED:'Qualificado',PROPOSAL:'Proposta',WON:'Ganho',LOST:'Perdido'};
@@ -13,6 +13,13 @@ const quoteNames:Record<CrmQuoteStatus,string>={DRAFT:'Rascunho',SENT:'Enviada',
 const activityNames:Record<CrmActivity['kind'],string>={CALL:'Ligação',EMAIL:'E-mail',WHATSAPP:'WhatsApp',MEETING:'Reunião',NOTE:'Nota'};
 const financeNames:Record<FinanceEntry['status'],string>={OPEN:'Em aberto',PARTIAL:'Parcial',SETTLED:'Quitado',CANCELLED:'Cancelado'};
 const emptyLead={name:'',document:'',phone:'',email:'',source:'MANUAL',notes:''};
+const crmTourSteps=[
+ {tab:'leads',title:'Cadastre um lead',detail:'Na aba Leads, use Novo lead para registrar um contato com nome e formas de contato. Você também pode importar CSV com prévia de duplicados.'},
+ {tab:'pipeline',title:'Crie uma oportunidade',detail:'Em Nova oportunidade, escolha um lead ou cliente, informe o negócio, a estimativa e a previsão. O valor representa potencial comercial, não saldo financeiro.'},
+ {tab:'pipeline',title:'Acompanhe o funil',detail:'O funil organiza negociações por etapa. Abra uma oportunidade ou arraste o cartão para avançar. Marcar como ganha não cria cobrança.'},
+ {tab:'quotes',title:'Prepare uma proposta',detail:'Selecione uma oportunidade no funil para adicionar itens, gerar versões e salvar a proposta em PDF. A aba Propostas permite localizar negociações para revisar.'},
+ {tab:'pipeline',title:'Confirme os recebíveis',detail:'Após ganhar a venda, converter o lead em cliente e selecionar uma proposta, abra a oportunidade. Visualize as parcelas e só depois use Confirmar e criar recebíveis. Sem esse clique, nada entra no Financeiro.'}
+] as const;
 const firstItem={description:'',quantity:'1',price:''};
 type ItemDraft=typeof firstItem;
 function errorMessage(error:unknown){return error instanceof Error?error.message:String(error);}
@@ -50,11 +57,26 @@ function streamCsv(file:File,processBatch:(rows:CrmImportRow[],start:number)=>Pr
  });
 }
 
-export default function CrmPage({token,session,onOpenFinance,onOpenRegistry}:Props){
+export default function CrmPage({token,session,onOpenFinance,onOpenRegistry,tourActive,tourRun,onStartTour,onCloseTour}:Props){
  const api=window.financeiro!;
  const editable=can(session,'crm.manage'),quotesAllowed=can(session,'crm.quotes');
  const convertible=can(session,'crm.convert'),billingAllowed=can(session,'crm.billing.confirm');
  const [tab,setTab]=useState<Tab>('pipeline');
+ const [tourStep,setTourStep]=useState(0);
+ useEffect(()=>{
+  if(!tourActive)return;
+  setTourStep(0);setTab('leads');
+ },[tourActive,tourRun]);
+ function goTourStep(index:number){
+  if(index<0||index>=crmTourSteps.length)return;
+  setTourStep(index);
+  setTab(crmTourSteps[index].tab);
+  setQuery('');
+ }
+ function finishTour(){
+  window.localStorage.setItem('artisys-financeiro-crm-tour-v1:'+session.user.id,'done');
+  onCloseTour();
+ }
  const [leads,setLeads]=useState<CrmLead[]>([]);
  const [leadCursor,setLeadCursor]=useState<string|null>(null);
  const [leadTotal,setLeadTotal]=useState(0);
@@ -340,7 +362,16 @@ export default function CrmPage({token,session,onOpenFinance,onOpenRegistry}:Pro
  // Both filters are applied by SQLite before paging. No hidden results or truncated in-memory search.
  const filtered=opportunities;
  return <section className="page-stack crm-page" data-testid="page-crm">
-  <div className="page-header"><div><p className="eyebrow">Comercial</p><h2>CRM — Vendas e prospecção</h2><p className="muted">Relacionamentos e propostas conectados ao Financeiro, sem gerar recebíveis automaticamente.</p></div></div>
+  <div className="page-header"><div><p className="eyebrow">Comercial</p><h2>CRM — Vendas e prospecção</h2><p className="muted">Relacionamentos e propostas conectados ao Financeiro, sem gerar recebíveis automaticamente.</p></div>
+  <button type="button" className="secondary-button" data-testid="crm-tour-restart" onClick={onStartTour}>Ver tour do CRM</button>
+  </div>
+  {tourActive&&<section className="panel crm-tour" role="region" aria-label="Tour guiado do CRM" data-testid="crm-tour">
+   <div className="crm-tour-top"><strong>Conhecendo o CRM · {tourStep+1} de {crmTourSteps.length}</strong><button type="button" className="secondary-button small" onClick={finishTour}>Pular tour</button></div>
+   <div aria-live="polite" aria-atomic="true"><h3>{crmTourSteps[tourStep].title}</h3><p className="muted">{crmTourSteps[tourStep].detail}</p></div>
+   {!editable&&<p className="muted">Seu perfil possui acesso de consulta. Para cadastrar ou alterar registros, é necessária permissão comercial.</p>}
+   <div className="crm-tour-actions"><button type="button" className="secondary-button" disabled={tourStep===0} onClick={()=>goTourStep(tourStep-1)}>Anterior</button>
+   <button type="button" className="primary-button" onClick={()=>tourStep===crmTourSteps.length-1?finishTour():goTourStep(tourStep+1)}>{tourStep===crmTourSteps.length-1?'Concluir tour':'Próxima etapa'}</button></div>
+  </section>}
   {error&&<div role="alert" className="error-box">{error}</div>}
   {message&&<div role="status" className="success-box">{message}</div>}
   <div className="crm-metrics">
@@ -351,7 +382,7 @@ export default function CrmPage({token,session,onOpenFinance,onOpenRegistry}:Pro
   </div>
   <div className="page-toolbar crm-toolbar">
    <div className="segmented" role="tablist" aria-label="Áreas do CRM">
-    {([['pipeline','Funil'],['leads','Leads'],['tasks','Tarefas'],['quotes','Propostas'],['agenda','Agenda'],['reports','Indicadores'],['goals','Metas'],['pipelines','Configurar funis']] as const).map(([value,label])=><button key={value} type="button" role="tab" aria-selected={tab===value} tabIndex={tab===value?0:-1} className={tab===value?'active':''} onClick={()=>{setTab(value);setQuery('');}} onKeyDown={e=>{
+    {([['pipeline','Funil'],['leads','Leads'],['tasks','Tarefas'],['quotes','Propostas'],['agenda','Agenda'],['reports','Indicadores'],['goals','Metas'],['pipelines','Configurar funis']] as const).map(([value,label])=><button key={value} type="button" role="tab" aria-selected={tab===value} tabIndex={tab===value?0:-1} className={(tab===value?'active':'')+(tourActive&&crmTourSteps[tourStep].tab===value?' crm-tour-tab-focus':'')} onClick={()=>{setTab(value);setQuery('');}} onKeyDown={e=>{
      if(!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;
      const items=Array.from(e.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="tab"]')||[]);
      const index=items.indexOf(e.currentTarget);
@@ -375,7 +406,7 @@ export default function CrmPage({token,session,onOpenFinance,onOpenRegistry}:Pro
     {editable&&<button type="button" className="primary-button" disabled={busy||importPreview.ready===0} onClick={()=>void importCsv()}>Confirmar importação de {importPreview.ready} lead(s)</button>}
    </div>}
   </div>}
-  {tab==='leads'&&<div className="crm-split">
+  {tab==='leads'&&<div className={'crm-split'+(tourActive&&tourStep===0?' crm-tour-focus':'')}>
    {editable&&<form className="panel crm-form" onSubmit={e=>void addLead(e)}><h3><Users size={18}/> {editingLeadId?"Editar lead":"Novo lead"}</h3>
     <label>Nome<input required maxLength={240} value={leadForm.name} onChange={e=>setLeadForm({...leadForm,name:e.target.value})}/></label>
     <label>Telefone<input value={leadForm.phone} onChange={e=>setLeadForm({...leadForm,phone:e.target.value})}/></label>
@@ -396,7 +427,7 @@ export default function CrmPage({token,session,onOpenFinance,onOpenRegistry}:Pro
    <div className="table-more" aria-live="polite">Exibindo {leads.length} de {leadTotal} leads. {leadCursor&&<button type="button" className="secondary-button" onClick={()=>void loadMoreLeads()}>Carregar mais leads</button>}</div>
   </div>}
   {tab==='pipeline'&&<>
-   {editable&&<form className="panel crm-newdeal" onSubmit={e=>void addDeal(e)}>
+   {editable&&<form className={'panel crm-newdeal'+(tourActive&&tourStep===1?' crm-tour-focus':'')} onSubmit={e=>void addDeal(e)}>
     <h3><Plus size={18}/> Nova oportunidade</h3>
     <label>Buscar lead ou cliente<input aria-label="Buscar lead para oportunidade" value={leadLookup} onChange={e=>setLeadLookup(e.target.value)} placeholder="Pesquise um nome, email ou telefone"/></label>
     <label>Lead ou cliente<select required value={dealForm.party} onChange={e=>{const value=e.target.value;setDealForm({...dealForm,party:value});const name=leadOptions.find(l=>'lead:'+l.id===value)?.name||customers.find(c=>'customer:'+c.id===value)?.name||'';setPickedParty(value?{value,name}:null);}}><option value="">Selecione</option>{pickedParty?.value&&!([...leadOptions.map(l=>'lead:'+l.id),...customers.map(c=>'customer:'+c.id)].includes(pickedParty.value))&&<option value={pickedParty.value}>{pickedParty.name}</option>}<optgroup label="Leads">{leadOptions.map(l=><option key={l.id} value={'lead:'+l.id}>{l.name}</option>)}</optgroup><optgroup label="Clientes">{customers.map(c=><option key={c.id} value={'customer:'+c.id}>{c.name}</option>)}</optgroup></select></label>
@@ -407,7 +438,7 @@ export default function CrmPage({token,session,onOpenFinance,onOpenRegistry}:Pro
     <button className="primary-button" disabled={busy}>Adicionar</button>
    </form>}
    <label className="crm-pipeline-picker">Funil comercial <select aria-label="Filtrar funil comercial" value={activePipeline?.id||''} onChange={e=>{setPipelineFilter(e.target.value);setSelectedId(null);}}>{pipelines.map(p=><option key={p.id} value={p.id}>{p.name}{p.isDefault?' (principal)':''}</option>)}</select></label>
-   <div className="crm-kanban" aria-label="Funil de vendas">
+   <div className={'crm-kanban'+(tourActive&&tourStep===2?' crm-tour-focus':'')} aria-label="Funil de vendas">
     {activeStages.map(stage=><section key={stage.id} className="crm-stage" aria-label={stage.name} onDragOver={e=>{if(editable)e.preventDefault();}} onDrop={e=>dropStage(e,stage)}>
      <header><strong>{stage.name}</strong><span>{stageTotals[stage.id]?.count||0}</span></header>
      <small>{brl(stageTotals[stage.id]?.amountCents||0)}</small>
@@ -421,7 +452,7 @@ export default function CrmPage({token,session,onOpenFinance,onOpenRegistry}:Pro
   {tab==='tasks'&&<div className="panel table-panel"><table><thead><tr><th>Concluída</th><th>Tarefa</th><th>Oportunidade</th><th>Prazo</th></tr></thead><tbody>
    {tasks.map(t=><tr key={t.id}><td><input type="checkbox" checked={t.done} disabled={!editable||busy} aria-label={'Concluir '+t.title} onChange={e=>void run(()=>api.crm.setTaskDone(token,t.id,e.target.checked),'Tarefa atualizada.')}/></td><td>{t.title}</td><td><button type="button" className="secondary-button small" onClick={()=>{setSelectedId(t.opportunityId);setTab('pipeline');}}>{opportunities.find(o=>o.id===t.opportunityId)?.title||'Abrir'}</button></td><td>{niceDate(t.dueAt)}</td></tr>)}
    </tbody></table>{!tasks.length&&<div className="empty-state">Nenhuma tarefa cadastrada.</div>}<div className="table-more" aria-live="polite">Exibindo {tasks.length} de {taskTotal} tarefas. {taskCursor&&<button type="button" className="secondary-button" onClick={()=>void loadMoreTasks()}>Carregar mais tarefas</button>}</div></div>}
-  {tab==='quotes'&&<div className="panel"><h3>Propostas comerciais</h3><p className="muted">Selecione uma oportunidade no funil para criar, revisar, baixar em PDF ou faturar uma proposta.</p>
+  {tab==='quotes'&&<div className={'panel'+(tourActive&&tourStep===3?' crm-tour-focus':'')}><h3>Propostas comerciais</h3><p className="muted">Selecione uma oportunidade no funil para criar, revisar, baixar em PDF ou faturar uma proposta.</p>
    <label className="search-control"><Search size={16}/><input aria-label="Buscar propostas comerciais" value={query} onChange={e=>setQuery(e.target.value)} placeholder="Buscar por oportunidade ou cliente"/></label>
    <div className="crm-quote-list">{opportunities.map(o=><button type="button" className="crm-quote-row" key={o.id} onClick={()=>{setSelectedId(o.id);setTab('pipeline');}}>{o.title}<span>{brl(o.amountCents)} <ArrowRight size={15}/></span></button>)}</div>
    <div className="table-more" aria-live="polite">Consultando {opportunities.length} de {opportunityTotal} oportunidades. {opportunityCursor&&<button type="button" className="secondary-button" onClick={()=>void loadMoreOpportunities()}>Carregar mais oportunidades</button>}</div>
@@ -474,7 +505,7 @@ export default function CrmPage({token,session,onOpenFinance,onOpenRegistry}:Pro
        <button className="primary-button" disabled={busy}>Criar proposta</button>
       </form>}
      </div>
-     {deal.stage==='WON'&&selectedQuote&&<div className="crm-section">
+     {deal.stage==='WON'&&selectedQuote&&<div className={'crm-section'+(tourActive&&tourStep===4?' crm-tour-focus':'')}>
       <h3>Gerar recebível com confirmação</h3>
       {billingLinks.length>0?<><p className="success-box"><Check size={15}/> {billingLinks.length} parcela(s) vinculada(s) ao Financeiro.</p>
        {billingLinks.some(l=>!l.entry||l.entry.amountCents!==l.amount_cents||l.entry.dueAt!==l.due_at)&&<p className="error-box" role="alert">Há divergência histórica entre o vínculo CRM e o lançamento financeiro. Verifique os documentos originais antes de corrigir.</p>}

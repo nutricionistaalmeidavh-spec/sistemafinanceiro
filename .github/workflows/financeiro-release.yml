@@ -82,7 +82,7 @@ jobs:
           if-no-files-found: error
           retention-days: 90
       - name: Publicar release explicitamente autorizada na main
-        if: github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && contains(github.event.head_commit.message, '[publish-finance-017]')))
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && contains(github.event.head_commit.message, '[publish-finance-018]')))
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -93,7 +93,7 @@ jobs:
           if ($LASTEXITCODE -eq 0) { throw "Release existente: $tag. Nunca sobrescrever." }
           $assets=@("release/ArtiSys-Financeiro-Setup-$v.exe","release/ArtiSys-Financeiro-Setup-$v.sha256","release/latest.yml")
           $assets += @(Get-ChildItem release -Filter '*.blockmap' | ForEach-Object { $_.FullName })
-          gh release create $tag $assets --repo "${{ github.repository }}" --target "${{ github.sha }}" --title "ArtiSys Financeiro v$v" --notes-file "docs/releases/financeiro-v0.1.7.md" --latest
+          gh release create $tag $assets --repo "${{ github.repository }}" --target "${{ github.sha }}" --title "ArtiSys Financeiro v$v" --notes-file "docs/releases/financeiro-v0.1.8.md" --latest
           if ($LASTEXITCODE -ne 0) { throw 'Falha ao publicar release' }
 
-# Publicacao v0.1.7 autorizada explicitamente; preservar atualizacao por cima, appId e licencas legadas.
+# Publicacao v0.1.8 autorizada explicitamente; preservar atualizacao por cima, appId e licencas legadas.
