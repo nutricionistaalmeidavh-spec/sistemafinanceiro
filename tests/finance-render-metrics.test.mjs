@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { summarizeRenderInteraction, percentile, compareRenderBaseline } from '../scripts/qa-render-metrics.mjs';
+import { summarizeRenderInteraction, percentile, compareRenderBaseline, summarizeInteractionLatency } from '../scripts/qa-render-metrics.mjs';
 
 test('P0: percentile uses nearest-rank without mutating samples', () => {
   const samples=[31,10,20,40,15];
@@ -36,4 +36,12 @@ test('P0: zero updates and unmounted components never produce negative counters'
 test('P0: baseline comparison reports changes rather than inventing budgets', () => {
   const baseline={commits:10,totalReactMs:100};
   assert.deepEqual(compareRenderBaseline({commits:8,totalReactMs:80},baseline),{commitsDelta:-2,totalReactMsDelta:-20});
+});
+
+test('P0/P2: repeated UI interactions yield sample-based p50/p95 latency', () => {
+  const measures=[11,22,33,44,55].map(ms=>({interaction:'finance-volume-search',elapsedMs:ms,totalReactMs:ms/2}));
+  const result=summarizeInteractionLatency(measures);
+  assert.deepEqual(result['finance-volume-search'],{
+    samples:5,p50InteractionMs:33,p95InteractionMs:55,p50ReactMs:16.5,p95ReactMs:27.5
+  });
 });
