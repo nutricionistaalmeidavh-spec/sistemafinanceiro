@@ -29,7 +29,7 @@ const FinanceEntriesTable=memo(function FinanceEntriesTable({
         const hasReceipt=entry.settlements.some(item=>!item.reversedAt);
         return <tr key={entry.id} data-testid={entry.id===focusedEntryId?'finance-focused-row':undefined}>
           <td><strong>{entry.description}</strong>{entry.isOverdue&&<small className="danger-text">Vencido</small>}</td>
-          <td>{entry.dueAt}</td>
+          <td>{entry.dueAt.split('-').reverse().join('/')}</td>
           <td><FinanceStatusBadge status={entry.isOverdue&&entry.status!=='SETTLED'?'OVERDUE':entry.status}/></td>
           <td>{brl(entry.amountCents)}</td><td>{brl(entry.openCents)}</td>
           <td>{(editable||hasReceipt)&&<div className="row-actions">

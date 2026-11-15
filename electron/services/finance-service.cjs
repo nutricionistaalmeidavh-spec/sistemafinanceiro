@@ -136,6 +136,11 @@ function createFinanceService({ db, now = () => new Date().toISOString(), idFact
       const creditorId = input.creditorId === undefined ? row.creditor_id : input.creditorId || null;
       if (row.kind === 'PAYABLE' && customerId) throw new Error('payable cannot reference customer');
       if (row.kind === 'RECEIVABLE' && creditorId) throw new Error('receivable cannot reference creditor');
+      // A CRM installment has an immutable commercial identity. Operational notes,
+      // category and account may still change; contract revisions need a separate flow.
+      if (row.source_type === 'CRM_QUOTE_INSTALLMENT' &&
+          (amountCents !== Number(row.amount_cents) || dueAt !== row.due_at || customerId !== row.customer_id))
+        throw new Error('Recebível vinculado a proposta CRM: valor, vencimento e cliente não podem ser alterados diretamente. Faça uma revisão financeira explícita.');
       assertRelation('financial_accounts', accountId, 'financial account');
       assertRelation('customers', customerId, 'customer');
       assertRelation('creditors', creditorId, 'creditor');
