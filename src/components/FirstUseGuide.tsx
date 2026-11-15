@@ -2,10 +2,10 @@ import {FormEvent,useState} from 'react';
 import {CheckCircle2,ChevronRight,WalletCards} from 'lucide-react';
 import {brl,toCents,today} from '../lib/format';
 
-type Props={token:string;userId:string;existingAccountId?:string;hasOpening?:boolean;onDone:()=>void;onSkip:()=>void};
-type Step='account'|'opening'|'entry'|'complete';
+type Props={token:string;userId:string;existingAccountId?:string;hasOpening?:boolean;canViewCrm?:boolean;onOpenCrmTour?:()=>void;onDone:()=>void;onSkip:()=>void};
+type Step='account'|'opening'|'entry'|'crm'|'complete';
 export const guideKey=(userId:string)=>`artisys-financeiro-guide-v1:${userId}`;
-export default function FirstUseGuide({token,userId,existingAccountId,hasOpening=false,onDone,onSkip}:Props){
+export default function FirstUseGuide({token,userId,existingAccountId,hasOpening=false,canViewCrm=false,onOpenCrmTour,onDone,onSkip}:Props){
   const api=window.financeiro!;
   const [step,setStep]=useState<Step>(existingAccountId?(hasOpening?'entry':'opening'):'account');
   const [busy,setBusy]=useState(false);
@@ -52,19 +52,19 @@ export default function FirstUseGuide({token,userId,existingAccountId,hasOpening
       if(amountCents<=0)throw new Error('Informe um valor maior que zero.');
       await api.finance.createEntry(token,{...entry,amountCents});
       setResult(`Lançamento "${entry.description}" salvo.`);
-      setStep('complete');
+      setStep(canViewCrm?'crm':'complete');
     }catch(cause){setError(cause instanceof Error?cause.message:String(cause));}
     finally{setBusy(false);}
   }
-  const index=step==='account'?1:step==='opening'?2:step==='entry'?3:4;
+  const index=step==='account'?1:step==='opening'?2:step==='entry'?3:step==='crm'?4:canViewCrm?5:4;
   return <div className="first-use-layer" role="presentation">
     <section className="first-use-panel" role="dialog" aria-modal="true" aria-labelledby="first-use-title" data-testid="first-use-guide">
       <header className="first-use-header"><div><p className="eyebrow">Primeiro acesso</p><h2 id="first-use-title">Preparar o financeiro</h2>
-        <p className="muted">Três passos para começar. Você pode sair e configurar depois.</p></div>
+        <p className="muted">{canViewCrm?'Quatro etapas, incluindo um tour opcional do CRM.':'Três passos para começar.'} Você pode sair e configurar depois.</p></div>
         <button className="secondary-button" type="button" onClick={onSkip} disabled={busy}>Configurar depois</button>
       </header>
       <ol className="first-use-steps" aria-label="Progresso da configuração">
-        {['Conta financeira','Saldo inicial','Primeiro lançamento'].map((label,i)=><li key={label} aria-current={index===i+1?'step':undefined} className={index>i+1?'done':index===i+1?'current':''}>
+        {['Conta financeira','Saldo inicial','Primeiro lançamento',...(canViewCrm?['CRM comercial']:[])].map((label,i)=><li key={label} aria-current={index===i+1?'step':undefined} className={index>i+1?'done':index===i+1?'current':''}>
           <span>{index>i+1?<CheckCircle2 size={16}/>:i+1}</span>{label}
         </li>)}
       </ol>
@@ -95,6 +95,12 @@ export default function FirstUseGuide({token,userId,existingAccountId,hasOpening
         <p className="muted wide">Este lançamento ficará em aberto até você registrar o pagamento ou recebimento.</p>
         <button type="submit" className="primary-button wide" disabled={busy}>{busy?'Salvando…':'Concluir primeiro lançamento'}</button>
       </form>}
+      {step==='crm'&&<div className="first-use-complete" data-testid="first-use-crm-step">
+        <h3>Conheça o CRM comercial</h3>
+        <p>Veja como cadastrar leads, criar oportunidades, avançar no funil e preparar propostas. Uma venda ganha não gera recebíveis automaticamente: a cobrança exige sua confirmação.</p>
+        <button type="button" className="primary-button" onClick={()=>{finish();onOpenCrmTour?.();}}>Conhecer CRM na prática<ChevronRight size={16}/></button>
+        <button type="button" className="secondary-button" onClick={()=>setStep('complete')}>Agora não</button>
+      </div>}
       {step==='complete'&&<div className="first-use-complete">
         <CheckCircle2 size={36}/><h3>Pronto para usar</h3><p>Sua conta financeira e o primeiro lançamento foram cadastrados. A visão geral passa a mostrar os dados reais.</p>
         <button type="button" className="primary-button" onClick={finish}>Ver meu financeiro</button>
