@@ -257,7 +257,7 @@ function createCrmIntelligenceService({db,crm,now=()=>new Date().toISOString(),i
    const old=get('crm_appointments',input.id,'Compromisso');
    if(old.opportunity_id!==opportunityId)throw new Error('Não é possível transferir compromisso para outra oportunidade');
    db.prepare('UPDATE crm_appointments SET title=?,scheduled_date=?,scheduled_time=?,duration_minutes=?,kind=?,owner_id=?,notes=?,status=?,updated_at=? WHERE id=?')
-    .run(title,scheduledDate,scheduledTime,durationMinutes,kind,ownerId,notes,'PLANNED',at(),old.id);
+    .run(title,scheduledDate,scheduledTime,durationMinutes,kind,ownerId,notes,old.status,at(),old.id);
    audit('crm.appointment.update','crm-appointment',old.id,actor);
    return mapAppointment(get('crm_appointments',old.id));
   }
