@@ -19,6 +19,9 @@ test('P1: category queries follow kind changes without fetching static catalogs 
   assert.match(src,/const reloadCategories\s*=\s*useCallback/);
   const catalogs=src.slice(src.indexOf('const reloadCatalogs'),src.indexOf('const reloadCategories'));
   assert.doesNotMatch(catalogs,/listCategories/);
+  // A kind update changes reloadEntries callback; catalog refresh must not share the same effect.
+  assert.doesNotMatch(src,/useEffect\(\(\)=>\{void reloadEntries\(\);void reloadCatalogs\(\);\}/);
+  assert.match(src,/useEffect\(\(\)=>\{void reloadCatalogs\(\);\},\[reloadCatalogs\]\)/);
   assert.match(src,/setForm\(\(old\)\s*=>\s*old\.categoryId/);
 });
 
