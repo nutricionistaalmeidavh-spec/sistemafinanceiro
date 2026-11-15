@@ -120,10 +120,31 @@ export function auditPackage(releaseDir) {
   };
 }
 
+export function verifyOptimizedPackage(report) {
+  const groupNames = new Set(report.asar.groups.map(x => x.name));
+  const redundant = [
+    'echarts', 'zrender', 'lucide-react', 'react', 'react-dom', 'scheduler', '@tesseract.js-data/por',
+  ];
+  const required = [
+    'tesseract.js', 'tesseract.js-core', 'pdfjs-dist',
+    'exceljs', 'docx', 'pdf-lib', '@napi-rs/canvas',
+  ];
+  const present = redundant.filter(name => groupNames.has('node_modules/' + name));
+  if (present.length) throw new Error('Redundancias empacotadas: ' + present.join(', '));
+  const missing = required.filter(name => !groupNames.has('node_modules/' + name));
+  if (missing.length) throw new Error('Dependencias do processo principal ausentes: ' + missing.join(', '));
+  if (!report.ocrFiles.some(x => x.origin === 'external' && x.path === 'resources/ocr-data/por.traineddata.gz' && x.bytes > 100000)) {
+    throw new Error('Modelo OCR offline externo ausente');
+  }
+  if (report.duplicateOCR.length) throw new Error('Modelo OCR offline duplicado dentro do pacote: ' + report.duplicateOCR.length);
+  return true;
+}
+
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const releaseDir = path.resolve(process.argv[2] || 'release');
+  const releaseDir = path.resolve(process.argv.find((arg, i) => i > 1 && !arg.startsWith('--')) || 'release');
   try {
     const report = auditPackage(releaseDir);
+    if (process.argv.includes('--verify-lean')) verifyOptimizedPackage(report);
     const output = path.resolve('qa-artifacts/size-audit/report.json');
     fs.mkdirSync(path.dirname(output), { recursive: true });
     fs.writeFileSync(output, JSON.stringify(report, null, 2) + '\n');
@@ -142,6 +163,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     console.log('[SIZE AUDIT] OCR modelos e copias:', JSON.stringify(report.ocrFiles));
     console.log('[SIZE AUDIT] OCR hashes duplicados:', report.duplicateOCR.length);
     console.log('[SIZE AUDIT] Relatorio completo:', output);
+    if (process.argv.includes('--verify-lean')) console.log('[SIZE AUDIT] Verificacao otimizada: OK');
   } catch (error) {
     console.error('[SIZE AUDIT] Erro:', error.stack || error.message);
     process.exitCode = 1;
