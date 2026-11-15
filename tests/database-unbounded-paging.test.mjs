@@ -64,6 +64,10 @@ test('P1: opportunities pagination returns canonical display names and stage tot
  assert.equal(total,125);
  assert.equal(first.stageTotals['crm-stage-new'].count,125);
  assert.equal(first.stageTotals['crm-stage-new'].amountCents,12500);
+ db.prepare("UPDATE crm_opportunities SET stage='PROPOSAL',stage_id='crm-stage-proposal' WHERE id='opp-110'").run();
+ const quotePage=crm.listOpportunitiesPage({quoteOnly:true,limit:15});
+ assert.equal(quotePage.total,1);
+ assert.equal(quotePage.items[0].id,'opp-110');
  db.close();
 });
 test('P1: finance keyset loads a bounded batch and preserves settlement status and as-of semantics',()=>{
