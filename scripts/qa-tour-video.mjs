@@ -1,6 +1,5 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import os from 'node:os';
 import { randomBytes } from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
 import { _electron as electron } from 'playwright';
@@ -15,7 +14,9 @@ const viteCli = path.resolve('node_modules/vite/bin/vite.js');
 const electronExe = process.platform === 'win32'
   ? path.resolve('node_modules/electron/dist/electron.exe')
   : path.resolve('node_modules/electron/dist/electron');
-const videoPath = path.join(target, 'qa-primeiro-acesso-crm.webm');
+const videoPath = path.join(target, 'qa-primeiro-acesso-crm.mp4');
+const framesDir = path.join(target, 'frames');
+fs.mkdirSync(framesDir,{recursive:true});
 fs.mkdirSync(shots, { recursive: true });
 
 function terminate(child) {
@@ -39,7 +40,10 @@ const vite = spawn(process.execPath, [viteCli, '--host', '127.0.0.1'], {
 });
 let app;
 let page;
-let video;
+let captureTimer;
+let capturePending = Promise.resolve();
+let captureBusy = false;
+let frameCount = 0;
 let fail;
 const errors = [];
 const consoleEntries = [];
@@ -59,13 +63,24 @@ try {
     args:[path.resolve('electron/main.cjs')],
     cwd:root,
     env,
-    timeout:60000,
-    recordVideo:{dir:target,size:{width:1440,height:900},fps:25}
+    timeout:60000
   });
   page = await app.firstWindow();
-  video = page.video();
-  if (!video) throw new Error('Playwright Electron did not enable video recording');
   page.setDefaultTimeout(12000);
+  // Playwright drives every interaction and samples the actual Electron frame at 6fps.
+  // This avoids the Electron recorder's black/never-started video issue on Windows CI.
+  async function captureFrame(){
+    if (captureBusy || page.isClosed()) return;
+    captureBusy=true;
+    try {
+      const jpeg=await page.screenshot({type:'jpeg',quality:68,timeout:4500});
+      fs.writeFileSync(path.join(framesDir,'frame-'+String(frameCount).padStart(6,'0')+'.jpg'),jpeg);
+      frameCount++;
+    } catch(error) { console.error('QA_FRAME_CAPTURE_ERROR',String(error)); }
+    finally { captureBusy=false; }
+  }
+  capturePending=captureFrame();
+  captureTimer=setInterval(()=>{ if(!captureBusy) capturePending=captureFrame(); },167);
   await page.bringToFront();
   console.log('QA_ELECTRON_START ' + page.url());
   page.on('pageerror', error => errors.push(String(error)));
@@ -211,10 +226,30 @@ try {
   console.error('QA_DIAGNOSTIC ' + JSON.stringify(diagnostic).slice(0,9000));
   console.error('QA_ONBOARDING_CRM_VIDEO_FAILED',error);
 } finally {
+  if (captureTimer) clearInterval(captureTimer);
+  await capturePending.catch(()=>{});
   if (app) await app.close().catch(e => console.error('Electron shutdown:',e));
-  if (video) {
-    try { await video.saveAs(videoPath); console.log('QA_VIDEO_SAVED ' + videoPath); }
-    catch(e) { fail ||= e; console.error('Failed to save video:',e); }
+  try {
+    if (frameCount < 2) throw new Error('Fewer than two Electron frames captured');
+    const ffmpeg = (await import('ffmpeg-static')).default;
+    if (!ffmpeg) throw new Error('FFmpeg open-source executable not installed');
+    const encoded=spawnSync(ffmpeg,[
+      '-hide_banner','-loglevel','error','-y','-framerate','6',
+      '-i',path.join(framesDir,'frame-%06d.jpg'),'-c:v','libx264',
+      '-preset','veryfast','-crf','25','-pix_fmt','yuv420p','-movflags','+faststart',videoPath
+    ],{stdio:'pipe',encoding:'utf8',timeout:120000});
+    if(encoded.status!==0) throw new Error('FFmpeg: '+(encoded.stderr||encoded.error||encoded.status));
+    if(fs.statSync(videoPath).size<10000) throw new Error('Encoded MP4 unexpectedly small');
+    fs.rmSync(framesDir,{recursive:true,force:true});
+    console.log('QA_VIDEO_SAVED '+videoPath+' frames='+frameCount);
+  } catch(error){
+    fail ||= error;
+    console.error('QA_VIDEO_ENCODE_FAILED',error);
+    const reportPath=path.join(target,'qa-result.json');
+    let report={status:'failed',synthetic:true};
+    if(fs.existsSync(reportPath)){try{report=JSON.parse(fs.readFileSync(reportPath,'utf8'));}catch{}}
+    report.status='failed';report.videoError=String(error);report.frames=frameCount;
+    fs.writeFileSync(reportPath,JSON.stringify(report,null,2));
   }
   terminate(vite);
 }
