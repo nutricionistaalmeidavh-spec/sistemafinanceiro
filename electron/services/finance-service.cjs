@@ -312,6 +312,17 @@ function listEntriesPage(filters={}){
   clauses.push("(INSTR(LOWER(fe.description),?)>0 OR INSTR(LOWER(COALESCE(c.name,'')),?)>0 OR INSTR(LOWER(COALESCE(cr.name,'')),?)>0 OR INSTR(LOWER(COALESCE(cat.name,'')),?)>0 OR INSTR(LOWER(fe.due_at),?)>0)");
   params.push(q,q,q,q,q);
  }
+ // Safe SQL prefilters for states that provably require prior settlement events.
+ // Final canonical status is STILL derived by mapEntry(row, day, settlements).
+ if(status==='PARTIAL'||status==='SETTLED'){
+  clauses.push("EXISTS (SELECT 1 FROM financial_settlements fs WHERE fs.entry_id=fe.id AND fs.occurred_at<=? AND (fs.reversed_at IS NULL OR substr(fs.reversed_at,1,10)>?))");
+  params.push(day,day);
+ }
+ if(status==='OVERDUE'||filters.overdue===true){clauses.push('fe.due_at<?');params.push(day);}
+ if(status==='CANCELLED'){
+  clauses.push("fe.status='CANCELLED' AND (fe.cancelled_at IS NULL OR substr(fe.cancelled_at,1,10)<=?)");
+  params.push(day);
+ }
  const joins=" FROM financial_entries fe LEFT JOIN customers c ON c.id=fe.customer_id LEFT JOIN creditors cr ON cr.id=fe.creditor_id LEFT JOIN financial_categories cat ON cat.id=fe.category_id";
  const results=[];
  const batch=Math.max(100,Math.min(200,size+1));
