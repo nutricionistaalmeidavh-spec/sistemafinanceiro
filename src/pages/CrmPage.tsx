@@ -18,14 +18,15 @@ type ItemDraft=typeof firstItem;
 function errorMessage(error:unknown){return error instanceof Error?error.message:String(error);}
 function niceDate(iso:string|null){if(!iso)return 'Sem prazo';const [y,m,d]=iso.slice(0,10).split('-');return [d,m,y].join('/');}
 
-function streamCsv(file:File,processBatch:(rows:CrmImportRow[],start:number)=>Promise<void>) :Promise<void> {
+type CsvStreamParser={pause():void;resume():void;abort():void};
+function streamCsv(file:File,processBatch:(rows:CrmImportRow[],start:number)=>Promise<void>):Promise<void> {
  return new Promise<void>((resolve,reject)=>{
   let pending:CrmImportRow[]=[],line=0,failed=false;
-  const stop=(parser:Papa.Parser,error:unknown)=>{if(failed)return;failed=true;parser.abort();reject(error);};
-  Papa.parse<Record<string,string>>(file,{
+  const stop=(parser:CsvStreamParser,error:unknown)=>{if(failed)return;failed=true;parser.abort();reject(error);};
+  Papa.parse(file,{
    header:true,skipEmptyLines:true,
    transformHeader:(h)=>h.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[\s_-]/g,''),
-   step:(result,parser)=>{
+   step:(result:{data:Record<string,string>;errors:Array<{message:string}>},parser:CsvStreamParser)=>{
     if(failed)return;
     if(result.errors.length){stop(parser,new Error('CSV inválido: '+result.errors[0].message));return;}
     const r=result.data;
@@ -44,7 +45,7 @@ function streamCsv(file:File,processBatch:(rows:CrmImportRow[],start:number)=>Pr
     const batch=pending;pending=[];
     Promise.resolve(batch.length?processBatch(batch,line):undefined).then(()=>resolve(),reject);
    },
-   error:(error)=>{if(!failed){failed=true;reject(error);}}
+   error:(error:Error)=>{if(!failed){failed=true;reject(error);}}
   });
  });
 }
