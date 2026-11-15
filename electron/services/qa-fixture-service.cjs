@@ -18,7 +18,7 @@ function withTransaction(db, fn) {
   catch (error) { try { db.exec('ROLLBACK'); } catch {} throw error; }
 }
 
-function seedQaFixture({ db, auth, now = () => new Date().toISOString(), password, ledgerRows = 0 } = {}) {
+function seedQaFixture({ db, auth, now = () => new Date().toISOString(), password, ledgerRows = 0, onboardingOnly = false } = {}) {
   if (!db || !auth) throw new TypeError('db and auth are required');
   if (!Number.isInteger(ledgerRows) || ledgerRows < 0 || ledgerRows > 10000) throw new RangeError('QA ledgerRows must be 0..10000');
   const credential = resolveQaCredential(password);
@@ -26,6 +26,8 @@ function seedQaFixture({ db, auth, now = () => new Date().toISOString(), passwor
   const today = timestamp.slice(0, 10);
 
   if (auth.needsBootstrap()) auth.bootstrapAdmin({ password: credential, name: 'Administrador QA' });
+  // QA-only fresh-start mode: real onboarding operates on an empty isolated SQLite DB.
+  if (onboardingOnly) return { seeded: false, login: 'admin', password: credential };
   const marker = db.prepare("SELECT value FROM app_meta WHERE key='qa_fixture'").get();
   if (marker?.value === 'e14-e15-v1') return { seeded: false, login: 'admin', password: credential };
 
