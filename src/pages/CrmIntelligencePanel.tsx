@@ -58,8 +58,8 @@ export default function CrmIntelligencePanel({mode,token,session,opportunities,p
  }
  async function saveGoal(event:FormEvent){
   event.preventDefault();
-  await submit(()=>api.saveGoal(token,{ownerId:goalDraft.ownerId,month,targetCents:toCents(goalDraft.value)}),'Meta comercial atualizada.');
-  setGoalDraft(old=>({...old,value:''}));
+  if(await submit(()=>api.saveGoal(token,{ownerId:goalDraft.ownerId,month,targetCents:toCents(goalDraft.value)}),'Meta comercial atualizada.'))
+   setGoalDraft(old=>({...old,value:''}));
  }
  async function addPipeline(event:FormEvent){
   event.preventDefault();
