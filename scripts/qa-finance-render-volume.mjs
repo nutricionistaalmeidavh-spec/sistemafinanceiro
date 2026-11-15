@@ -5,7 +5,7 @@ import path from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
 import { _electron as electron } from 'playwright';
-import { summarizeRenderInteraction } from './qa-render-metrics.mjs';
+import { summarizeRenderInteraction, summarizeInteractionLatency } from './qa-render-metrics.mjs';
 
 const rows=Number(process.env.ARTISYS_QA_LEDGER_ROWS);
 if(![100,1000,10000].includes(rows))throw new Error('ARTISYS_QA_LEDGER_ROWS must be 100, 1000 or 10000');
@@ -64,25 +64,34 @@ try{
     await page.waitForFunction(()=>document.querySelectorAll('[data-testid="page-finance"] .table-panel tbody tr').length===100,{timeout:45000});
   });
   assert.equal(await visible.count(),100,'first screen displays exactly 100 canonical rows');
-  await measure('finance-volume-search',async()=>{
-    await page.getByTestId('finance-search').fill('QA Perf 00042');
-    await page.getByText('QA Perf 00042').first().waitFor();
-    await page.waitForFunction(()=>document.querySelectorAll('[data-testid="page-finance"] .table-panel tbody tr').length===1);
-  });
-  assert.equal(await visible.count(),1);
-  await measure('finance-volume-reset',async()=>{
-    await page.getByTestId('finance-search').fill('');
-    await page.waitForFunction(()=>document.querySelectorAll('[data-testid="page-finance"] .table-panel tbody tr').length===100);
-  });
-  await measure('finance-volume-status',async()=>{
-    await page.getByLabel('Filtrar status').selectOption('PARTIAL');
-    await page.getByText('Serviços terceirizados').first().waitFor();
-  });
-  await measure('finance-volume-status-reset',async()=>{
-    await page.getByLabel('Filtrar status').selectOption('ALL');
-    await page.waitForFunction(()=>document.querySelectorAll('[data-testid="page-finance"] .table-panel tbody tr').length===100);
-  });
-  const report={synthetic:true,environment:'unpackaged-windows-electron-dev',rows,visibleLimit:100,measures};
+  // Seven repeated samples per action, sufficient to report an observed p50 and p95
+  // rather than treating one elapsed time as a percentile.
+  for(let sample=0;sample<7;sample++){
+    await measure('finance-volume-search',async()=>{
+      await page.getByTestId('finance-search').fill('QA Perf 00042');
+      await page.getByText('QA Perf 00042').first().waitFor();
+      await page.waitForFunction(()=>document.querySelectorAll('[data-testid="page-finance"] .table-panel tbody tr').length===1);
+    });
+    assert.equal(await visible.count(),1);
+    await measure('finance-volume-reset',async()=>{
+      await page.getByTestId('finance-search').fill('');
+      await page.waitForFunction(()=>document.querySelectorAll('[data-testid="page-finance"] .table-panel tbody tr').length===100);
+    });
+  }
+  for(let sample=0;sample<7;sample++){
+    await measure('finance-volume-status',async()=>{
+      await page.getByLabel('Filtrar status').selectOption('PARTIAL');
+      await page.getByText('Serviços terceirizados').first().waitFor();
+    });
+    await measure('finance-volume-status-reset',async()=>{
+      await page.getByLabel('Filtrar status').selectOption('ALL');
+      await page.waitForFunction(()=>document.querySelectorAll('[data-testid="page-finance"] .table-panel tbody tr').length===100);
+    });
+  }
+  const latency=summarizeInteractionLatency(measures);
+  for(const action of ['finance-volume-search','finance-volume-reset','finance-volume-status','finance-volume-status-reset'])
+    assert.equal(latency[action]?.samples,7);
+  const report={synthetic:true,environment:'unpackaged-windows-electron-dev',rows,visibleLimit:100,latency,measures};
   const dir=path.resolve('qa-artifacts/render-volume');
   fs.mkdirSync(dir,{recursive:true});
   fs.writeFileSync(path.join(dir,'react-finance-'+rows+'.json'),JSON.stringify(report,null,2));
