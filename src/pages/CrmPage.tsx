@@ -18,6 +18,37 @@ type ItemDraft=typeof firstItem;
 function errorMessage(error:unknown){return error instanceof Error?error.message:String(error);}
 function niceDate(iso:string|null){if(!iso)return 'Sem prazo';const [y,m,d]=iso.slice(0,10).split('-');return [d,m,y].join('/');}
 
+function streamCsv(file:File,processBatch:(rows:CrmImportRow[],start:number)=>Promise<void>) :Promise<void> {
+ return new Promise((resolve,reject)=>{
+  let pending:CrmImportRow[]=[],line=0,failed=false;
+  const stop=(parser:Papa.Parser,error:unknown)=>{if(failed)return;failed=true;parser.abort();reject(error);};
+  Papa.parse<Record<string,string>>(file,{
+   header:true,skipEmptyLines:true,
+   transformHeader:(h)=>h.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[\s_-]/g,''),
+   step:(result,parser)=>{
+    if(failed)return;
+    if(result.errors.length){stop(parser,new Error('CSV inválido: '+result.errors[0].message));return;}
+    const r=result.data;
+    pending.push({name:r.nome||r.name||'',email:r.email||r.correio||'',phone:r.telefone||r.celular||r.phone||'',
+      document:r.cpfcnpj||r.documento||r.document||'',source:r.origem||r.source||'CSV',
+      notes:r.observacoes||r.notes||''});
+    if(pending.length>=500){
+     parser.pause();
+     const batch=pending;pending=[];
+     const start=line;line+=batch.length;
+     Promise.resolve(processBatch(batch,start)).then(()=>parser.resume(),error=>stop(parser,error));
+    }
+   },
+   complete:()=>{
+    if(failed)return;
+    const batch=pending;pending=[];
+    Promise.resolve(batch.length?processBatch(batch,line):undefined).then(()=>resolve(),reject);
+   },
+   error:(error)=>{if(!failed){failed=true;reject(error);}}
+  });
+ });
+}
+
 export default function CrmPage({token,session,onOpenFinance,onOpenRegistry}:Props){
  const api=window.financeiro!;
  const editable=can(session,'crm.manage'),quotesAllowed=can(session,'crm.quotes');
@@ -55,7 +86,8 @@ export default function CrmPage({token,session,onOpenFinance,onOpenRegistry}:Pro
  const deferredQuery=useDeferredValue(query);
  const [leadForm,setLeadForm]=useState(emptyLead);
  const [editingLeadId,setEditingLeadId]=useState<string|null>(null);
- const [importRows,setImportRows]=useState<CrmImportRow[]>([]);
+ const [importFile,setImportFile]=useState<File|null>(null);
+ const [importProgress,setImportProgress]=useState('');
  const [importPreview,setImportPreview]=useState<CrmImportPreview|null>(null);
  const [dealForm,setDealForm]=useState({party:'',title:'',amount:'0',ownerId:'',expectedCloseAt:'',pipelineId:''});
  const [note,setNote]=useState('');
@@ -156,29 +188,42 @@ export default function CrmPage({token,session,onOpenFinance,onOpenRegistry}:Pro
  }
 
  async function loadCsv(e:ChangeEvent<HTMLInputElement>){
-  const file=e.target.files?.[0];setError('');setMessage('');setImportPreview(null);setImportRows([]);
+  const file=e.target.files?.[0];setError('');setMessage('');setImportPreview(null);setImportFile(null);setImportProgress('');
   if(!file)return;
-  if(file.size>2*1024*1024){setError('O arquivo CSV deve ter até 2 MB.');return;}
   try{
-   const text=await file.text();
-   const parsed=Papa.parse(text,{header:true,skipEmptyLines:true,transformHeader:(h)=>h.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[\s_-]/g,'')});
-   if(parsed.errors.length)throw new Error('CSV inválido: '+parsed.errors[0].message);
-   const rows=parsed.data.map(r=>({
-    name:r.nome||r.name||'',email:r.email||r.correio||'',
-    phone:r.telefone||r.celular||r.phone||'',
-    document:r.cpfcnpj||r.documento||r.document||'',
-    source:r.origem||r.source||'CSV',notes:r.observacoes||r.notes||''
-   }));
-   const preview=await api.crm.previewLeadImport(token,rows);
-   setImportRows(rows);setImportPreview(preview);
-  }catch(e){setError(errorMessage(e));}
+   const seen=new Set<string>(),sample:CrmImportPreview['rows']=[];
+   let ready=0,duplicates=0,invalid=0,processed=0;
+   await streamCsv(file,async(rows,start)=>{
+    const result=await api.crm.previewLeadImport(token,rows);
+    for(let i=0;i<result.rows.length;i++){
+     const row=result.rows[i];
+     const keys=[row.email?'e:'+row.email:'',row.document?'d:'+row.document:''].filter(Boolean);
+     const duplicateAcross=keys.some(key=>seen.has(key));
+     keys.forEach(key=>seen.add(key));
+     const status=row.status==='READY'&&duplicateAcross?'DUPLICATE':row.status;
+     const normalized={...row,index:start+i+1,status:status as CrmImportPreview['rows'][number]['status'],
+      reason:duplicateAcross&&row.status==='READY'?'Duplicado dentro do arquivo':row.reason};
+     if(status==='READY')ready++;else if(status==='DUPLICATE')duplicates++;else invalid++;
+     if(status!=='READY'&&sample.length<5)sample.push(normalized);
+    }
+    processed+=rows.length;
+    setImportProgress('Analisados '+processed.toLocaleString('pt-BR')+' registros...');
+   });
+   setImportFile(file);setImportPreview({rows:sample,ready,duplicates,invalid});
+   setImportProgress('Prévia concluída: '+processed.toLocaleString('pt-BR')+' registros.');
+  }catch(err){setError(errorMessage(err));}
  }
  async function importCsv(){
-  if(!importPreview?.ready)return;
+  if(!importPreview?.ready||!importFile)return;
+  let created=0,skipped=0,processed=0;
   await run(async()=>{
-   await api.crm.commitLeadImport(token,importRows);
-   setImportRows([]);setImportPreview(null);
-  },'Importação concluída; apenas leads válidos e inéditos foram cadastrados.');
+   await streamCsv(importFile,async rows=>{
+    const result=await api.crm.commitLeadImport(token,rows);
+    created+=result.created;skipped+=result.skipped;processed+=rows.length;
+    setImportProgress('Processados '+processed.toLocaleString('pt-BR')+' registros; cadastrados '+created.toLocaleString('pt-BR')+'.');
+   });
+   setImportFile(null);setImportPreview(null);
+  },()=>created.toLocaleString('pt-BR')+' leads cadastrados, '+skipped.toLocaleString('pt-BR')+' duplicados/inválidos ignorados.');
  }
 
  async function addLead(e:FormEvent){
@@ -293,6 +338,7 @@ export default function CrmPage({token,session,onOpenFinance,onOpenRegistry}:Pro
   {tab==='leads'&&<div className="panel crm-import">
    <div><h3>Importar leads por CSV</h3><p className="muted">Colunas aceitas: nome, email, telefone, cpfcnpj, origem e observacoes. Prévia antes de qualquer cadastro.</p></div>
    <input type="file" accept=".csv,text/csv" aria-label="Arquivo CSV de leads" onChange={e=>void loadCsv(e)}/>
+   {importProgress&&<p aria-live="polite" className="muted">{importProgress}</p>}
    {importPreview&&<div className="crm-import-preview">
     <span>Prontos: <strong>{importPreview.ready}</strong></span>
     <span>Duplicados: <strong>{importPreview.duplicates}</strong></span>
