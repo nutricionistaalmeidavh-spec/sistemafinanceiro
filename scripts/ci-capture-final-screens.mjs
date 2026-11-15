@@ -147,10 +147,16 @@ try {
   await page.getByRole('button',{name:'Visualizar recebíveis'}).click();
   await page.getByText('Prévia, sem lançamento financeiro').waitFor();
   await page.getByRole('button',{name:'Confirmar e criar 2 recebível(is)'}).click();
-  await page.getByText('2 parcela(s) já vinculada(s) ao Financeiro.').waitFor();
+  await page.getByText('2 parcela(s) vinculada(s) ao Financeiro.').waitFor();
   const crmFolder=path.resolve('qa-artifacts/crm/screenshots');
   fs.mkdirSync(crmFolder,{recursive:true});
   await page.screenshot({path:path.join(crmFolder,'crm-comercial-funil-recebiveis.png'),fullPage:true});
+  // The CRM installment link opens the same financial entry, not a second copy.
+  await page.getByRole('button',{name:'Abrir no Financeiro'}).first().click();
+  await page.getByTestId('finance-focused-row').waitFor({state:'visible'});
+  console.log('CRM_CANONICAL_RECEIVABLE_NAVIGATION_OK');
+  await page.getByTestId('nav-crm').click();
+  await page.getByTestId('page-crm').waitFor({state:'visible'});
   console.log('CRM_LEAD_QUOTE_BILLING_CONFIRMATION_OK');
 
   // P2: exercita a agenda, indicadores, metas e configuração de funis no Electron real.
@@ -241,6 +247,22 @@ try {
     fs.writeFileSync(path.join(metricsFolder,'react-renders.json'),JSON.stringify(renders,null,2));
     console.log('REACT_RENDER_PROFILER_OK '+JSON.stringify(renders));
   }
+
+  // Mobile-first and keyboard regression check against the real Electron renderer.
+  await page.setViewportSize({width:390,height:844});
+  await page.getByTestId('mobile-nav-toggle').click();
+  await page.getByTestId('nav-crm').click();
+  await page.getByRole('tab',{name:'Funil'}).focus();
+  await page.keyboard.press('ArrowRight');
+  if(await page.getByRole('tab',{name:'Leads'}).getAttribute('aria-selected')!=='true')
+    throw new Error('CRM tabs must be operable by keyboard on mobile');
+  await page.screenshot({path:path.join(crmFolder,'crm-mobile-leads.png'),fullPage:true});
+  await page.getByRole('tab',{name:'Agenda'}).click();
+  await page.getByTestId('crm-p2-agenda').waitFor({state:'visible'});
+  await page.screenshot({path:path.join(crmFolder,'crm-mobile-agenda.png'),fullPage:true});
+  const overflow=await page.evaluate(()=>document.documentElement.scrollWidth-document.documentElement.clientWidth);
+  if(overflow>3)throw new Error('Horizontal mobile document overflow: '+overflow+'px');
+  console.log('CRM_MOBILE_KEYBOARD_AND_REFLOW_OK');
 
   const files = fs.readdirSync(output).filter((file) => file.endsWith('.png')).sort();
   if (files.length !== 12) throw new Error(`Expected 12 final screenshots, found ${files.length}`);
