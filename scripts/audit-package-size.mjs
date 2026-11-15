@@ -22,9 +22,9 @@ export function readAsarIndex(archivePath) {
     if (headerSize < 8 || headerSize > 80 * 1024 * 1024) throw new Error('ASAR com tamanho de cabecalho invalido');
     const headerData = Buffer.alloc(headerSize);
     if (fs.readSync(fd, headerData, 0, headerSize, 8) !== headerSize) throw new Error('ASAR com cabecalho truncado');
-    const jsonSize = headerData.readUInt32LE(0);
-    if (jsonSize < 2 || jsonSize > headerSize - 4) throw new Error('ASAR com tamanho JSON invalido');
-    const header = JSON.parse(headerData.toString('utf8', 4, 4 + jsonSize));
+    const jsonSize = headerData.readUInt32LE(4);
+    if (jsonSize < 2 || jsonSize > headerSize - 8) throw new Error('ASAR com tamanho JSON invalido');
+    const header = JSON.parse(headerData.toString('utf8', 8, 8 + jsonSize));
     const entries = [];
     function visit(node, prefix) {
       for (const [name, item] of Object.entries(node.files ?? {})) {
