@@ -12,6 +12,7 @@ test('E16 exposes the finance UI kit, grouped shell, actionable dashboard and en
   const app = read('src/App.tsx');
   const dashboard = read('src/pages/DashboardPage.tsx');
   const finance = read('src/pages/FinancePage.tsx');
+  const financeTable = read('src/components/FinanceEntriesTable.tsx');
   const main = read('src/main.tsx');
   const css = `${read('src/styles.css')}\n${read('src/final-polish.css')}\n${read('src/finance-ui.css')}`;
 
@@ -30,7 +31,8 @@ test('E16 exposes the finance UI kit, grouped shell, actionable dashboard and en
 
   assert.match(finance, /data-testid="finance-new-entry"/);
   assert.match(finance, /data-testid="finance-entry-drawer"/);
-  assert.match(finance, /FinanceStatusBadge/);
+  assert.match(financeTable, /FinanceStatusBadge/);
+  assert.match(finance, /FinanceEntriesTable/);
   assert.match(finance, /FinanceDrawer/);
 
   assert.match(main, /finance-ui\.css/);
