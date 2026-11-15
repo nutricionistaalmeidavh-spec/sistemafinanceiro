@@ -2,6 +2,7 @@
 
 const { randomUUID } = require('node:crypto');
 const { writeAudit } = require('./audit.cjs');
+const {pageSize,encodeCursor,decodeCursor,searchTerm}=require('./pagination.cjs');
 const { assertDateOnly, localDay } = require('./date-utils.cjs');
 const {scopedSplitCents}=require('./allocation-service.cjs');
 
@@ -288,6 +289,69 @@ function createFinanceService({ db, now = () => new Date().toISOString(), idFact
     return rows.map(row=>mapEntry(row,day,byEntry.get(row.id)||[]))
       .filter(entry=>(!filters.status||entry.status===String(filters.status).toUpperCase())&&(filters.overdue!==true||entry.isOverdue));
   }
+function listEntriesPage(filters={}){
+ const size=pageSize(filters.limit);
+ const day=assertDateOnly(String(filters.asOf||localDay(nowIso())).slice(0,10),'asOf');
+ const kind=filters.kind?String(filters.kind).toUpperCase():'';
+ if(kind&&!['PAYABLE','RECEIVABLE'].includes(kind))throw new Error('Tipo financeiro inválido');
+ const status=String(filters.status||'ALL').toUpperCase();
+ if(!['ALL','OPEN','PARTIAL','SETTLED','CANCELLED','OVERDUE'].includes(status))throw new Error('Status financeiro inválido');
+ const q=searchTerm(filters.query),focusedId=String(filters.focusedEntryId||'');
+ const scope=JSON.stringify({resource:'financial-entries',kind,day,status,q,focusedId,
+  from:filters.from||'',to:filters.to||'',accountId:filters.accountId||'',customerId:filters.customerId||'',
+  creditorId:filters.creditorId||'',categoryId:filters.categoryId||'',recurrenceRuleId:filters.recurrenceRuleId||'',overdue:filters.overdue===true});
+ let position=decodeCursor(filters.cursor,scope);
+ const clauses=['substr(fe.created_at,1,10)<=?'],params=[day];
+ for(const [column,value] of [['kind',kind],['account_id',filters.accountId],['customer_id',filters.customerId],
+  ['creditor_id',filters.creditorId],['category_id',filters.categoryId],['recurrence_rule_id',filters.recurrenceRuleId],['id',focusedId]]){
+  if(value){clauses.push('fe.'+column+'=?');params.push(String(value));}
+ }
+ if(filters.from){clauses.push('fe.due_at>=?');params.push(String(filters.from));}
+ if(filters.to){clauses.push('fe.due_at<=?');params.push(String(filters.to));}
+ if(q){
+  clauses.push("(INSTR(LOWER(fe.description),?)>0 OR INSTR(LOWER(COALESCE(c.name,'')),?)>0 OR INSTR(LOWER(COALESCE(cr.name,'')),?)>0 OR INSTR(LOWER(COALESCE(cat.name,'')),?)>0 OR INSTR(LOWER(fe.due_at),?)>0)");
+  params.push(q,q,q,q,q);
+ }
+ // Safe SQL prefilters for states that provably require prior settlement events.
+ // Final canonical status is STILL derived by mapEntry(row, day, settlements).
+ if(status==='PARTIAL'||status==='SETTLED'){
+  clauses.push("EXISTS (SELECT 1 FROM financial_settlements fs WHERE fs.entry_id=fe.id AND fs.occurred_at<=? AND (fs.reversed_at IS NULL OR substr(fs.reversed_at,1,10)>?))");
+  params.push(day,day);
+ }
+ if(status==='OVERDUE'||filters.overdue===true){clauses.push('fe.due_at<?');params.push(day);}
+ if(status==='CANCELLED'){
+  clauses.push("fe.status='CANCELLED' AND (fe.cancelled_at IS NULL OR substr(fe.cancelled_at,1,10)<=?)");
+  params.push(day);
+ }
+ const joins=" FROM financial_entries fe LEFT JOIN customers c ON c.id=fe.customer_id LEFT JOIN creditors cr ON cr.id=fe.creditor_id LEFT JOIN financial_categories cat ON cat.id=fe.category_id";
+ const results=[];
+ const batch=Math.max(100,Math.min(200,size+1));
+ while(results.length<=size){
+  const where=[...clauses],values=[...params];
+  if(position){where.push('(fe.due_at>? OR (fe.due_at=? AND fe.id>?))');values.push(position[0],position[0],position[1]);}
+  const rows=db.prepare('SELECT fe.* '+joins+' WHERE '+where.join(' AND ')+' ORDER BY fe.due_at,fe.id LIMIT ?').all(...values,batch);
+  if(!rows.length)break;
+  const groups=new Map();
+  const ids=rows.map(r=>r.id);
+  const settlements=db.prepare('SELECT * FROM financial_settlements WHERE entry_id IN ('+ids.map(()=>'?').join(',')+') AND occurred_at<=? AND (reversed_at IS NULL OR substr(reversed_at,1,10)>?) ORDER BY occurred_at,created_at,id').all(...ids,day,day);
+  for(const raw of settlements){
+   if(!groups.has(raw.entry_id))groups.set(raw.entry_id,[]);
+   groups.get(raw.entry_id).push(mapSettlement(raw));
+  }
+  for(const row of rows){
+   position=[row.due_at,row.id];
+   const entry=mapEntry(row,day,groups.get(row.id)||[]);
+   if((status==='ALL'||status==='OVERDUE'&&entry.isOverdue||entry.status===status)&&
+    (filters.overdue!==true||entry.isOverdue)){
+    results.push({entry,position});
+    if(results.length>size)break;
+   }
+  }
+  if(rows.length<batch)break;
+ }
+ const hasMore=results.length>size,selected=results.slice(0,size),last=selected.at(-1);
+ return {items:selected.map(x=>x.entry),hasMore,nextCursor:hasMore&&last?encodeCursor(last.position,scope):null};
+}
   function getSummary({ from = null, to = null, asOf = localDay(nowIso()) } = {}) {
     const day=assertDateOnly(String(asOf).slice(0,10),'asOf');
     const where=["substr(fe.created_at,1,10)<=?", "(fe.status<>'CANCELLED' OR substr(fe.cancelled_at,1,10)>?)"];
@@ -321,7 +385,7 @@ function createFinanceService({ db, now = () => new Date().toISOString(), idFact
     return summary;
   }
 
-  return { createAccount, getAccount, listAccounts, createEntry, updateEntry, getEntry, listEntries, settleEntry, reverseSettlement, cancelEntry, getSummary };
+  return { createAccount, getAccount, listAccounts, createEntry, updateEntry, getEntry, listEntries, listEntriesPage, settleEntry, reverseSettlement, cancelEntry, getSummary };
 }
 
 module.exports = { createFinanceService };

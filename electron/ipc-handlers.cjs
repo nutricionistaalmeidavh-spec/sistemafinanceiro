@@ -50,18 +50,22 @@ function registerIpcHandlers({ ipcMain, app, dialog, database, auth, finance, re
   ipcMain.handle('crm:p2:csv',(_e,token,filters)=>{auth.require(token,'crm.view');return crmIntelligence.exportSalesCsv(filters||{});});
 
   ipcMain.handle('crm:leads:list',(_e,token,filters)=>{auth.require(token,'crm.view');return crm.listLeads(filters||{});});
+  ipcMain.handle('crm:leads:page',(_e,token,filters)=>{auth.require(token,'crm.view');return crm.listLeadsPage(filters||{});});
   ipcMain.handle('crm:leads:import-preview',(_e,token,rows)=>{auth.require(token,'crm.view');return crm.previewLeadImport(rows);});
   ipcMain.handle('crm:leads:import-commit',(_e,token,rows)=>{const actor=auth.require(token,'crm.manage');return crm.commitLeadImport(rows,actor);});
   ipcMain.handle('crm:leads:save',(_e,token,input)=>{const actor=auth.require(token,'crm.manage');return crm.saveLead(input||{},actor);});
   ipcMain.handle('crm:leads:status',(_e,token,id,status)=>{const actor=auth.require(token,'crm.manage');return crm.setLeadStatus(id,status,actor);});
   ipcMain.handle('crm:leads:convert',(_e,token,id,input)=>{const actor=auth.require(token,'crm.convert');return crm.convertLead(id,input||{},actor);});
   ipcMain.handle('crm:opportunities:list',(_e,token,filters)=>{auth.require(token,'crm.view');return crm.listOpportunities(filters||{});});
+  ipcMain.handle('crm:opportunities:page',(_e,token,filters)=>{auth.require(token,'crm.view');return crm.listOpportunitiesPage(filters||{});});
+  ipcMain.handle('crm:opportunities:get',(_e,token,id)=>{auth.require(token,'crm.view');return crm.getOpportunity(id);});
   ipcMain.handle('crm:opportunities:save',(_e,token,input)=>{const actor=auth.require(token,'crm.manage');return crm.saveOpportunity(input||{},actor);});
   ipcMain.handle('crm:opportunities:move',(_e,token,id,stage,options)=>{const actor=auth.require(token,'crm.manage');return crm.moveOpportunity(id,stage,actor,options||{});});
   ipcMain.handle('crm:stages:history',(_e,token,id)=>{auth.require(token,'crm.view');return crm.listStageHistory(id);});
   ipcMain.handle('crm:activities:list',(_e,token,id)=>{auth.require(token,'crm.view');return crm.listActivities(id);});
   ipcMain.handle('crm:activities:add',(_e,token,input)=>{const actor=auth.require(token,'crm.manage');return crm.addActivity(input||{},actor);});
   ipcMain.handle('crm:tasks:list',(_e,token,filters)=>{auth.require(token,'crm.view');return crm.listTasks(filters||{});});
+  ipcMain.handle('crm:tasks:page',(_e,token,filters)=>{auth.require(token,'crm.view');return crm.listTasksPage(filters||{});});
   ipcMain.handle('crm:tasks:save',(_e,token,input)=>{const actor=auth.require(token,'crm.manage');return crm.saveTask(input||{},actor);});
   ipcMain.handle('crm:tasks:done',(_e,token,id,done)=>{const actor=auth.require(token,'crm.manage');return crm.setTaskDone(id,done,actor);});
   ipcMain.handle('crm:quotes:list',(_e,token,id)=>{auth.require(token,'crm.view');return crm.listQuotes(id);});
@@ -76,6 +80,7 @@ function registerIpcHandlers({ ipcMain, app, dialog, database, auth, finance, re
   ipcMain.handle('finance:accounts:list', (_event, token, filters) => { auth.require(token, 'finance.view'); return finance.listAccounts(filters || {}); });
   ipcMain.handle('finance:accounts:create', (event, token, input) => { const actor = auth.require(token, 'finance.manage'); return broadcast(event, finance.createAccount(input, actor)); });
   ipcMain.handle('finance:entries:list', (_event, token, filters) => { auth.require(token, 'finance.view'); return finance.listEntries(filters || {}); });
+  ipcMain.handle('finance:entries:page', (_event, token, filters) => { auth.require(token, 'finance.view'); return finance.listEntriesPage(filters || {}); });
   ipcMain.handle('finance:entries:create', (event, token, input) => { const actor = auth.require(token, 'finance.manage'); return broadcast(event, finance.createEntry(input, actor)); });
   ipcMain.handle('finance:entries:update', (event, token, entryId, input) => { const actor = auth.require(token, 'finance.manage'); return broadcast(event, finance.updateEntry(entryId, input, actor)); });
   ipcMain.handle('finance:entries:settle', (event, token, entryId, input) => { const actor = auth.require(token, 'finance.manage'); return broadcast(event, finance.settleEntry(entryId, input, actor)); });
@@ -257,9 +262,13 @@ function registerIpcHandlers({ ipcMain, app, dialog, database, auth, finance, re
   ipcMain.handle('lan:pairing-code', (_event, token) => { const actor = auth.require(token, 'system.manage'); return lan.createPairingCode(actor); });
 
   ipcMain.handle('registry:customers:list', (_event, token, filters) => { auth.require(token, 'registry.view'); return registry.listCustomers(filters || {}); });
+  ipcMain.handle('registry:customers:page', (_event, token, filters) => { auth.require(token, 'registry.view'); return registry.listCustomersPage(filters || {}); });
+  ipcMain.handle('registry:customers:get', (_event, token, id) => { auth.require(token, 'registry.view'); return registry.getCustomer(id); });
   ipcMain.handle('registry:customers:save', (_event, token, input) => { const actor = auth.require(token, 'registry.manage'); return registry.saveCustomer(input, actor); });
   ipcMain.handle('registry:customers:set-active', (_event, token, id, active) => { const actor = auth.require(token, 'registry.manage'); return registry.setCustomerActive(id, active, actor); });
   ipcMain.handle('registry:creditors:list', (_event, token, filters) => { auth.require(token, 'registry.view'); return registry.listCreditors(filters || {}); });
+  ipcMain.handle('registry:creditors:page', (_event, token, filters) => { auth.require(token, 'registry.view'); return registry.listCreditorsPage(filters || {}); });
+  ipcMain.handle('registry:creditors:get', (_event, token, id) => { auth.require(token, 'registry.view'); return registry.getCreditor(id); });
   ipcMain.handle('registry:creditors:save', (_event, token, input) => { const actor = auth.require(token, 'registry.manage'); return registry.saveCreditor(input, actor); });
   ipcMain.handle('registry:creditors:set-active', (_event, token, id, active) => { const actor = auth.require(token, 'registry.manage'); return registry.setCreditorActive(id, active, actor); });
   ipcMain.handle('registry:categories:list', (_event, token, filters) => { auth.require(token, 'registry.view'); return registry.listCategories(filters || {}); });

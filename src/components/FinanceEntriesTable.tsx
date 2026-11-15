@@ -6,7 +6,7 @@ import { FinanceStatusBadge } from './finance-ui';
 type Props={
   visibleEntries:FinanceEntry[];
   filteredCount:number;
-  visibleLimit:number;
+  hasMore:boolean;
   focusedEntryId:string|null;
   editable:boolean;
   onPayment:(entry:FinanceEntry)=>void;
@@ -20,7 +20,7 @@ type Props={
 
 // Form typing must not re-render unchanged ledger rows. Rows retain their canonical source objects.
 const FinanceEntriesTable=memo(function FinanceEntriesTable({
-  visibleEntries,filteredCount,visibleLimit,focusedEntryId,editable,
+  visibleEntries,filteredCount,hasMore,focusedEntryId,editable,
   onPayment,onEdit,onDecision,onReceiptPdf,onReceiptPrint,onOpenPlanning,onMore
 }:Props){
   return <div className="panel table-panel table-scroll">
@@ -44,7 +44,7 @@ const FinanceEntriesTable=memo(function FinanceEntriesTable({
       })}</tbody>
     </table>
     {filteredCount===0&&<div className="empty-state">Nenhum lançamento encontrado com os filtros atuais.</div>}
-    {filteredCount>visibleLimit&&<div className="table-more"><button type="button" className="secondary-button" onClick={onMore}>Carregar mais ({visibleEntries.length} de {filteredCount})</button></div>}
+    {hasMore&&<div className="table-more"><button type="button" className="secondary-button" onClick={onMore}>Carregar mais ({visibleEntries.length} carregados)</button></div>}
   </div>;
 });
 export default FinanceEntriesTable;

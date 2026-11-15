@@ -1,4 +1,4 @@
-import {useCallback,useEffect,useMemo,useState,type FormEvent,type DragEvent,type ChangeEvent} from 'react';
+import {useCallback,useDeferredValue,useEffect,useMemo,useRef,useState,type FormEvent,type DragEvent,type ChangeEvent} from 'react';
 import {ArrowRight,Check,Clock,FileDown,Handshake,Plus,Search,Users} from 'lucide-react';
 import {brl,toCents,today,can} from '../lib/format';
 import Papa from 'papaparse';
@@ -18,17 +18,63 @@ type ItemDraft=typeof firstItem;
 function errorMessage(error:unknown){return error instanceof Error?error.message:String(error);}
 function niceDate(iso:string|null){if(!iso)return 'Sem prazo';const [y,m,d]=iso.slice(0,10).split('-');return [d,m,y].join('/');}
 
+type CsvStreamParser={pause():void;resume():void;abort():void};
+function streamCsv(file:File,processBatch:(rows:CrmImportRow[],start:number)=>Promise<void>):Promise<void> {
+ return new Promise<void>((resolve,reject)=>{
+  let pending:CrmImportRow[]=[],line=0,failed=false;
+  const stop=(parser:CsvStreamParser,error:unknown)=>{if(failed)return;failed=true;parser.abort();reject(error);};
+  Papa.parse(file,{
+   header:true,skipEmptyLines:true,
+   transformHeader:(h)=>h.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[\s_-]/g,''),
+   step:(result:{data:Record<string,string>;errors:Array<{message:string}>},parser:CsvStreamParser)=>{
+    if(failed)return;
+    if(result.errors.length){stop(parser,new Error('CSV inválido: '+result.errors[0].message));return;}
+    const r=result.data;
+    pending.push({name:r.nome||r.name||'',email:r.email||r.correio||'',phone:r.telefone||r.celular||r.phone||'',
+      document:r.cpfcnpj||r.documento||r.document||'',source:r.origem||r.source||'CSV',
+      notes:r.observacoes||r.notes||''});
+    if(pending.length>=500){
+     parser.pause();
+     const batch=pending;pending=[];
+     const start=line;line+=batch.length;
+     Promise.resolve(processBatch(batch,start)).then(()=>parser.resume(),error=>stop(parser,error));
+    }
+   },
+   complete:()=>{
+    if(failed)return;
+    const batch=pending;pending=[];
+    Promise.resolve(batch.length?processBatch(batch,line):undefined).then(()=>resolve(),reject);
+   },
+   error:(error:Error)=>{if(!failed){failed=true;reject(error);}}
+  });
+ });
+}
+
 export default function CrmPage({token,session,onOpenFinance,onOpenRegistry}:Props){
  const api=window.financeiro!;
  const editable=can(session,'crm.manage'),quotesAllowed=can(session,'crm.quotes');
  const convertible=can(session,'crm.convert'),billingAllowed=can(session,'crm.billing.confirm');
  const [tab,setTab]=useState<Tab>('pipeline');
  const [leads,setLeads]=useState<CrmLead[]>([]);
+ const [leadCursor,setLeadCursor]=useState<string|null>(null);
+ const [leadTotal,setLeadTotal]=useState(0);
+ const [leadOptions,setLeadOptions]=useState<CrmLead[]>([]);
+ const [leadLookup,setLeadLookup]=useState('');
+ const [pickedParty,setPickedParty]=useState<{value:string;name:string}|null>(null);
+ const deferredLeadLookup=useDeferredValue(leadLookup);
+ const [opportunityCursor,setOpportunityCursor]=useState<string|null>(null);
+ const [opportunityTotal,setOpportunityTotal]=useState(0);
+ const [stageTotals,setStageTotals]=useState<Record<string,{count:number;amountCents:number}>>({});
+ const [refreshVersion,setRefreshVersion]=useState(0);
+ const leadRequest=useRef(0),opportunityRequest=useRef(0);
+ const [focusedDeal,setFocusedDeal]=useState<CrmOpportunity|null>(null);
  const [pipelines,setPipelines]=useState<CrmPipeline[]>([]);
  const [owners,setOwners]=useState<CrmOwner[]>([]);
  const [pipelineFilter,setPipelineFilter]=useState('');
  const [opportunities,setOpportunities]=useState<CrmOpportunity[]>([]);
  const [tasks,setTasks]=useState<CrmTask[]>([]);
+ const [taskCursor,setTaskCursor]=useState<string|null>(null);
+ const [taskTotal,setTaskTotal]=useState(0);
  const [customers,setCustomers]=useState<PartyRecord[]>([]);
  const [accounts,setAccounts]=useState<FinanceAccount[]>([]);
  const [categories,setCategories]=useState<FinancialCategory[]>([]);
@@ -41,9 +87,11 @@ export default function CrmPage({token,session,onOpenFinance,onOpenRegistry}:Pro
  const [selectedQuoteId,setSelectedQuoteId]=useState('');
  const [preview,setPreview]=useState<CrmBillingPreview|null>(null);
  const [query,setQuery]=useState('');
+ const deferredQuery=useDeferredValue(query);
  const [leadForm,setLeadForm]=useState(emptyLead);
  const [editingLeadId,setEditingLeadId]=useState<string|null>(null);
- const [importRows,setImportRows]=useState<CrmImportRow[]>([]);
+ const [importFile,setImportFile]=useState<File|null>(null);
+ const [importProgress,setImportProgress]=useState('');
  const [importPreview,setImportPreview]=useState<CrmImportPreview|null>(null);
  const [dealForm,setDealForm]=useState({party:'',title:'',amount:'0',ownerId:'',expectedCloseAt:'',pipelineId:''});
  const [note,setNote]=useState('');
@@ -53,7 +101,7 @@ export default function CrmPage({token,session,onOpenFinance,onOpenRegistry}:Pro
  const [quoteNotes,setQuoteNotes]=useState('');
  const [billing,setBilling]=useState({installments:'1',firstDueAt:today(),accountId:'',categoryId:''});
  const [message,setMessage]=useState(''),[error,setError]=useState(''),[busy,setBusy]=useState(false);
- const deal=useMemo(()=>opportunities.find(o=>o.id===selectedId)||null,[opportunities,selectedId]);
+ const deal=useMemo(()=>opportunities.find(o=>o.id===selectedId)||((focusedDeal?.id===selectedId)?focusedDeal:null),[opportunities,selectedId,focusedDeal]);
  const selectedQuote=quotes.find(q=>q.id===selectedQuoteId)||quotes[0]||null;
  const hasConfirmedBilling=billingLinks.length>0;
  const activePipeline=pipelines.find(p=>p.id===pipelineFilter)||pipelines.find(p=>p.isDefault)||pipelines[0];
@@ -61,11 +109,14 @@ export default function CrmPage({token,session,onOpenFinance,onOpenRegistry}:Pro
 
  const load=useCallback(async()=>{
   const [l,o,t,c,a,cats,m,pipelinesData,ownersData]=await Promise.all([
-   api.crm.listLeads(token),api.crm.listOpportunities(token),api.crm.listTasks(token),
-   api.registry.listCustomers(token),api.finance.listAccounts(token),api.registry.listCategories(token),
+   api.crm.listLeadsPage(token,{limit:100}),api.crm.listOpportunitiesPage(token,{limit:100}),api.crm.listTasksPage(token,{limit:100}),
+   api.registry.listCustomersPage(token,{limit:100}),api.finance.listAccounts(token),api.registry.listCategories(token),
    api.crm.metrics(token),api.crmIntelligence.listPipelines(token),api.crmIntelligence.listOwners(token)
   ]);
-  setLeads(l);setOpportunities(o);setTasks(t);setCustomers(c);setAccounts(a);
+  setLeads(l.items);setLeadCursor(l.nextCursor);setLeadTotal(l.total||0);
+  setLeadOptions(l.items);
+  setOpportunities(o.items);setOpportunityCursor(o.nextCursor);setOpportunityTotal(o.total||0);setStageTotals(o.stageTotals);
+  setTasks(t.items);setTaskCursor(t.nextCursor);setTaskTotal(t.total||0);setCustomers(c.items);setAccounts(a);
   setCategories(cats.filter(x=>x.nature==='REVENUE'));setMetrics(m);
   setPipelines(pipelinesData);setOwners(ownersData);
  },[api,token]);
@@ -83,34 +134,124 @@ export default function CrmPage({token,session,onOpenFinance,onOpenRegistry}:Pro
  },[selectedId,loadDetail]);
  async function run(fn:()=>Promise<unknown>,success:string|(()=>string)){
   setBusy(true);setError('');setMessage('');
-  try{await fn();await load();if(selectedId)await loadDetail(selectedId);setMessage(typeof success==='function'?success():success);}
+  try{await fn();await load();setRefreshVersion(v=>v+1);if(selectedId)await loadDetail(selectedId);setMessage(typeof success==='function'?success():success);}
   catch(e){setError(errorMessage(e));}finally{setBusy(false);}
  }
 
- async function loadCsv(e:ChangeEvent<HTMLInputElement>){
-  const file=e.target.files?.[0];setError('');setMessage('');setImportPreview(null);setImportRows([]);
-  if(!file)return;
-  if(file.size>2*1024*1024){setError('O arquivo CSV deve ter até 2 MB.');return;}
+
+ useEffect(()=>{
+  if(tab!=='leads')return;
+  const request=++leadRequest.current;
+  void api.crm.listLeadsPage(token,{query:deferredQuery,limit:100}).then(page=>{
+   if(request!==leadRequest.current)return;
+   setLeads(page.items);setLeadCursor(page.nextCursor);setLeadTotal(page.total||0);
+  }).catch(e=>{if(request===leadRequest.current)setError(errorMessage(e));});
+ },[api,token,tab,deferredQuery,refreshVersion]);
+ useEffect(()=>{
+  if(tab!=='pipeline'&&tab!=='quotes')return;
+  const request=++opportunityRequest.current;
+  void api.crm.listOpportunitiesPage(token,{query:deferredQuery,pipelineId:tab==='pipeline'?(activePipeline?.id||''):'',quoteOnly:tab==='quotes',limit:100}).then(page=>{
+   if(request!==opportunityRequest.current)return;
+   setOpportunities(page.items);setOpportunityCursor(page.nextCursor);setOpportunityTotal(page.total||0);setStageTotals(page.stageTotals);
+  }).catch(e=>{if(request===opportunityRequest.current)setError(errorMessage(e));});
+ },[api,token,tab,deferredQuery,activePipeline?.id,refreshVersion]);
+ useEffect(()=>{
+  if(tab!=='pipeline')return;
+  let cancelled=false;
+  void Promise.all([
+   api.crm.listLeadsPage(token,{query:deferredLeadLookup,limit:100}),
+   api.registry.listCustomersPage(token,{query:deferredLeadLookup,limit:100})
+  ]).then(([leadsPage,customersPage])=>{
+   if(!cancelled){setLeadOptions(leadsPage.items);setCustomers(customersPage.items);}
+  }).catch(e=>{if(!cancelled)setError(errorMessage(e));});
+  return ()=>{cancelled=true;};
+ },[api,token,tab,deferredLeadLookup,refreshVersion]);
+ useEffect(()=>{
+  if(!selectedId||opportunities.some(o=>o.id===selectedId))return;
+  let cancelled=false;
+  void api.crm.getOpportunity(token,selectedId).then(row=>{if(!cancelled)setFocusedDeal(row);}).catch(e=>{if(!cancelled)setError(errorMessage(e));});
+  return ()=>{cancelled=true;};
+ },[api,token,selectedId,opportunities]);
+
+ async function loadMoreLeads(){
+  if(!leadCursor)return;
+  const request=leadRequest.current;
   try{
-   const text=await file.text();
-   const parsed=Papa.parse(text,{header:true,skipEmptyLines:true,transformHeader:(h)=>h.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[\s_-]/g,'')});
-   if(parsed.errors.length)throw new Error('CSV inválido: '+parsed.errors[0].message);
-   const rows=parsed.data.map(r=>({
-    name:r.nome||r.name||'',email:r.email||r.correio||'',
-    phone:r.telefone||r.celular||r.phone||'',
-    document:r.cpfcnpj||r.documento||r.document||'',
-    source:r.origem||r.source||'CSV',notes:r.observacoes||r.notes||''
-   }));
-   const preview=await api.crm.previewLeadImport(token,rows);
-   setImportRows(rows);setImportPreview(preview);
+   const page=await api.crm.listLeadsPage(token,{query:deferredQuery,limit:100,cursor:leadCursor});
+   if(request!==leadRequest.current)return;
+   setLeads(prev=>{const ids=new Set(prev.map(item=>item.id));return [...prev,...page.items.filter(item=>!ids.has(item.id))];});
+   setLeadCursor(page.nextCursor);setLeadTotal(page.total||0);
+  }catch(e){if(request===leadRequest.current)setError(errorMessage(e));}
+ }
+ async function loadMoreTasks(){
+  if(!taskCursor)return;
+  try{
+   const page=await api.crm.listTasksPage(token,{limit:100,cursor:taskCursor});
+   setTasks(old=>{const ids=new Set(old.map(item=>item.id));return [...old,...page.items.filter(item=>!ids.has(item.id))];});
+   setTaskCursor(page.nextCursor);setTaskTotal(page.total||0);
   }catch(e){setError(errorMessage(e));}
  }
+ async function loadMoreOpportunities(){
+  if(!opportunityCursor)return;
+  const request=opportunityRequest.current;
+  try{
+   const page=await api.crm.listOpportunitiesPage(token,{query:deferredQuery,pipelineId:tab==='pipeline'?(activePipeline?.id||''):'',quoteOnly:tab==='quotes',limit:100,cursor:opportunityCursor});
+   if(request!==opportunityRequest.current)return;
+   setOpportunities(prev=>{const ids=new Set(prev.map(item=>item.id));return [...prev,...page.items.filter(item=>!ids.has(item.id))];});
+   setOpportunityCursor(page.nextCursor);setOpportunityTotal(page.total||0);setStageTotals(page.stageTotals);
+  }catch(e){if(request===opportunityRequest.current)setError(errorMessage(e));}
+ }
+
+ async function loadCsv(e:ChangeEvent<HTMLInputElement>){
+  const file=e.target.files?.[0];setError('');setMessage('');setImportPreview(null);setImportFile(null);setImportProgress('');
+  if(!file)return;
+  try{
+   const seen=new Set<string>(),sample:CrmImportPreview['rows']=[];
+   let ready=0,duplicates=0,invalid=0,processed=0;
+   await streamCsv(file,async(rows,start)=>{
+    const result=await api.crm.previewLeadImport(token,rows);
+    for(let i=0;i<result.rows.length;i++){
+     const row=result.rows[i];
+     const keys=[row.email?'e:'+row.email:'',row.document?'d:'+row.document:''].filter(Boolean);
+     if(!keys.length&&row.phone)keys.push('p:'+row.phone.replace(/\D/g,''));
+     const duplicateAcross=keys.some(key=>seen.has(key));
+     keys.forEach(key=>seen.add(key));
+     const status=row.status==='READY'&&duplicateAcross?'DUPLICATE':row.status;
+     const normalized={...row,index:start+i+1,status:status as CrmImportPreview['rows'][number]['status'],
+      reason:duplicateAcross&&row.status==='READY'?'Duplicado dentro do arquivo':row.reason};
+     if(status==='READY')ready++;else if(status==='DUPLICATE')duplicates++;else invalid++;
+     if(status!=='READY'&&sample.length<5)sample.push(normalized);
+    }
+    processed+=rows.length;
+    setImportProgress('Analisados '+processed.toLocaleString('pt-BR')+' registros...');
+   });
+   setImportFile(file);setImportPreview({rows:sample,ready,duplicates,invalid});
+   setImportProgress('Prévia concluída: '+processed.toLocaleString('pt-BR')+' registros.');
+  }catch(err){setError(errorMessage(err));}
+ }
  async function importCsv(){
-  if(!importPreview?.ready)return;
+  if(!importPreview?.ready||!importFile)return;
+  let created=0,skipped=0,processed=0;
+  const seen=new Set<string>();
   await run(async()=>{
-   await api.crm.commitLeadImport(token,importRows);
-   setImportRows([]);setImportPreview(null);
-  },'Importação concluída; apenas leads válidos e inéditos foram cadastrados.');
+   await streamCsv(importFile,async rows=>{
+    // Preserve cross-batch duplicate semantics without holding the entire CSV in memory.
+    const candidates=rows.filter(row=>{
+      const keys=[row.email?'e:'+row.email.trim().toLowerCase():'',row.document?'d:'+row.document.replace(/\D/g,''):''].filter(Boolean);
+      if(!keys.length&&row.phone)keys.push('p:'+row.phone.replace(/\D/g,''));
+      if(keys.some(key=>seen.has(key))){skipped++;return false;}
+      keys.forEach(key=>seen.add(key));
+      return true;
+    });
+    if(candidates.length){
+      const result=await api.crm.commitLeadImport(token,candidates);
+      created+=result.created;skipped+=result.skipped;
+    }
+    processed+=rows.length;
+    setImportProgress('Processados '+processed.toLocaleString('pt-BR')+' registros; cadastrados '+created.toLocaleString('pt-BR')+'.');
+   });
+   setImportFile(null);setImportPreview(null);
+  },()=>created.toLocaleString('pt-BR')+' leads cadastrados, '+skipped.toLocaleString('pt-BR')+' duplicados/inválidos ignorados.');
  }
 
  async function addLead(e:FormEvent){
@@ -130,7 +271,7 @@ export default function CrmPage({token,session,onOpenFinance,onOpenRegistry}:Pro
   },'Oportunidade criada.');
  }
  async function changeStage(id:string,stage:CrmStage){
-  const item=opportunities.find(o=>o.id===id);
+  const item=opportunities.find(o=>o.id===id)||((focusedDeal?.id===id)?focusedDeal:null);
   if(!item||item.stage===stage)return;
   let lossReason='';
   if(stage==='LOST'){
@@ -196,10 +337,8 @@ export default function CrmPage({token,session,onOpenFinance,onOpenRegistry}:Pro
   const id=e.dataTransfer.getData('text/plain');
   if(opportunities.some(x=>x.id===id))void changeCustomStage(id,stage);
  }
- const filtered=opportunities.filter(o=>{
-  const lead=leads.find(l=>l.id===o.leadId);
-  return (!activePipeline||o.pipelineId===activePipeline.id)&&[o.title,lead?.name,customers.find(c=>c.id===o.customerId)?.name].some(s=>String(s||'').toLowerCase().includes(query.toLowerCase()));
- });
+ // Both filters are applied by SQLite before paging. No hidden results or truncated in-memory search.
+ const filtered=opportunities;
  return <section className="page-stack crm-page" data-testid="page-crm">
   <div className="page-header"><div><p className="eyebrow">Comercial</p><h2>CRM — Vendas e prospecção</h2><p className="muted">Relacionamentos e propostas conectados ao Financeiro, sem gerar recebíveis automaticamente.</p></div></div>
   {error&&<div role="alert" className="error-box">{error}</div>}
@@ -227,6 +366,7 @@ export default function CrmPage({token,session,onOpenFinance,onOpenRegistry}:Pro
   {tab==='leads'&&<div className="panel crm-import">
    <div><h3>Importar leads por CSV</h3><p className="muted">Colunas aceitas: nome, email, telefone, cpfcnpj, origem e observacoes. Prévia antes de qualquer cadastro.</p></div>
    <input type="file" accept=".csv,text/csv" aria-label="Arquivo CSV de leads" onChange={e=>void loadCsv(e)}/>
+   {importProgress&&<p aria-live="polite" className="muted">{importProgress}</p>}
    {importPreview&&<div className="crm-import-preview">
     <span>Prontos: <strong>{importPreview.ready}</strong></span>
     <span>Duplicados: <strong>{importPreview.duplicates}</strong></span>
@@ -247,17 +387,19 @@ export default function CrmPage({token,session,onOpenFinance,onOpenRegistry}:Pro
     {editingLeadId&&<button type="button" className="secondary-button" onClick={()=>{setEditingLeadId(null);setLeadForm(emptyLead);}}>Cancelar edição</button>}
    </form>}
    <div className="panel table-panel table-scroll"><table><thead><tr><th>Lead</th><th>Contato</th><th>Origem</th><th>Situação</th><th>Ações</th></tr></thead><tbody>
-    {leads.filter(l=>[l.name,l.email,l.phone].some(x=>String(x||'').toLowerCase().includes(query.toLowerCase()))).map(l=><tr key={l.id}><td><strong>{l.name}</strong><small>{l.document||'Sem documento'}</small></td><td>{l.phone||l.email||'—'}</td><td>{l.source}</td><td>{leadNames[l.status]}</td><td><div className="crm-lead-actions">
+    {leads.map(l=><tr key={l.id}><td><strong>{l.name}</strong><small>{l.document||'Sem documento'}</small></td><td>{l.phone||l.email||'—'}</td><td>{l.source}</td><td>{leadNames[l.status]}</td><td><div className="crm-lead-actions">
       {editable&&l.status!=='CONVERTED'&&<button type="button" className="secondary-button small" onClick={()=>{setEditingLeadId(l.id);setLeadForm({name:l.name,document:l.document||'',phone:l.phone||'',email:l.email||'',source:l.source,notes:l.notes||''});}}>Editar</button>}{l.status==='CONVERTED'&&<button type="button" className="secondary-button small" onClick={onOpenRegistry}>Editar cliente em Cadastros</button>}
       {editable&&l.status!=='CONVERTED'&&<select aria-label={'Status de '+l.name} disabled={busy} value={l.status} onChange={e=>void run(()=>api.crm.setLeadStatus(token,l.id,e.target.value as 'NEW'|'QUALIFIED'|'DISCARDED'),'Status do lead atualizado.')}><option value="NEW">Novo</option><option value="QUALIFIED">Qualificado</option><option value="DISCARDED">Descartado</option></select>}
       {convertible&&!l.customerId&&l.status!=='DISCARDED'&&<button type="button" className="secondary-button small" disabled={busy} onClick={()=>void run(()=>api.crm.convertLead(token,l.id,{}),'Lead convertido usando o cadastro canônico.')}>Converter</button>}
     </div></td></tr>)}
    </tbody></table>{!leads.length&&<div className="empty-state">Cadastre o primeiro lead para começar a prospecção.</div>}</div>
+   <div className="table-more" aria-live="polite">Exibindo {leads.length} de {leadTotal} leads. {leadCursor&&<button type="button" className="secondary-button" onClick={()=>void loadMoreLeads()}>Carregar mais leads</button>}</div>
   </div>}
   {tab==='pipeline'&&<>
    {editable&&<form className="panel crm-newdeal" onSubmit={e=>void addDeal(e)}>
     <h3><Plus size={18}/> Nova oportunidade</h3>
-    <label>Lead ou cliente<select required value={dealForm.party} onChange={e=>setDealForm({...dealForm,party:e.target.value})}><option value="">Selecione</option><optgroup label="Leads">{leads.map(l=><option key={l.id} value={'lead:'+l.id}>{l.name}</option>)}</optgroup><optgroup label="Clientes">{customers.map(c=><option key={c.id} value={'customer:'+c.id}>{c.name}</option>)}</optgroup></select></label>
+    <label>Buscar lead ou cliente<input aria-label="Buscar lead para oportunidade" value={leadLookup} onChange={e=>setLeadLookup(e.target.value)} placeholder="Pesquise um nome, email ou telefone"/></label>
+    <label>Lead ou cliente<select required value={dealForm.party} onChange={e=>{const value=e.target.value;setDealForm({...dealForm,party:value});const name=leadOptions.find(l=>'lead:'+l.id===value)?.name||customers.find(c=>'customer:'+c.id===value)?.name||'';setPickedParty(value?{value,name}:null);}}><option value="">Selecione</option>{pickedParty?.value&&!([...leadOptions.map(l=>'lead:'+l.id),...customers.map(c=>'customer:'+c.id)].includes(pickedParty.value))&&<option value={pickedParty.value}>{pickedParty.name}</option>}<optgroup label="Leads">{leadOptions.map(l=><option key={l.id} value={'lead:'+l.id}>{l.name}</option>)}</optgroup><optgroup label="Clientes">{customers.map(c=><option key={c.id} value={'customer:'+c.id}>{c.name}</option>)}</optgroup></select></label>
     <label>Nome da oportunidade<input required value={dealForm.title} onChange={e=>setDealForm({...dealForm,title:e.target.value})}/></label>
     <label>Estimativa (R$)<input value={dealForm.amount} onChange={e=>setDealForm({...dealForm,amount:e.target.value})} inputMode="decimal"/></label>
     <label>Responsável<select value={dealForm.ownerId} onChange={e=>setDealForm({...dealForm,ownerId:e.target.value})}><option value="">Sem responsável</option>{owners.map(o=><option key={o.id} value={o.id}>{o.name}</option>)}</select></label>
@@ -267,19 +409,22 @@ export default function CrmPage({token,session,onOpenFinance,onOpenRegistry}:Pro
    <label className="crm-pipeline-picker">Funil comercial <select aria-label="Filtrar funil comercial" value={activePipeline?.id||''} onChange={e=>{setPipelineFilter(e.target.value);setSelectedId(null);}}>{pipelines.map(p=><option key={p.id} value={p.id}>{p.name}{p.isDefault?' (principal)':''}</option>)}</select></label>
    <div className="crm-kanban" aria-label="Funil de vendas">
     {activeStages.map(stage=><section key={stage.id} className="crm-stage" aria-label={stage.name} onDragOver={e=>{if(editable)e.preventDefault();}} onDrop={e=>dropStage(e,stage)}>
-     <header><strong>{stage.name}</strong><span>{filtered.filter(o=>o.stageId===stage.id).length}</span></header>
-     <small>{brl(filtered.filter(o=>o.stageId===stage.id).reduce((s,o)=>s+o.amountCents,0))}</small>
+     <header><strong>{stage.name}</strong><span>{stageTotals[stage.id]?.count||0}</span></header>
+     <small>{brl(stageTotals[stage.id]?.amountCents||0)}</small>
      {filtered.filter(o=>o.stageId===stage.id).map(o=><button key={o.id} type="button" draggable={editable} onDragStart={e=>dragStart(e,o.id)} className={'crm-deal '+(selectedId===o.id?'crm-deal-selected':'')} onClick={()=>setSelectedId(o.id)}>
-      <strong>{o.title}</strong><span>{brl(o.amountCents)}</span><small>{leads.find(l=>l.id===o.leadId)?.name||customers.find(c=>c.id===o.customerId)?.name||'Cliente'}</small>
+      <strong>{o.title}</strong><span>{brl(o.amountCents)}</span><small>{o.partyName||leads.find(l=>l.id===o.leadId)?.name||customers.find(c=>c.id===o.customerId)?.name||'Cliente'}</small>
      </button>)}
     </section>)}
    </div>
+   <div className="table-more" aria-live="polite">Exibindo {opportunities.length} de {opportunityTotal} oportunidades. {opportunityCursor&&<button type="button" className="secondary-button" onClick={()=>void loadMoreOpportunities()}>Carregar mais oportunidades</button>}</div>
   </>}
   {tab==='tasks'&&<div className="panel table-panel"><table><thead><tr><th>Concluída</th><th>Tarefa</th><th>Oportunidade</th><th>Prazo</th></tr></thead><tbody>
    {tasks.map(t=><tr key={t.id}><td><input type="checkbox" checked={t.done} disabled={!editable||busy} aria-label={'Concluir '+t.title} onChange={e=>void run(()=>api.crm.setTaskDone(token,t.id,e.target.checked),'Tarefa atualizada.')}/></td><td>{t.title}</td><td><button type="button" className="secondary-button small" onClick={()=>{setSelectedId(t.opportunityId);setTab('pipeline');}}>{opportunities.find(o=>o.id===t.opportunityId)?.title||'Abrir'}</button></td><td>{niceDate(t.dueAt)}</td></tr>)}
-   </tbody></table>{!tasks.length&&<div className="empty-state">Nenhuma tarefa cadastrada.</div>}</div>}
+   </tbody></table>{!tasks.length&&<div className="empty-state">Nenhuma tarefa cadastrada.</div>}<div className="table-more" aria-live="polite">Exibindo {tasks.length} de {taskTotal} tarefas. {taskCursor&&<button type="button" className="secondary-button" onClick={()=>void loadMoreTasks()}>Carregar mais tarefas</button>}</div></div>}
   {tab==='quotes'&&<div className="panel"><h3>Propostas comerciais</h3><p className="muted">Selecione uma oportunidade no funil para criar, revisar, baixar em PDF ou faturar uma proposta.</p>
-   <div className="crm-quote-list">{opportunities.filter(o=>o.stage==='PROPOSAL'||o.stage==='WON').map(o=><button type="button" className="crm-quote-row" key={o.id} onClick={()=>{setSelectedId(o.id);setTab('pipeline');}}>{o.title}<span>{brl(o.amountCents)} <ArrowRight size={15}/></span></button>)}</div>
+   <label className="search-control"><Search size={16}/><input aria-label="Buscar propostas comerciais" value={query} onChange={e=>setQuery(e.target.value)} placeholder="Buscar por oportunidade ou cliente"/></label>
+   <div className="crm-quote-list">{opportunities.map(o=><button type="button" className="crm-quote-row" key={o.id} onClick={()=>{setSelectedId(o.id);setTab('pipeline');}}>{o.title}<span>{brl(o.amountCents)} <ArrowRight size={15}/></span></button>)}</div>
+   <div className="table-more" aria-live="polite">Consultando {opportunities.length} de {opportunityTotal} oportunidades. {opportunityCursor&&<button type="button" className="secondary-button" onClick={()=>void loadMoreOpportunities()}>Carregar mais oportunidades</button>}</div>
   </div>}
   {deal&&tab==='pipeline'&&<div className="panel crm-detail" data-testid="crm-opportunity-detail">
    <div className="crm-detail-heading"><div><p className="eyebrow">Oportunidade</p><h3>{deal.title}</h3><p className="muted">{brl(deal.amountCents)} · {activeStages.find(s=>s.id===deal.stageId)?.name||names[deal.stage]}</p></div><button type="button" className="secondary-button small" onClick={()=>setSelectedId(null)}>Fechar</button></div>

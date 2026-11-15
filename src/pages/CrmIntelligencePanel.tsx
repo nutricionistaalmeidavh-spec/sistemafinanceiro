@@ -1,4 +1,4 @@
-import {useCallback,useEffect,useMemo,useState,type FormEvent} from 'react';
+import {useCallback,useDeferredValue,useEffect,useMemo,useState,type FormEvent} from 'react';
 import {CalendarDays,Download,LineChart,Plus,Target,Settings2,CheckCircle2} from 'lucide-react';
 import {brl,can,today,toCents} from '../lib/format';
 
@@ -29,6 +29,10 @@ export default function CrmIntelligencePanel({mode,token,session,opportunities,p
  const [stageDraft,setStageDraft]=useState({name:'',legacyStage:'QUALIFIED' as CrmStage,probability:'35'});
  const [goalDraft,setGoalDraft]=useState({ownerId:'',value:''});
  const [appointment,setAppointment]=useState({opportunityId:'',title:'',scheduledDate:today(),scheduledTime:'09:00',durationMinutes:'30',kind:'MEETING' as CrmAppointment['kind'],notes:''});
+ const [opportunitySearch,setOpportunitySearch]=useState('');
+ const deferredOpportunitySearch=useDeferredValue(opportunitySearch);
+ const [appointmentOpportunities,setAppointmentOpportunities]=useState<CrmOpportunity[]>([]);
+ const [selectedOpportunity,setSelectedOpportunity]=useState<CrmOpportunity|null>(null);
  const [error,setError]=useState(''),[notice,setNotice]=useState(''),[busy,setBusy]=useState(false);
  const filters=useMemo(()=>({...range,ownerId:filterOwner||undefined,pipelineId:filterPipeline||undefined}),[range,filterOwner,filterPipeline]);
  const activePipeline=pipelines.find(p=>p.id===selectedPipeline)||pipelines.find(p=>p.isDefault)||pipelines[0];
@@ -45,6 +49,23 @@ export default function CrmIntelligencePanel({mode,token,session,opportunities,p
   }
  },[api,token,mode,filters,filterOwner,month,range.from,range.to]);
  useEffect(()=>{void reload().catch(error=>setError(messageOf(error)));},[reload]);
+ useEffect(()=>{
+   if(mode!=='agenda')return;
+   let active=true;
+   void window.financeiro!.crm.listOpportunitiesPage(token,{query:deferredOpportunitySearch,limit:100}).then(page=>{
+     if(active)setAppointmentOpportunities(page.items);
+   }).catch(error=>{if(active)setError(messageOf(error));});
+   return()=>{active=false;};
+ },[mode,token,deferredOpportunitySearch]);
+ useEffect(()=>{
+   if(!appointment.opportunityId)return;
+   if(appointmentOpportunities.some(item=>item.id===appointment.opportunityId))return;
+   let active=true;
+   void window.financeiro!.crm.getOpportunity(token,appointment.opportunityId).then(row=>{
+     if(active)setSelectedOpportunity(row);
+   }).catch(error=>{if(active)setError(messageOf(error));});
+   return()=>{active=false;};
+ },[token,appointment.opportunityId,appointmentOpportunities]);
  async function submit(operation:()=>Promise<unknown>,message:string):Promise<boolean>{
   setBusy(true);setError('');setNotice('');
   try{
@@ -101,7 +122,8 @@ export default function CrmIntelligencePanel({mode,token,session,opportunities,p
    <div className="crm-p2-columns">
     {editable&&<form data-testid="crm-p2-appointment-form" className="panel crm-p2-form" onSubmit={e=>void saveAppointment(e)}>
      <h3><CalendarDays size={18}/> Agendar compromisso</h3>
-     <label>Oportunidade<select data-testid="crm-p2-opportunity-select" required value={appointment.opportunityId} onChange={e=>setAppointment({...appointment,opportunityId:e.target.value})}><option value="">Selecione</option>{opportunities.map(o=><option key={o.id} value={o.id}>{o.title}</option>)}</select></label>
+     <label>Buscar oportunidade<input aria-label="Buscar oportunidade para compromisso" value={opportunitySearch} onChange={e=>setOpportunitySearch(e.target.value)} placeholder="Nome da oportunidade ou cliente"/></label>
+      <label>Oportunidade<select data-testid="crm-p2-opportunity-select" required value={appointment.opportunityId} onChange={e=>setAppointment({...appointment,opportunityId:e.target.value})}><option value="">Selecione</option>{selectedOpportunity&&!appointmentOpportunities.some(o=>o.id===selectedOpportunity.id)&&<option value={selectedOpportunity.id}>{selectedOpportunity.title}</option>}{appointmentOpportunities.map(o=><option key={o.id} value={o.id}>{o.title}</option>)}</select></label>
      <label>Assunto<input required maxLength={240} value={appointment.title} onChange={e=>setAppointment({...appointment,title:e.target.value})}/></label>
      <div className="crm-p2-two">
       <label>Data<input required type="date" value={appointment.scheduledDate} onChange={e=>setAppointment({...appointment,scheduledDate:e.target.value})}/></label>
