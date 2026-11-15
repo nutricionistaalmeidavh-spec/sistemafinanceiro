@@ -134,6 +134,7 @@ declare global {
         listActivities(token:string,opportunityId:string):Promise<CrmActivity[]>;
         addActivity(token:string,input:{opportunityId:string;kind:CrmActivity['kind'];note:string}):Promise<CrmActivity>;
         listTasks(token:string,filters?:{opportunityId?:string;pending?:boolean}):Promise<CrmTask[]>;
+        listTasksPage(token:string,filters?:{opportunityId?:string;pending?:boolean;cursor?:string|null;limit?:number}):Promise<PageResult<CrmTask>>;
         saveTask(token:string,input:{opportunityId:string;title:string;dueAt?:string}):Promise<CrmTask>;
         setTaskDone(token:string,id:string,done:boolean):Promise<CrmTask>;
         listQuotes(token:string,opportunityId:string):Promise<CrmQuote[]>;
