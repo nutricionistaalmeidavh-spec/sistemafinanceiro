@@ -216,8 +216,8 @@ function createCrmService({db,finance,registry,now=()=>new Date().toISOString(),
  function setQuoteStatus(id,status,actor=null){
   const quote=getQuote(id),s=String(status).toUpperCase();
   if(!QUOTE_STATUSES.has(s))throw new Error('Status da proposta inválido');
-  if(db.prepare('SELECT 1 FROM crm_billing_links WHERE quote_id=? LIMIT 1').get(id)&&s!==quote.status)
-   throw new Error('Proposta com recebíveis vinculados não pode mudar de status sem revisão financeira.');
+  if(db.prepare('SELECT 1 FROM crm_billing_links WHERE quote_id=? LIMIT 1').get(id)&&s==='REJECTED')
+   throw new Error('Proposta com recebível não pode ser rejeitada silenciosamente');
   db.prepare('UPDATE crm_quotes SET status=? WHERE id=?').run(s,id);
   audit('crm.quote.status','crm-quote',id,actor,{status:s});
   return getQuote(id);
