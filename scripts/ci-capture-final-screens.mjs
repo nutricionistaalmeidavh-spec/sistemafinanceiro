@@ -165,7 +165,7 @@ try {
   await page.getByTestId('crm-p2-agenda').waitFor();
   await page.screenshot({path:path.join(crmFolder,'crm-p2-agenda-inicial.png'),fullPage:true});
   await page.getByTestId('crm-p2-opportunity-select').selectOption({label:'Oportunidade QA Comercial'});
-  await page.getByTestId('crm-p2-appointment-form').locator('input').first().fill('Reunião P2 QA');
+  await page.getByTestId('crm-p2-appointment-form').getByLabel('Assunto').fill('Reunião P2 QA');
   await page.getByRole('button',{name:'Salvar compromisso'}).click();
   await page.getByText('Reunião P2 QA').first().waitFor({timeout:15000});
   await page.screenshot({path:path.join(crmFolder,'crm-p2-agenda.png'),fullPage:true});
