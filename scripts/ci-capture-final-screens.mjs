@@ -3,6 +3,7 @@ import path from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
 import { _electron as electron } from 'playwright';
+import { summarizeRenderInteraction } from './qa-render-metrics.mjs';
 
 const root = process.cwd();
 const output = path.resolve('qa-artifacts/final/screenshots');
@@ -174,31 +175,76 @@ try {
   await page.getByText('Etapas e probabilidades').waitFor();
   console.log('CRM_P2_AGENDA_REPORTS_PIPELINES_OK');
 
-  // Instrument the actual React render/commit cost in QA only (Vite dev).
-  await page.evaluate(() => { window.__ARTISYS_RENDER_STATS = {}; });
+  // Isolated, per-interaction measurements; do not store financial/user data.
+  const financeInteractions=[];
+  await page.evaluate(() => { window.__ARTISYS_RENDER_STATS = {}; window.__ARTISYS_FINANCE_IPC_STATS = {}; });
+  async function snapshotFinanceRender() {
+    return page.evaluate(()=>({
+      renders:window.__ARTISYS_RENDER_STATS || {},
+      ipc:{...(window.__ARTISYS_FINANCE_IPC_STATS || {})}
+    }));
+  }
+  async function trackFinance(interaction, action) {
+    const before=await snapshotFinanceRender();
+    const started=performance.now();
+    await action();
+    await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+    const after=await snapshotFinanceRender();
+    const elapsedMs=performance.now()-started;
+    const primary=summarizeRenderInteraction(interaction,
+      {render:before.renders.finance,ipc:before.ipc},
+      {render:after.renders.finance,ipc:after.ipc},elapsedMs);
+    primary.components=Object.fromEntries(['finance-table','finance-entry-form','finance-payment-form','finance-decision-form']
+      .map(id=>[id,summarizeRenderInteraction(interaction,{render:before.renders[id]},{render:after.renders[id]},elapsedMs)])
+      .filter(([,result])=>result.commits>0));
+    financeInteractions.push(primary);
+    console.log('REACT_RENDER_INTERACTION '+JSON.stringify(primary));
+  }
   await page.getByTestId('nav-dashboard').click();
   await page.getByTestId('nav-planning').click();
 
   // Fluxo real adicional: cadastro -> pagamento parcial -> edicao -> recorrencia.
   // Usa apenas o banco isolado ARTISYS_QA; nunca toca os dados do cliente.
-  await page.getByTestId('nav-finance').click();
-  await page.getByTestId('finance-new-entry').click();
+  await trackFinance('finance-open',async()=>{
+    await page.getByTestId('nav-finance').click();
+    await page.getByText('Aluguel escritório').first().waitFor();
+    await page.getByTestId('finance-new-entry').waitFor();
+  });
+  await trackFinance('finance-search',async()=>{
+    await page.getByTestId('finance-search').fill('____qa-no-match____');
+    await page.getByText('Nenhum lançamento encontrado com os filtros atuais.').waitFor();
+    await page.getByTestId('finance-search').fill('');
+    await page.getByText('Aluguel escritório').first().waitFor();
+  });
+  await trackFinance('finance-status',async()=>{
+    await page.getByLabel('Filtrar status').selectOption('PARTIAL');
+    await page.getByLabel('Filtrar status').selectOption('ALL');
+    await page.getByText('Aluguel escritório').first().waitFor();
+  });
+  await trackFinance('finance-open-drawer',()=>page.getByTestId('finance-new-entry').click());
   const entryForm=page.getByTestId('finance-entry-drawer');
-  await entryForm.getByLabel('Descrição',{exact:true}).fill('Conta E2E de regressão');
-  await entryForm.getByLabel('Valor',{exact:true}).fill('100,00');
-  await entryForm.getByRole('button',{name:'Salvar lançamento'}).click();
+  await trackFinance('finance-form-description',()=>entryForm.getByLabel('Descrição',{exact:true}).fill('Conta E2E de regressão'));
+  await trackFinance('finance-form-amount',()=>entryForm.getByLabel('Valor',{exact:true}).fill('100,00'));
+  await trackFinance('finance-create',async()=>{
+    await entryForm.getByRole('button',{name:'Salvar lançamento'}).click();
+    await page.locator('tr').filter({hasText:'Conta E2E de regressão'}).waitFor();
+  });
   const entryRow=page.locator('tr').filter({hasText:'Conta E2E de regressão'});
   await entryRow.waitFor();
-  await entryRow.getByRole('button',{name:'Registrar pagamento'}).click();
+  await trackFinance('finance-payment-open',()=>entryRow.getByRole('button',{name:'Registrar pagamento'}).click());
   const payForm=page.getByTestId('finance-payment-form');
-  await payForm.getByLabel('Valor pago/recebido').fill('40,00');
-  await payForm.getByRole('button',{name:'Confirmar registro'}).click();
-  await entryRow.getByText('Parcial',{exact:true}).waitFor({timeout:15000});
-  await entryRow.getByRole('button',{name:'Editar Conta E2E de regressão'}).click();
-  await entryForm.getByLabel('Descrição',{exact:true}).fill('Conta E2E corrigida');
-  await entryForm.getByLabel('Valor',{exact:true}).fill('120,00');
-  await entryForm.getByRole('button',{name:'Salvar alterações'}).click();
-  await page.locator('tr').filter({hasText:'Conta E2E corrigida'}).getByText('Parcial',{exact:true}).waitFor({timeout:15000});
+  await trackFinance('finance-payment-amount',()=>payForm.getByLabel('Valor pago/recebido').fill('40,00'));
+  await trackFinance('finance-payment',async()=>{
+    await payForm.getByRole('button',{name:'Confirmar registro'}).click();
+    await entryRow.getByText('Parcial',{exact:true}).waitFor({timeout:15000});
+  });
+  await trackFinance('finance-edit-open',()=>entryRow.getByRole('button',{name:'Editar Conta E2E de regressão'}).click());
+  await trackFinance('finance-edit-description',()=>entryForm.getByLabel('Descrição',{exact:true}).fill('Conta E2E corrigida'));
+  await trackFinance('finance-edit-amount',()=>entryForm.getByLabel('Valor',{exact:true}).fill('120,00'));
+  await trackFinance('finance-edit',async()=>{
+    await entryForm.getByRole('button',{name:'Salvar alterações'}).click();
+    await page.locator('tr').filter({hasText:'Conta E2E corrigida'}).getByText('Parcial',{exact:true}).waitFor({timeout:15000});
+  });
 
   await page.getByTestId('nav-recurring').click();
   const recurringForm=page.getByTestId('recurring-form');
@@ -216,18 +262,26 @@ try {
   await history.getByText('R$ 89,90',{exact:false}).first().waitFor({timeout:15000});
   await history.getByRole('button',{name:'Fechar',exact:true}).click();
 
-  await page.getByTestId('nav-finance').click();
-  await page.getByTestId('finance-new-entry').click();
+  await trackFinance('finance-reopen',async()=>{
+    await page.getByTestId('nav-finance').click();
+    await page.getByTestId('finance-new-entry').waitFor();
+  });
+  await trackFinance('finance-cancel-new-drawer',()=>page.getByTestId('finance-new-entry').click());
   await entryForm.getByLabel('Descrição',{exact:true}).fill('Conta cancelamento E2E');
   await entryForm.getByLabel('Valor',{exact:true}).fill('25,00');
-  await entryForm.getByRole('button',{name:'Salvar lançamento'}).click();
+  await trackFinance('finance-cancel-create',async()=>{
+    await entryForm.getByRole('button',{name:'Salvar lançamento'}).click();
+    await page.locator('tr').filter({hasText:'Conta cancelamento E2E'}).waitFor();
+  });
   const cancelledRow=page.locator('tr').filter({hasText:'Conta cancelamento E2E'});
   await cancelledRow.waitFor({timeout:15000});
-  await cancelledRow.getByRole('button',{name:'Cancelar',exact:true}).click();
+  await trackFinance('finance-cancel-open',()=>cancelledRow.getByRole('button',{name:'Cancelar',exact:true}).click());
   const decisionForm=page.getByTestId('finance-decision-form');
-  await decisionForm.getByLabel('Motivo obrigatório').fill('Lançamento duplicado em QA');
-  await decisionForm.getByRole('button',{name:'Confirmar cancelamento'}).click();
-  await cancelledRow.getByText('Cancelado',{exact:true}).waitFor({timeout:15000});
+  await trackFinance('finance-cancel-reason',()=>decisionForm.getByLabel('Motivo obrigatório').fill('Lançamento duplicado em QA'));
+  await trackFinance('finance-cancel',async()=>{
+    await decisionForm.getByRole('button',{name:'Confirmar cancelamento'}).click();
+    await cancelledRow.getByText('Cancelado',{exact:true}).waitFor({timeout:15000});
+  });
   console.log('FINANCE_RECURRENCE_HISTORY_AND_CANCEL_OK');
   console.log('FINANCE_USER_JOURNEY_OK');
 
@@ -239,7 +293,16 @@ try {
     const metricsFolder=path.resolve('qa-artifacts/final/metrics');
     fs.mkdirSync(metricsFolder,{recursive:true});
     fs.writeFileSync(path.join(metricsFolder,'react-renders.json'),JSON.stringify(renders,null,2));
-    console.log('REACT_RENDER_PROFILER_OK '+JSON.stringify(renders));
+    const detail={
+      synthetic:true, environment:'electron-vite-dev', version:1,
+      measuredInteractions:financeInteractions.length,
+      interactions:financeInteractions
+    };
+    fs.writeFileSync(path.join(metricsFolder,'react-interactions.json'),JSON.stringify(detail,null,2));
+    if(financeInteractions.some(row=>row.interaction==='finance-cancel' && (row.ipc.listEntries!==1 || row.ipc.summary!==1)))
+      throw new Error('finance-cancel should perform exactly one canonical ledger reload');
+    console.log('REACT_RENDER_INTERACTIONS_OK '+JSON.stringify({count:financeInteractions.length,cancelIpc:financeInteractions.find(x=>x.interaction==='finance-cancel')?.ipc}));
+    console.log('REACT_RENDER_PROFILER_OK '+JSON.stringify(Object.fromEntries(Object.entries(renders).map(([name,v])=>[name,{commits:v.commits,totalMs:v.totalMs,maxMs:v.maxMs}]))));
   }
 
   const files = fs.readdirSync(output).filter((file) => file.endsWith('.png')).sort();
