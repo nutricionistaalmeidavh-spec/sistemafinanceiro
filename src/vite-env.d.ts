@@ -22,8 +22,9 @@ declare global {
   interface CrmFollowups {overdue:CrmAgendaItem[];today:CrmAgendaItem[];upcoming:CrmAgendaItem[]}
   interface CrmSalesReport {from:string;to:string;ownerId:string|null;pipelineId:string|null;leadCount:number;leadConvertedCount:number;createdCount:number;wonCount:number;lostCount:number;winRateBps:number;leadConversionBps:number;wonCents:number;lostCents:number;openPipelineCents:number;lossReasons:Array<{reason:string;count:number;amountCents:number}>}
   interface CrmForecast {from:string;to:string;openCents:number;weightedCents:number;unscheduledCents:number;months:Array<{month:string;openCents:number;weightedCents:number;count:number}>}
+  interface PageResult<T>{items:T[];hasMore:boolean;nextCursor:string|null;total?:number}
   interface CrmLead {id:string;name:string;document:string|null;phone:string|null;email:string|null;source:string;status:'NEW'|'QUALIFIED'|'CONVERTED'|'DISCARDED';customerId:string|null;notes:string|null;ownerId:string|null;createdAt:string;updatedAt:string}
-  interface CrmOpportunity {id:string;leadId:string|null;customerId:string|null;title:string;amountCents:number;stage:CrmStage;pipelineId:string|null;stageId:string|null;expectedCloseAt:string|null;ownerId:string|null;lossReason:string|null;closedAt:string|null;createdAt:string;updatedAt:string}
+  interface CrmOpportunity {partyName?:string|null;id:string;leadId:string|null;customerId:string|null;title:string;amountCents:number;stage:CrmStage;pipelineId:string|null;stageId:string|null;expectedCloseAt:string|null;ownerId:string|null;lossReason:string|null;closedAt:string|null;createdAt:string;updatedAt:string}
   interface CrmStageHistory {id:string;opportunityId:string;fromStage:CrmStage|null;toStage:CrmStage;actorId:string|null;changedAt:string}
   interface CrmActivity {id:string;opportunityId:string;kind:'CALL'|'EMAIL'|'WHATSAPP'|'MEETING'|'NOTE';note:string;occurredAt:string;createdAt:string}
   interface CrmTask {id:string;opportunityId:string;title:string;dueAt:string|null;doneAt:string|null;done:boolean;createdAt:string;updatedAt:string}
@@ -118,12 +119,15 @@ declare global {
       };
       crm:{
         listLeads(token:string,filters?:{query?:string;status?:string}):Promise<CrmLead[]>;
+        listLeadsPage(token:string,filters?:{query?:string;status?:string;cursor?:string|null;limit?:number}):Promise<PageResult<CrmLead>>;
         saveLead(token:string,input:{id?:string;name:string;document?:string;phone?:string;email?:string;source?:string;notes?:string}):Promise<CrmLead>;
         previewLeadImport(token:string,rows:CrmImportRow[]):Promise<CrmImportPreview>;
         commitLeadImport(token:string,rows:CrmImportRow[]):Promise<{created:number;skipped:number}>;
         setLeadStatus(token:string,id:string,status:'NEW'|'QUALIFIED'|'DISCARDED'):Promise<CrmLead>;
         convertLead(token:string,id:string,input?:{customerId?:string}):Promise<PartyRecord>;
         listOpportunities(token:string,filters?:{query?:string;stage?:CrmStage}):Promise<CrmOpportunity[]>;
+        listOpportunitiesPage(token:string,filters?:{query?:string;stage?:CrmStage;pipelineId?:string;cursor?:string|null;limit?:number}):Promise<PageResult<CrmOpportunity>&{stageTotals:Record<string,{count:number;amountCents:number}>}>;
+        getOpportunity(token:string,id:string):Promise<CrmOpportunity>;
         saveOpportunity(token:string,input:{id?:string;leadId?:string;customerId?:string;title:string;amountCents:number;ownerId?:string;expectedCloseAt?:string;pipelineId?:string}):Promise<CrmOpportunity>;
         moveOpportunity(token:string,id:string,stage:CrmStage,options?:{lossReason?:string}):Promise<CrmOpportunity>;
         listStageHistory(token:string,opportunityId:string):Promise<CrmStageHistory[]>;
