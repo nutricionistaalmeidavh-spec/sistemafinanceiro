@@ -96,3 +96,59 @@ test('P2: CSV preview accepts >5000 records; import can run in bounded batches w
  assert.equal(db.prepare('SELECT COUNT(*) n FROM crm_leads').get().n,5101);
  db.close();
 });
+
+
+test('P2: customer and creditor cursor pages preserve every registered contact',()=>{
+ const {db,registry}=fixture();
+ const customer=db.prepare("INSERT INTO customers(id,name,active,created_at,updated_at) VALUES (?,?,1,'2026-11-01','2026-11-01')");
+ const creditor=db.prepare("INSERT INTO creditors(id,name,active,created_at,updated_at) VALUES (?,?,1,'2026-11-01','2026-11-01')");
+ for(let i=0;i<325;i++){
+  const d=String(i).padStart(4,'0');
+  customer.run('c'+d,'Cliente '+d);
+  creditor.run('v'+d,'Fornecedor '+d);
+ }
+ for(const [label,read] of [['customers',x=>registry.listCustomersPage(x)],['creditors',x=>registry.listCreditorsPage(x)]]){
+  let cursor=null,found=new Set(),pages=0;
+  do{
+   const page=read({limit:41,cursor});
+   assert.equal(page.total,325,label);
+   assert.ok(page.items.length<=41);
+   for(const item of page.items){assert.ok(!found.has(item.id));found.add(item.id);}
+   cursor=page.nextCursor;pages++;
+  }while(cursor);
+  assert.equal(found.size,325,label);
+  assert.equal(pages,8);
+ }
+ assert.equal(registry.listCustomersPage({query:'Cliente 0300'}).items[0].id,'c0300');
+ assert.equal(registry.getCreditor('v0200').name,'Fornecedor 0200');
+ db.close();
+});
+
+test('P2: task keyset pages handle unscheduled records without lost or duplicated rows',()=>{
+ const {db,crm}=fixture();
+ const lead=crm.saveLead({name:'Empresa Tarefas'});
+ const opportunity=crm.saveOpportunity({leadId:lead.id,title:'Operação',amountCents:1000});
+ const insert=db.prepare("INSERT INTO crm_tasks(id,opportunity_id,title,due_at,done_at,created_at,updated_at) VALUES (?,?,?,?,NULL,'2026-11-01','2026-11-01')");
+ for(let i=0;i<218;i++)insert.run('task-'+i,opportunity.id,'Tarefa '+i,i%4===0?null:'2026-12-01');
+ let cursor=null,found=new Set();
+ do{
+  const page=crm.listTasksPage({limit:33,cursor});
+  assert.equal(page.total,218);
+  for(const item of page.items){assert.ok(!found.has(item.id));found.add(item.id);}
+  cursor=page.nextCursor;
+ }while(cursor);
+ assert.equal(found.size,218);
+ db.close();
+});
+
+test('P1: as-of page reads prior state without settling a future payment',()=>{
+ const {db,finance}=fixture();
+ db.exec("INSERT INTO financial_entries(id,kind,description,amount_cents,due_at,status,created_at,updated_at) VALUES ('historical','PAYABLE','Parcela histórica',20000,'2026-11-05','SETTLED','2026-11-01','2026-11-14')");
+ db.exec("INSERT INTO financial_settlements(id,entry_id,amount_cents,occurred_at,created_at) VALUES ('hist-payment','historical',20000,'2026-11-14','2026-11-14')");
+ const before=finance.listEntriesPage({kind:'PAYABLE',asOf:'2026-11-10',status:'OPEN'});
+ const after=finance.listEntriesPage({kind:'PAYABLE',asOf:'2026-11-15',status:'SETTLED'});
+ assert.equal(before.items[0].openCents,20000);
+ assert.equal(after.items[0].openCents,0);
+ assert.equal(db.prepare('SELECT COUNT(*) n FROM financial_entries').get().n,1);
+ db.close();
+});
