@@ -213,6 +213,7 @@ export default function CrmPage({token,session,onOpenFinance,onOpenRegistry}:Pro
     for(let i=0;i<result.rows.length;i++){
      const row=result.rows[i];
      const keys=[row.email?'e:'+row.email:'',row.document?'d:'+row.document:''].filter(Boolean);
+     if(!keys.length&&row.phone)keys.push('p:'+row.phone.replace(/\D/g,''));
      const duplicateAcross=keys.some(key=>seen.has(key));
      keys.forEach(key=>seen.add(key));
      const status=row.status==='READY'&&duplicateAcross?'DUPLICATE':row.status;
@@ -231,10 +232,22 @@ export default function CrmPage({token,session,onOpenFinance,onOpenRegistry}:Pro
  async function importCsv(){
   if(!importPreview?.ready||!importFile)return;
   let created=0,skipped=0,processed=0;
+  const seen=new Set<string>();
   await run(async()=>{
    await streamCsv(importFile,async rows=>{
-    const result=await api.crm.commitLeadImport(token,rows);
-    created+=result.created;skipped+=result.skipped;processed+=rows.length;
+    // Preserve cross-batch duplicate semantics without holding the entire CSV in memory.
+    const candidates=rows.filter(row=>{
+      const keys=[row.email?'e:'+row.email.trim().toLowerCase():'',row.document?'d:'+row.document.replace(/\D/g,''):''].filter(Boolean);
+      if(!keys.length&&row.phone)keys.push('p:'+row.phone.replace(/\D/g,''));
+      if(keys.some(key=>seen.has(key))){skipped++;return false;}
+      keys.forEach(key=>seen.add(key));
+      return true;
+    });
+    if(candidates.length){
+      const result=await api.crm.commitLeadImport(token,candidates);
+      created+=result.created;skipped+=result.skipped;
+    }
+    processed+=rows.length;
     setImportProgress('Processados '+processed.toLocaleString('pt-BR')+' registros; cadastrados '+created.toLocaleString('pt-BR')+'.');
    });
    setImportFile(null);setImportPreview(null);
