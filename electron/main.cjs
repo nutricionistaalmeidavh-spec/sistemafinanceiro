@@ -78,7 +78,7 @@ app.whenReady().then(async () => {
         publicKey:fs.readFileSync(path.join(__dirname,'services','license-public.pem'),'utf8'),
         legacyPublicKeys:[fs.readFileSync(path.join(__dirname,'services','license-legacy-public.pem'),'utf8')]
       });
-  if (qaMode) seedQaFixture({ db, auth });
+  if (qaMode) seedQaFixture({ db, auth, ledgerRows:Number(process.env.ARTISYS_QA_LEDGER_ROWS || 0) });
   const finance = createFinanceService({ db });
   const registry = createRegistryService({ db });
   const crm = createCrmService({ db, finance, registry });
