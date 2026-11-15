@@ -148,9 +148,9 @@ export default function CrmPage({token,session,onOpenFinance,onOpenRegistry}:Pro
   }).catch(e=>{if(request===leadRequest.current)setError(errorMessage(e));});
  },[api,token,tab,deferredQuery,refreshVersion]);
  useEffect(()=>{
-  if(tab!=='pipeline')return;
+  if(tab!=='pipeline'&&tab!=='quotes')return;
   const request=++opportunityRequest.current;
-  void api.crm.listOpportunitiesPage(token,{query:deferredQuery,pipelineId:activePipeline?.id||'',limit:100}).then(page=>{
+  void api.crm.listOpportunitiesPage(token,{query:deferredQuery,pipelineId:tab==='pipeline'?(activePipeline?.id||''):'',limit:100}).then(page=>{
    if(request!==opportunityRequest.current)return;
    setOpportunities(page.items);setOpportunityCursor(page.nextCursor);setOpportunityTotal(page.total||0);setStageTotals(page.stageTotals);
   }).catch(e=>{if(request===opportunityRequest.current)setError(errorMessage(e));});
@@ -195,7 +195,7 @@ export default function CrmPage({token,session,onOpenFinance,onOpenRegistry}:Pro
   if(!opportunityCursor)return;
   const request=opportunityRequest.current;
   try{
-   const page=await api.crm.listOpportunitiesPage(token,{query:deferredQuery,pipelineId:activePipeline?.id||'',limit:100,cursor:opportunityCursor});
+   const page=await api.crm.listOpportunitiesPage(token,{query:deferredQuery,pipelineId:tab==='pipeline'?(activePipeline?.id||''):'',limit:100,cursor:opportunityCursor});
    if(request!==opportunityRequest.current)return;
    setOpportunities(prev=>{const ids=new Set(prev.map(item=>item.id));return [...prev,...page.items.filter(item=>!ids.has(item.id))];});
    setOpportunityCursor(page.nextCursor);setOpportunityTotal(page.total||0);setStageTotals(page.stageTotals);
@@ -409,7 +409,9 @@ export default function CrmPage({token,session,onOpenFinance,onOpenRegistry}:Pro
    {tasks.map(t=><tr key={t.id}><td><input type="checkbox" checked={t.done} disabled={!editable||busy} aria-label={'Concluir '+t.title} onChange={e=>void run(()=>api.crm.setTaskDone(token,t.id,e.target.checked),'Tarefa atualizada.')}/></td><td>{t.title}</td><td><button type="button" className="secondary-button small" onClick={()=>{setSelectedId(t.opportunityId);setTab('pipeline');}}>{opportunities.find(o=>o.id===t.opportunityId)?.title||'Abrir'}</button></td><td>{niceDate(t.dueAt)}</td></tr>)}
    </tbody></table>{!tasks.length&&<div className="empty-state">Nenhuma tarefa cadastrada.</div>}<div className="table-more" aria-live="polite">Exibindo {tasks.length} de {taskTotal} tarefas. {taskCursor&&<button type="button" className="secondary-button" onClick={()=>void loadMoreTasks()}>Carregar mais tarefas</button>}</div></div>}
   {tab==='quotes'&&<div className="panel"><h3>Propostas comerciais</h3><p className="muted">Selecione uma oportunidade no funil para criar, revisar, baixar em PDF ou faturar uma proposta.</p>
+   <label className="search-control"><Search size={16}/><input aria-label="Buscar propostas comerciais" value={query} onChange={e=>setQuery(e.target.value)} placeholder="Buscar por oportunidade ou cliente"/></label>
    <div className="crm-quote-list">{opportunities.filter(o=>o.stage==='PROPOSAL'||o.stage==='WON').map(o=><button type="button" className="crm-quote-row" key={o.id} onClick={()=>{setSelectedId(o.id);setTab('pipeline');}}>{o.title}<span>{brl(o.amountCents)} <ArrowRight size={15}/></span></button>)}</div>
+   <div className="table-more" aria-live="polite">Consultando {opportunities.length} de {opportunityTotal} oportunidades. {opportunityCursor&&<button type="button" className="secondary-button" onClick={()=>void loadMoreOpportunities()}>Carregar mais oportunidades</button>}</div>
   </div>}
   {deal&&tab==='pipeline'&&<div className="panel crm-detail" data-testid="crm-opportunity-detail">
    <div className="crm-detail-heading"><div><p className="eyebrow">Oportunidade</p><h3>{deal.title}</h3><p className="muted">{brl(deal.amountCents)} · {activeStages.find(s=>s.id===deal.stageId)?.name||names[deal.stage]}</p></div><button type="button" className="secondary-button small" onClick={()=>setSelectedId(null)}>Fechar</button></div>
