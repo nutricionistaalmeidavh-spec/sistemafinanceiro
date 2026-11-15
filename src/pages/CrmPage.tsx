@@ -19,7 +19,7 @@ function errorMessage(error:unknown){return error instanceof Error?error.message
 function niceDate(iso:string|null){if(!iso)return 'Sem prazo';const [y,m,d]=iso.slice(0,10).split('-');return [d,m,y].join('/');}
 
 function streamCsv(file:File,processBatch:(rows:CrmImportRow[],start:number)=>Promise<void>) :Promise<void> {
- return new Promise((resolve,reject)=>{
+ return new Promise<void>((resolve,reject)=>{
   let pending:CrmImportRow[]=[],line=0,failed=false;
   const stop=(parser:Papa.Parser,error:unknown)=>{if(failed)return;failed=true;parser.abort();reject(error);};
   Papa.parse<Record<string,string>>(file,{
