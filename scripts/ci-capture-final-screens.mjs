@@ -252,6 +252,8 @@ try {
   await page.setViewportSize({width:390,height:844});
   await page.getByTestId('mobile-nav-toggle').click();
   await page.getByTestId('nav-crm').click();
+  // Wait for the off-canvas menu to finish sliding out before accepting screenshots.
+  await page.waitForTimeout(450);
   await page.getByRole('tab',{name:'Funil'}).focus();
   await page.keyboard.press('ArrowRight');
   if(await page.getByRole('tab',{name:'Leads'}).getAttribute('aria-selected')!=='true')
