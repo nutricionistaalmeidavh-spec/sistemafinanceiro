@@ -84,7 +84,8 @@ export default function FinancePage({ token, session, intent, browseKind, onBrow
     }catch(err){if(request===categoryRequest.current)setError(err instanceof Error?err.message:String(err));}
   },[api,token,kind]);
 
-  useEffect(()=>{void reloadEntries();void reloadCatalogs();},[reloadEntries,reloadCatalogs]);
+  useEffect(()=>{void reloadEntries();},[reloadEntries]);
+  useEffect(()=>{void reloadCatalogs();},[reloadCatalogs]);
   useEffect(()=>{void reloadCategories();},[reloadCategories]);
   useEffect(()=>api.finance.onDataChanged(()=>{void reloadEntries();}),[api,reloadEntries]);
   useEffect(() => { if(!editingEntry)setForm((old) => old.categoryId===''&&old.counterpartyId===''?old:({ ...old, categoryId:'', counterpartyId:'' })); }, [kind,editingEntry]);
