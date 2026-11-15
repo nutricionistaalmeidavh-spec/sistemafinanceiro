@@ -87,3 +87,20 @@ test('P1: changing a completed appointment preserves DONE and never reopens foll
   assert.equal(intelligence.getFollowups({asOf:'2026-11-15'}).overdue.length,0);
  }finally{h.db.close();}
 });
+
+test('P0: converted lead contact details are read from the canonical customer registry',()=>{
+ const h=setup();
+ try{
+  const {crm,registry}=h;
+  const lead=crm.saveLead({name:'Nome antigo',email:'antigo@example.test',phone:'11999990000',document:'12345678000155'},actor);
+  const customer=crm.convertLead(lead.id,{},actor);
+  registry.saveCustomer({id:customer.id,name:'Nome atualizado',email:'novo@example.test',phone:'11988880000',document:'12345678000166'},actor);
+  const viewed=crm.getLead(lead.id);
+  assert.equal(viewed.name,'Nome atualizado');
+  assert.equal(viewed.email,'novo@example.test');
+  assert.equal(viewed.phone,'11988880000');
+  assert.equal(viewed.document,'12345678000166');
+  assert.equal(crm.listLeads({query:'Nome atualizado'}).length,1);
+  assert.throws(()=>crm.saveLead({id:lead.id,name:'Alteração no CRM'},actor),/cliente|canônico|convertido/i);
+ }finally{h.db.close();}
+});
