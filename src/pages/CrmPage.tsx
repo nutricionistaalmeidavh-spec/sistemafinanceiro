@@ -150,7 +150,7 @@ export default function CrmPage({token,session,onOpenFinance,onOpenRegistry}:Pro
  useEffect(()=>{
   if(tab!=='pipeline'&&tab!=='quotes')return;
   const request=++opportunityRequest.current;
-  void api.crm.listOpportunitiesPage(token,{query:deferredQuery,pipelineId:tab==='pipeline'?(activePipeline?.id||''):'',limit:100}).then(page=>{
+  void api.crm.listOpportunitiesPage(token,{query:deferredQuery,pipelineId:tab==='pipeline'?(activePipeline?.id||''):'',quoteOnly:tab==='quotes',limit:100}).then(page=>{
    if(request!==opportunityRequest.current)return;
    setOpportunities(page.items);setOpportunityCursor(page.nextCursor);setOpportunityTotal(page.total||0);setStageTotals(page.stageTotals);
   }).catch(e=>{if(request===opportunityRequest.current)setError(errorMessage(e));});
@@ -195,7 +195,7 @@ export default function CrmPage({token,session,onOpenFinance,onOpenRegistry}:Pro
   if(!opportunityCursor)return;
   const request=opportunityRequest.current;
   try{
-   const page=await api.crm.listOpportunitiesPage(token,{query:deferredQuery,pipelineId:tab==='pipeline'?(activePipeline?.id||''):'',limit:100,cursor:opportunityCursor});
+   const page=await api.crm.listOpportunitiesPage(token,{query:deferredQuery,pipelineId:tab==='pipeline'?(activePipeline?.id||''):'',quoteOnly:tab==='quotes',limit:100,cursor:opportunityCursor});
    if(request!==opportunityRequest.current)return;
    setOpportunities(prev=>{const ids=new Set(prev.map(item=>item.id));return [...prev,...page.items.filter(item=>!ids.has(item.id))];});
    setOpportunityCursor(page.nextCursor);setOpportunityTotal(page.total||0);setStageTotals(page.stageTotals);
@@ -423,7 +423,7 @@ export default function CrmPage({token,session,onOpenFinance,onOpenRegistry}:Pro
    </tbody></table>{!tasks.length&&<div className="empty-state">Nenhuma tarefa cadastrada.</div>}<div className="table-more" aria-live="polite">Exibindo {tasks.length} de {taskTotal} tarefas. {taskCursor&&<button type="button" className="secondary-button" onClick={()=>void loadMoreTasks()}>Carregar mais tarefas</button>}</div></div>}
   {tab==='quotes'&&<div className="panel"><h3>Propostas comerciais</h3><p className="muted">Selecione uma oportunidade no funil para criar, revisar, baixar em PDF ou faturar uma proposta.</p>
    <label className="search-control"><Search size={16}/><input aria-label="Buscar propostas comerciais" value={query} onChange={e=>setQuery(e.target.value)} placeholder="Buscar por oportunidade ou cliente"/></label>
-   <div className="crm-quote-list">{opportunities.filter(o=>o.stage==='PROPOSAL'||o.stage==='WON').map(o=><button type="button" className="crm-quote-row" key={o.id} onClick={()=>{setSelectedId(o.id);setTab('pipeline');}}>{o.title}<span>{brl(o.amountCents)} <ArrowRight size={15}/></span></button>)}</div>
+   <div className="crm-quote-list">{opportunities.map(o=><button type="button" className="crm-quote-row" key={o.id} onClick={()=>{setSelectedId(o.id);setTab('pipeline');}}>{o.title}<span>{brl(o.amountCents)} <ArrowRight size={15}/></span></button>)}</div>
    <div className="table-more" aria-live="polite">Consultando {opportunities.length} de {opportunityTotal} oportunidades. {opportunityCursor&&<button type="button" className="secondary-button" onClick={()=>void loadMoreOpportunities()}>Carregar mais oportunidades</button>}</div>
   </div>}
   {deal&&tab==='pipeline'&&<div className="panel crm-detail" data-testid="crm-opportunity-detail">
