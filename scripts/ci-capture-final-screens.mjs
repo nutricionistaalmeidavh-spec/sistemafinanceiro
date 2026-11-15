@@ -127,6 +127,29 @@ try {
   // CRM comercial end-to-end em fixture isolada; a venda ganha não deve gerar dinheiro.
   await page.getByTestId('nav-crm').click();
   await page.getByTestId('page-crm').waitFor({state:'visible'});
+
+  // Tour CRM não bloqueia os dados reais e pode ser reiniciado após o onboarding.
+  await page.getByTestId('nav-crm-tour').click();
+  await page.getByTestId('crm-tour').waitFor({state:'visible'});
+  const guideTitles=['Cadastre um lead','Crie uma oportunidade','Acompanhe o funil','Prepare uma proposta','Confirme os recebíveis'];
+  const guideTabs=['Leads','Funil','Funil','Propostas','Funil'];
+  for(let step=0;step<guideTitles.length;step++){
+    await page.getByTestId('crm-tour').getByRole('heading',{name:guideTitles[step]}).waitFor();
+    if(await page.getByRole('tab',{name:guideTabs[step],exact:true}).getAttribute('aria-selected')!=='true'){
+      throw new Error('O tour CRM não abriu a aba esperada na etapa '+(step+1));
+    }
+    await page.getByTestId('crm-tour').getByRole('button',{name:step===guideTitles.length-1?'Concluir tour':'Próxima etapa'}).click();
+  }
+  await page.getByTestId('crm-tour').waitFor({state:'hidden'});
+  await page.getByTestId('crm-tour-restart').click();
+  await page.getByTestId('crm-tour').waitFor({state:'visible'});
+  const crmTourFolder=path.resolve('qa-artifacts/crm/screenshots');
+  fs.mkdirSync(crmTourFolder,{recursive:true});
+  await page.screenshot({path:path.join(crmTourFolder,'crm-tour-primeiro-acesso.png'),fullPage:true});
+  await page.getByTestId('crm-tour').getByRole('button',{name:'Pular tour'}).click();
+  await page.getByTestId('crm-tour').waitFor({state:'hidden'});
+  console.log('CRM_FIRST_USE_TOUR_RESTART_SKIP_OK');
+
   await page.getByRole('tab',{name:'Leads'}).click();
   await page.getByLabel('Nome',{exact:true}).fill('Lead Comercial QA');
   await page.getByLabel('E-mail',{exact:true}).fill('crm-qa@example.test');
