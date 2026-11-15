@@ -47,6 +47,8 @@ jobs:
         run: |
           if (-not (Test-Path node_modules/electron/dist/electron.exe)) { node node_modules/electron/install.js }
           if (-not (Test-Path node_modules/electron/dist/electron.exe)) { throw 'Electron indisponivel' }
+      - name: Preparar FFmpeg open source para gerar MP4
+        run: npm install --no-save --no-audit --no-fund ffmpeg-static
       - name: Playwright - gravar video no Electron real
         run: node scripts/qa-tour-video.mjs
       - name: Preservar video, capturas e relatorio (inclusive falhas)
