@@ -171,6 +171,7 @@ contextBridge.exposeInMainWorld('financeiro', {
     listActivities: (token,id)=>ipcRenderer.invoke('crm:activities:list',token,id),
     addActivity: (token,input)=>ipcRenderer.invoke('crm:activities:add',token,input),
     listTasks: (token,filters)=>ipcRenderer.invoke('crm:tasks:list',token,filters),
+    listTasksPage: (token,filters)=>ipcRenderer.invoke('crm:tasks:page',token,filters),
     saveTask: (token,input)=>ipcRenderer.invoke('crm:tasks:save',token,input),
     setTaskDone: (token,id,done)=>ipcRenderer.invoke('crm:tasks:done',token,id,done),
     listQuotes: (token,id)=>ipcRenderer.invoke('crm:quotes:list',token,id),
