@@ -73,12 +73,15 @@ function createCrmService({db,finance,registry,now=()=>new Date().toISOString(),
   if(leadId){const lead=getLead(leadId);if(lead.customerId){if(customerId && customerId!==lead.customerId)throw new Error('Cliente conflitante');customerId=lead.customerId;}}
   if(customerId)lookup('customers',customerId,'Cliente');
   if(!leadId&&!customerId)throw new Error('Lead ou cliente necessário');
+  // Billed deals retain the original commercial identity and amount.
+  // Changing contract terms requires an explicit financial revision, never a silent rewrite.
+  if(old && db.prepare('SELECT 1 FROM crm_billing_links WHERE opportunity_id=? LIMIT 1').get(id) &&
+    (Number(old.amount_cents)!==amountCents || old.lead_id!==leadId || old.customer_id!==customerId))
+   throw new Error('Oportunidade com recebíveis vinculados: revise as condições no Financeiro antes de alterar valor, lead ou cliente.');
   const expectedCloseAt=input.expectedCloseAt===undefined?(old?.expected_close_at||null):(input.expectedCloseAt?dateOnly(input.expectedCloseAt):null);
   const ownerId=input.ownerId??old?.owner_id??null;
   if(ownerId)lookup('users',ownerId,'Responsável');
   if(old){
-   if(db.prepare('SELECT 1 FROM crm_billing_links WHERE opportunity_id=? LIMIT 1').get(id)&&Number(old.amount_cents)!==amountCents)
-    throw new Error('Oportunidade faturada não permite alterar valor da venda');
    db.prepare('UPDATE crm_opportunities SET title=?,amount_cents=?,lead_id=?,customer_id=?,owner_id=?,expected_close_at=?,updated_at=? WHERE id=?')
     .run(title,amountCents,leadId,customerId,ownerId,expectedCloseAt,at(),id);
   }else{
@@ -184,6 +187,8 @@ function createCrmService({db,finance,registry,now=()=>new Date().toISOString(),
  function createQuote(input={},actor=null){
   const opp=lookup('crm_opportunities',required(input.opportunityId,'Oportunidade'));
   if(opp.stage==='LOST')throw new Error('Não é possível propor em uma oportunidade perdida');
+  if(db.prepare('SELECT 1 FROM crm_billing_links WHERE opportunity_id=? LIMIT 1').get(opp.id))
+   throw new Error('Esta oportunidade já possui recebíveis. Revise as condições no Financeiro antes de emitir nova proposta.');
   const items=input.items;
   if(!Array.isArray(items)||items.length<1||items.length>100)throw new Error('A proposta exige entre 1 e 100 itens');
   const parts=items.map((line,i)=>{
@@ -211,7 +216,8 @@ function createCrmService({db,finance,registry,now=()=>new Date().toISOString(),
  function setQuoteStatus(id,status,actor=null){
   const quote=getQuote(id),s=String(status).toUpperCase();
   if(!QUOTE_STATUSES.has(s))throw new Error('Status da proposta inválido');
-  if(db.prepare('SELECT 1 FROM crm_billing_links WHERE quote_id=? LIMIT 1').get(id)&&s==='REJECTED')throw new Error('Proposta com recebível não pode ser rejeitada silenciosamente');
+  if(db.prepare('SELECT 1 FROM crm_billing_links WHERE quote_id=? LIMIT 1').get(id)&&s!==quote.status)
+   throw new Error('Proposta com recebíveis vinculados não pode mudar de status sem revisão financeira.');
   db.prepare('UPDATE crm_quotes SET status=? WHERE id=?').run(s,id);
   audit('crm.quote.status','crm-quote',id,actor,{status:s});
   return getQuote(id);
