@@ -12,5 +12,6 @@ CREATE INDEX IF NOT EXISTS idx_finance_account_due_id ON financial_entries(accou
 CREATE INDEX IF NOT EXISTS idx_customers_active_name ON customers(active,name COLLATE NOCASE,id);
 CREATE INDEX IF NOT EXISTS idx_creditors_active_name ON creditors(active,name COLLATE NOCASE,id);
 CREATE INDEX IF NOT EXISTS idx_crm_tasks_opportunity_due ON crm_tasks(opportunity_id,done_at,due_at);
+CREATE INDEX IF NOT EXISTS idx_crm_tasks_due_keyset ON crm_tasks(COALESCE(due_at,'9999-12-31'),created_at,id);
 CREATE INDEX IF NOT EXISTS idx_crm_activities_opportunity_recent ON crm_activities(opportunity_id,occurred_at DESC,created_at DESC,id DESC);
 CREATE INDEX IF NOT EXISTS idx_finance_settlements_entry_asof ON financial_settlements(entry_id,occurred_at,created_at,id);
