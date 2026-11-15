@@ -18,8 +18,9 @@ function withTransaction(db, fn) {
   catch (error) { try { db.exec('ROLLBACK'); } catch {} throw error; }
 }
 
-function seedQaFixture({ db, auth, now = () => new Date().toISOString(), password } = {}) {
+function seedQaFixture({ db, auth, now = () => new Date().toISOString(), password, ledgerRows = 0 } = {}) {
   if (!db || !auth) throw new TypeError('db and auth are required');
+  if (!Number.isInteger(ledgerRows) || ledgerRows < 0 || ledgerRows > 10000) throw new RangeError('QA ledgerRows must be 0..10000');
   const credential = resolveQaCredential(password);
   const timestamp = String(now());
   const today = timestamp.slice(0, 10);
@@ -63,6 +64,11 @@ function seedQaFixture({ db, auth, now = () => new Date().toISOString(), passwor
     entry.run('qa-pay-energy','PAYABLE','Energia elétrica','qa-cat-energy','qa-bank-main',null,'qa-creditor-energy',74230,dateOffset(timestamp,-18),dateOffset(timestamp,-4),'OPEN','qa-fixture','e14-e15',null,timestamp,timestamp);
     entry.run('qa-pay-partial','PAYABLE','Serviços terceirizados','qa-cat-services','qa-bank-main',null,'qa-creditor-service',180000,dateOffset(timestamp,-8),dateOffset(timestamp,2),'PARTIAL','qa-fixture','e14-e15',null,timestamp,timestamp);
     entry.run('qa-pay-tools','PAYABLE','Software e ferramentas','qa-cat-tools','qa-bank-main',null,'qa-creditor-tools',89900,dateOffset(timestamp,-12),dateOffset(timestamp,-7),'SETTLED','qa-fixture','e14-e15',null,timestamp,timestamp);
+    // Optional synthetic-only volume. This seeder is invoked exclusively in unpackaged ARTISYS_QA mode.
+    for (let i=0; i<ledgerRows; i++) {
+      entry.run('qa-perf-'+i,'PAYABLE','QA Perf '+String(i).padStart(5,'0'),'qa-cat-services','qa-bank-main',null,'qa-creditor-service',
+        10000,dateOffset(timestamp,-2),dateOffset(timestamp,5),'OPEN','qa-perf','synthetic',null,timestamp,timestamp);
+    }
 
     const settlement = db.prepare('INSERT OR IGNORE INTO financial_settlements(id,entry_id,amount_cents,method,note,occurred_at,created_at,reversed_at,account_id) VALUES (?,?,?,?,?,?,?,?,?)');
     settlement.run('qa-set-rec','qa-rec-settled',280000,'PIX','Recebimento integral',dateOffset(timestamp,-8),timestamp,null,'qa-bank-main');
