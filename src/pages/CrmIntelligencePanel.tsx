@@ -11,6 +11,7 @@ const dateRange=()=>{
  return {from:month+'-01',to:month+'-'+String(new Date(year,mon,0).getDate()).padStart(2,'0')};
 };
 const formatDay=(date:string)=>date?date.split('-').reverse().join('/'):'—';
+const formatMonth=(month:string)=>month?.length===7?month.slice(5)+'/'+month.slice(0,4):month;
 export default function CrmIntelligencePanel({mode,token,session,opportunities,pipelines,owners,refresh}:Props){
  const api=window.financeiro!.crmIntelligence;
  const editable=can(session,'crm.manage'),goalManager=can(session,'crm.goals.manage'),pipelineManager=can(session,'crm.pipeline.manage');
@@ -44,16 +45,16 @@ export default function CrmIntelligencePanel({mode,token,session,opportunities,p
   }
  },[api,token,mode,filters,filterOwner,month,range.from,range.to]);
  useEffect(()=>{void reload().catch(error=>setError(messageOf(error)));},[reload]);
- async function submit(operation:()=>Promise<unknown>,message:string){
+ async function submit(operation:()=>Promise<unknown>,message:string):Promise<boolean>{
   setBusy(true);setError('');setNotice('');
   try{
-   await operation();await refresh();await reload();setNotice(message);
-  }catch(error){setError(messageOf(error));}finally{setBusy(false);}
+   await operation();await refresh();await reload();setNotice(message);return true;
+  }catch(error){setError(messageOf(error));return false;}finally{setBusy(false);}
  }
  async function saveAppointment(event:FormEvent){
   event.preventDefault();
-  await submit(()=>api.saveAppointment(token,{...appointment,durationMinutes:Number(appointment.durationMinutes),ownerId:filterOwner||undefined}), 'Compromisso salvo na agenda local.');
-  setAppointment(old=>({...old,title:'',notes:''}));
+  if(await submit(()=>api.saveAppointment(token,{...appointment,durationMinutes:Number(appointment.durationMinutes),ownerId:filterOwner||undefined}), 'Compromisso salvo na agenda local.'))
+   setAppointment(old=>({...old,title:'',notes:''}));
  }
  async function saveGoal(event:FormEvent){
   event.preventDefault();
@@ -136,7 +137,7 @@ export default function CrmIntelligencePanel({mode,token,session,opportunities,p
     <div className="panel"><h3><LineChart size={18}/> Previsão por mês</h3>
      <p className="muted">Probabilidade configurada por etapa. Não compõe contas a receber, caixa ou DRE.</p>
      <div className="crm-p2-forecast">{forecast.months.map(m=><div key={m.month}>
-      <div className="crm-p2-forecast-head"><strong>{m.month}</strong><span>{brl(m.weightedCents)} de {brl(m.openCents)}</span></div>
+      <div className="crm-p2-forecast-head"><strong>{formatMonth(m.month)}</strong><span>{brl(m.weightedCents)} de {brl(m.openCents)}</span></div>
       <div className="crm-p2-progress"><i style={{width:(m.openCents?100*m.weightedCents/m.openCents:0)+'%'}}/></div>
      </div>)}
      {!forecast.months.length&&<div className="empty-state">Nenhuma oportunidade com fechamento previsto nesse período.</div>}</div>
