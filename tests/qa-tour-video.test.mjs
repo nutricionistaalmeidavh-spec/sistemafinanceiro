@@ -16,7 +16,9 @@ test('QA onboarding is isolated to an unpackaged Electron fixture and skips pre-
 test('real CRM video captures first-use, Kanban, client and explicitly confirmed receivables',()=>{
  const video = read('scripts/qa-tour-video.mjs');
  for (const contract of [
-  "recordVideo:{dir:target",
+  "captureFrame()",
+  "ffmpeg-static",
+  "qa-primeiro-acesso-crm.mp4",
   "ARTISYS_QA:'1'",
   "ARTISYS_QA_RESET:'1'",
   "ARTISYS_QA_ONBOARDING:'1'",
@@ -34,7 +36,7 @@ test('real CRM video captures first-use, Kanban, client and explicitly confirmed
   "Prévia, sem lançamento financeiro",
   "Confirmar e criar 2 recebível(is)",
   "Cliente Demonstração QA",
-  "await video.saveAs(videoPath)"
+  "QA_VIDEO_SAVED"
  ]) assert.ok(video.includes(contract),'missing QA video scene: '+contract);
 });
 
