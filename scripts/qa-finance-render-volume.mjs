@@ -60,7 +60,7 @@ try{
   const visible=page.locator('[data-testid="page-finance"] .table-panel tbody tr');
   await measure('finance-volume-open',async()=>{
     await page.getByTestId('nav-finance').click();
-    await page.getByText('QA Perf 00042').first().waitFor({timeout:45000});
+    await page.getByText('QA Perf 00000').first().waitFor({timeout:45000});
     await page.waitForFunction(()=>document.querySelectorAll('[data-testid="page-finance"] .table-panel tbody tr').length===100,{timeout:45000});
   });
   assert.equal(await visible.count(),100,'first screen displays exactly 100 canonical rows');
