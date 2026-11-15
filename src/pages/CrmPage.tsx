@@ -1,4 +1,4 @@
-import {useCallback,useEffect,useMemo,useState,type FormEvent,type DragEvent,type ChangeEvent} from 'react';
+import {useCallback,useDeferredValue,useEffect,useMemo,useRef,useState,type FormEvent,type DragEvent,type ChangeEvent} from 'react';
 import {ArrowRight,Check,Clock,FileDown,Handshake,Plus,Search,Users} from 'lucide-react';
 import {brl,toCents,today,can} from '../lib/format';
 import Papa from 'papaparse';
@@ -24,6 +24,17 @@ export default function CrmPage({token,session,onOpenFinance,onOpenRegistry}:Pro
  const convertible=can(session,'crm.convert'),billingAllowed=can(session,'crm.billing.confirm');
  const [tab,setTab]=useState<Tab>('pipeline');
  const [leads,setLeads]=useState<CrmLead[]>([]);
+ const [leadCursor,setLeadCursor]=useState<string|null>(null);
+ const [leadTotal,setLeadTotal]=useState(0);
+ const [leadOptions,setLeadOptions]=useState<CrmLead[]>([]);
+ const [leadLookup,setLeadLookup]=useState('');
+ const deferredLeadLookup=useDeferredValue(leadLookup);
+ const [opportunityCursor,setOpportunityCursor]=useState<string|null>(null);
+ const [opportunityTotal,setOpportunityTotal]=useState(0);
+ const [stageTotals,setStageTotals]=useState<Record<string,{count:number;amountCents:number}>>({});
+ const [refreshVersion,setRefreshVersion]=useState(0);
+ const leadRequest=useRef(0),opportunityRequest=useRef(0);
+ const [focusedDeal,setFocusedDeal]=useState<CrmOpportunity|null>(null);
  const [pipelines,setPipelines]=useState<CrmPipeline[]>([]);
  const [owners,setOwners]=useState<CrmOwner[]>([]);
  const [pipelineFilter,setPipelineFilter]=useState('');
@@ -41,6 +52,7 @@ export default function CrmPage({token,session,onOpenFinance,onOpenRegistry}:Pro
  const [selectedQuoteId,setSelectedQuoteId]=useState('');
  const [preview,setPreview]=useState<CrmBillingPreview|null>(null);
  const [query,setQuery]=useState('');
+ const deferredQuery=useDeferredValue(query);
  const [leadForm,setLeadForm]=useState(emptyLead);
  const [editingLeadId,setEditingLeadId]=useState<string|null>(null);
  const [importRows,setImportRows]=useState<CrmImportRow[]>([]);
@@ -53,7 +65,7 @@ export default function CrmPage({token,session,onOpenFinance,onOpenRegistry}:Pro
  const [quoteNotes,setQuoteNotes]=useState('');
  const [billing,setBilling]=useState({installments:'1',firstDueAt:today(),accountId:'',categoryId:''});
  const [message,setMessage]=useState(''),[error,setError]=useState(''),[busy,setBusy]=useState(false);
- const deal=useMemo(()=>opportunities.find(o=>o.id===selectedId)||null,[opportunities,selectedId]);
+ const deal=useMemo(()=>opportunities.find(o=>o.id===selectedId)||((focusedDeal?.id===selectedId)?focusedDeal:null),[opportunities,selectedId,focusedDeal]);
  const selectedQuote=quotes.find(q=>q.id===selectedQuoteId)||quotes[0]||null;
  const hasConfirmedBilling=billingLinks.length>0;
  const activePipeline=pipelines.find(p=>p.id===pipelineFilter)||pipelines.find(p=>p.isDefault)||pipelines[0];
@@ -61,11 +73,14 @@ export default function CrmPage({token,session,onOpenFinance,onOpenRegistry}:Pro
 
  const load=useCallback(async()=>{
   const [l,o,t,c,a,cats,m,pipelinesData,ownersData]=await Promise.all([
-   api.crm.listLeads(token),api.crm.listOpportunities(token),api.crm.listTasks(token),
+   api.crm.listLeadsPage(token,{limit:100}),api.crm.listOpportunitiesPage(token,{limit:100}),api.crm.listTasks(token),
    api.registry.listCustomers(token),api.finance.listAccounts(token),api.registry.listCategories(token),
    api.crm.metrics(token),api.crmIntelligence.listPipelines(token),api.crmIntelligence.listOwners(token)
   ]);
-  setLeads(l);setOpportunities(o);setTasks(t);setCustomers(c);setAccounts(a);
+  setLeads(l.items);setLeadCursor(l.nextCursor);setLeadTotal(l.total||0);
+  setLeadOptions(l.items);
+  setOpportunities(o.items);setOpportunityCursor(o.nextCursor);setOpportunityTotal(o.total||0);setStageTotals(o.stageTotals);
+  setTasks(t);setCustomers(c);setAccounts(a);
   setCategories(cats.filter(x=>x.nature==='REVENUE'));setMetrics(m);
   setPipelines(pipelinesData);setOwners(ownersData);
  },[api,token]);
@@ -83,8 +98,61 @@ export default function CrmPage({token,session,onOpenFinance,onOpenRegistry}:Pro
  },[selectedId,loadDetail]);
  async function run(fn:()=>Promise<unknown>,success:string|(()=>string)){
   setBusy(true);setError('');setMessage('');
-  try{await fn();await load();if(selectedId)await loadDetail(selectedId);setMessage(typeof success==='function'?success():success);}
+  try{await fn();await load();setRefreshVersion(v=>v+1);if(selectedId)await loadDetail(selectedId);setMessage(typeof success==='function'?success():success);}
   catch(e){setError(errorMessage(e));}finally{setBusy(false);}
+ }
+
+
+ useEffect(()=>{
+  if(tab!=='leads')return;
+  const request=++leadRequest.current;
+  void api.crm.listLeadsPage(token,{query:deferredQuery,limit:100}).then(page=>{
+   if(request!==leadRequest.current)return;
+   setLeads(page.items);setLeadCursor(page.nextCursor);setLeadTotal(page.total||0);
+  }).catch(e=>{if(request===leadRequest.current)setError(errorMessage(e));});
+ },[api,token,tab,deferredQuery,refreshVersion]);
+ useEffect(()=>{
+  if(tab!=='pipeline')return;
+  const request=++opportunityRequest.current;
+  void api.crm.listOpportunitiesPage(token,{query:deferredQuery,pipelineId:activePipeline?.id||'',limit:100}).then(page=>{
+   if(request!==opportunityRequest.current)return;
+   setOpportunities(page.items);setOpportunityCursor(page.nextCursor);setOpportunityTotal(page.total||0);setStageTotals(page.stageTotals);
+  }).catch(e=>{if(request===opportunityRequest.current)setError(errorMessage(e));});
+ },[api,token,tab,deferredQuery,activePipeline?.id,refreshVersion]);
+ useEffect(()=>{
+  if(tab!=='pipeline')return;
+  let cancelled=false;
+  void api.crm.listLeadsPage(token,{query:deferredLeadLookup,limit:100}).then(page=>{
+   if(!cancelled)setLeadOptions(page.items);
+  }).catch(e=>{if(!cancelled)setError(errorMessage(e));});
+  return ()=>{cancelled=true;};
+ },[api,token,tab,deferredLeadLookup,refreshVersion]);
+ useEffect(()=>{
+  if(!selectedId||opportunities.some(o=>o.id===selectedId))return;
+  let cancelled=false;
+  void api.crm.getOpportunity(token,selectedId).then(row=>{if(!cancelled)setFocusedDeal(row);}).catch(e=>{if(!cancelled)setError(errorMessage(e));});
+  return ()=>{cancelled=true;};
+ },[api,token,selectedId,opportunities]);
+
+ async function loadMoreLeads(){
+  if(!leadCursor)return;
+  const request=leadRequest.current;
+  try{
+   const page=await api.crm.listLeadsPage(token,{query:deferredQuery,limit:100,cursor:leadCursor});
+   if(request!==leadRequest.current)return;
+   setLeads(prev=>{const ids=new Set(prev.map(item=>item.id));return [...prev,...page.items.filter(item=>!ids.has(item.id))];});
+   setLeadCursor(page.nextCursor);setLeadTotal(page.total||0);
+  }catch(e){if(request===leadRequest.current)setError(errorMessage(e));}
+ }
+ async function loadMoreOpportunities(){
+  if(!opportunityCursor)return;
+  const request=opportunityRequest.current;
+  try{
+   const page=await api.crm.listOpportunitiesPage(token,{query:deferredQuery,pipelineId:activePipeline?.id||'',limit:100,cursor:opportunityCursor});
+   if(request!==opportunityRequest.current)return;
+   setOpportunities(prev=>{const ids=new Set(prev.map(item=>item.id));return [...prev,...page.items.filter(item=>!ids.has(item.id))];});
+   setOpportunityCursor(page.nextCursor);setOpportunityTotal(page.total||0);setStageTotals(page.stageTotals);
+  }catch(e){if(request===opportunityRequest.current)setError(errorMessage(e));}
  }
 
  async function loadCsv(e:ChangeEvent<HTMLInputElement>){
@@ -130,7 +198,7 @@ export default function CrmPage({token,session,onOpenFinance,onOpenRegistry}:Pro
   },'Oportunidade criada.');
  }
  async function changeStage(id:string,stage:CrmStage){
-  const item=opportunities.find(o=>o.id===id);
+  const item=opportunities.find(o=>o.id===id)||((focusedDeal?.id===id)?focusedDeal:null);
   if(!item||item.stage===stage)return;
   let lossReason='';
   if(stage==='LOST'){
@@ -196,10 +264,8 @@ export default function CrmPage({token,session,onOpenFinance,onOpenRegistry}:Pro
   const id=e.dataTransfer.getData('text/plain');
   if(opportunities.some(x=>x.id===id))void changeCustomStage(id,stage);
  }
- const filtered=opportunities.filter(o=>{
-  const lead=leads.find(l=>l.id===o.leadId);
-  return (!activePipeline||o.pipelineId===activePipeline.id)&&[o.title,lead?.name,customers.find(c=>c.id===o.customerId)?.name].some(s=>String(s||'').toLowerCase().includes(query.toLowerCase()));
- });
+ // Both filters are applied by SQLite before paging. No hidden results or truncated in-memory search.
+ const filtered=opportunities;
  return <section className="page-stack crm-page" data-testid="page-crm">
   <div className="page-header"><div><p className="eyebrow">Comercial</p><h2>CRM — Vendas e prospecção</h2><p className="muted">Relacionamentos e propostas conectados ao Financeiro, sem gerar recebíveis automaticamente.</p></div></div>
   {error&&<div role="alert" className="error-box">{error}</div>}
@@ -247,17 +313,19 @@ export default function CrmPage({token,session,onOpenFinance,onOpenRegistry}:Pro
     {editingLeadId&&<button type="button" className="secondary-button" onClick={()=>{setEditingLeadId(null);setLeadForm(emptyLead);}}>Cancelar edição</button>}
    </form>}
    <div className="panel table-panel table-scroll"><table><thead><tr><th>Lead</th><th>Contato</th><th>Origem</th><th>Situação</th><th>Ações</th></tr></thead><tbody>
-    {leads.filter(l=>[l.name,l.email,l.phone].some(x=>String(x||'').toLowerCase().includes(query.toLowerCase()))).map(l=><tr key={l.id}><td><strong>{l.name}</strong><small>{l.document||'Sem documento'}</small></td><td>{l.phone||l.email||'—'}</td><td>{l.source}</td><td>{leadNames[l.status]}</td><td><div className="crm-lead-actions">
+    {leads.map(l=><tr key={l.id}><td><strong>{l.name}</strong><small>{l.document||'Sem documento'}</small></td><td>{l.phone||l.email||'—'}</td><td>{l.source}</td><td>{leadNames[l.status]}</td><td><div className="crm-lead-actions">
       {editable&&l.status!=='CONVERTED'&&<button type="button" className="secondary-button small" onClick={()=>{setEditingLeadId(l.id);setLeadForm({name:l.name,document:l.document||'',phone:l.phone||'',email:l.email||'',source:l.source,notes:l.notes||''});}}>Editar</button>}{l.status==='CONVERTED'&&<button type="button" className="secondary-button small" onClick={onOpenRegistry}>Editar cliente em Cadastros</button>}
       {editable&&l.status!=='CONVERTED'&&<select aria-label={'Status de '+l.name} disabled={busy} value={l.status} onChange={e=>void run(()=>api.crm.setLeadStatus(token,l.id,e.target.value as 'NEW'|'QUALIFIED'|'DISCARDED'),'Status do lead atualizado.')}><option value="NEW">Novo</option><option value="QUALIFIED">Qualificado</option><option value="DISCARDED">Descartado</option></select>}
       {convertible&&!l.customerId&&l.status!=='DISCARDED'&&<button type="button" className="secondary-button small" disabled={busy} onClick={()=>void run(()=>api.crm.convertLead(token,l.id,{}),'Lead convertido usando o cadastro canônico.')}>Converter</button>}
     </div></td></tr>)}
    </tbody></table>{!leads.length&&<div className="empty-state">Cadastre o primeiro lead para começar a prospecção.</div>}</div>
+   <div className="table-more" aria-live="polite">Exibindo {leads.length} de {leadTotal} leads. {leadCursor&&<button type="button" className="secondary-button" onClick={()=>void loadMoreLeads()}>Carregar mais leads</button>}</div>
   </div>}
   {tab==='pipeline'&&<>
    {editable&&<form className="panel crm-newdeal" onSubmit={e=>void addDeal(e)}>
     <h3><Plus size={18}/> Nova oportunidade</h3>
-    <label>Lead ou cliente<select required value={dealForm.party} onChange={e=>setDealForm({...dealForm,party:e.target.value})}><option value="">Selecione</option><optgroup label="Leads">{leads.map(l=><option key={l.id} value={'lead:'+l.id}>{l.name}</option>)}</optgroup><optgroup label="Clientes">{customers.map(c=><option key={c.id} value={'customer:'+c.id}>{c.name}</option>)}</optgroup></select></label>
+    <label>Buscar lead ou cliente<input aria-label="Buscar lead para oportunidade" value={leadLookup} onChange={e=>setLeadLookup(e.target.value)} placeholder="Pesquise um nome, email ou telefone"/></label>
+    <label>Lead ou cliente<select required value={dealForm.party} onChange={e=>setDealForm({...dealForm,party:e.target.value})}><option value="">Selecione</option><optgroup label="Leads">{leadOptions.map(l=><option key={l.id} value={'lead:'+l.id}>{l.name}</option>)}</optgroup><optgroup label="Clientes">{customers.map(c=><option key={c.id} value={'customer:'+c.id}>{c.name}</option>)}</optgroup></select></label>
     <label>Nome da oportunidade<input required value={dealForm.title} onChange={e=>setDealForm({...dealForm,title:e.target.value})}/></label>
     <label>Estimativa (R$)<input value={dealForm.amount} onChange={e=>setDealForm({...dealForm,amount:e.target.value})} inputMode="decimal"/></label>
     <label>Responsável<select value={dealForm.ownerId} onChange={e=>setDealForm({...dealForm,ownerId:e.target.value})}><option value="">Sem responsável</option>{owners.map(o=><option key={o.id} value={o.id}>{o.name}</option>)}</select></label>
@@ -267,13 +335,14 @@ export default function CrmPage({token,session,onOpenFinance,onOpenRegistry}:Pro
    <label className="crm-pipeline-picker">Funil comercial <select aria-label="Filtrar funil comercial" value={activePipeline?.id||''} onChange={e=>{setPipelineFilter(e.target.value);setSelectedId(null);}}>{pipelines.map(p=><option key={p.id} value={p.id}>{p.name}{p.isDefault?' (principal)':''}</option>)}</select></label>
    <div className="crm-kanban" aria-label="Funil de vendas">
     {activeStages.map(stage=><section key={stage.id} className="crm-stage" aria-label={stage.name} onDragOver={e=>{if(editable)e.preventDefault();}} onDrop={e=>dropStage(e,stage)}>
-     <header><strong>{stage.name}</strong><span>{filtered.filter(o=>o.stageId===stage.id).length}</span></header>
-     <small>{brl(filtered.filter(o=>o.stageId===stage.id).reduce((s,o)=>s+o.amountCents,0))}</small>
+     <header><strong>{stage.name}</strong><span>{stageTotals[stage.id]?.count||0}</span></header>
+     <small>{brl(stageTotals[stage.id]?.amountCents||0)}</small>
      {filtered.filter(o=>o.stageId===stage.id).map(o=><button key={o.id} type="button" draggable={editable} onDragStart={e=>dragStart(e,o.id)} className={'crm-deal '+(selectedId===o.id?'crm-deal-selected':'')} onClick={()=>setSelectedId(o.id)}>
-      <strong>{o.title}</strong><span>{brl(o.amountCents)}</span><small>{leads.find(l=>l.id===o.leadId)?.name||customers.find(c=>c.id===o.customerId)?.name||'Cliente'}</small>
+      <strong>{o.title}</strong><span>{brl(o.amountCents)}</span><small>{o.partyName||leads.find(l=>l.id===o.leadId)?.name||customers.find(c=>c.id===o.customerId)?.name||'Cliente'}</small>
      </button>)}
     </section>)}
    </div>
+   <div className="table-more" aria-live="polite">Exibindo {opportunities.length} de {opportunityTotal} oportunidades. {opportunityCursor&&<button type="button" className="secondary-button" onClick={()=>void loadMoreOpportunities()}>Carregar mais oportunidades</button>}</div>
   </>}
   {tab==='tasks'&&<div className="panel table-panel"><table><thead><tr><th>Concluída</th><th>Tarefa</th><th>Oportunidade</th><th>Prazo</th></tr></thead><tbody>
    {tasks.map(t=><tr key={t.id}><td><input type="checkbox" checked={t.done} disabled={!editable||busy} aria-label={'Concluir '+t.title} onChange={e=>void run(()=>api.crm.setTaskDone(token,t.id,e.target.checked),'Tarefa atualizada.')}/></td><td>{t.title}</td><td><button type="button" className="secondary-button small" onClick={()=>{setSelectedId(t.opportunityId);setTab('pipeline');}}>{opportunities.find(o=>o.id===t.opportunityId)?.title||'Abrir'}</button></td><td>{niceDate(t.dueAt)}</td></tr>)}
