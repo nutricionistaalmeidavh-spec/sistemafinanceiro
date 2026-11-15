@@ -20,6 +20,8 @@ class DatabaseService {
     this.db = this.databaseFactory(this.dbPath);
     this.db.exec('PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;');
     this.#migrate();
+    // Refresh SQLite planner statistics after additive schema upgrades.
+    this.db.exec('PRAGMA optimize;');
     return { path: this.dbPath };
   }
 
