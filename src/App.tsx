@@ -105,8 +105,8 @@ export default function App() {
         {group('Análises', <>{nav('dre','DRE',<BarChart3 size={18}/>)}{nav('reports','Relatórios',<FileText size={18}/>)}</>)}
         {group('Configuração e avançado', <>{nav('registry','Cadastros',<Users size={18}/>)}{nav('planning','Planejamento',<BarChart3 size={18}/>)}{nav('workspace','Workspace',<Folder size={18}/>)}</>)}
         {(showUsers || showSystem) && group('Administração', <>{showUsers && nav('users','Acessos',<Users size={18}/>)}{showSystem && nav('system','Sistema',<Settings size={18}/>)}</>)}
+        {can(session,'crm.view')&&group('Ajuda', <button type="button" data-testid="nav-crm-tour" onClick={launchCrmTour}><BookOpen size={18}/><span>Tour do CRM</span></button>)}
       </nav>
-      {can(session,'crm.view')&&group('Ajuda', <button type="button" data-testid="nav-crm-tour" onClick={launchCrmTour}><BookOpen size={18}/><span>Tour do CRM</span></button>)}
       <div className="sidebar-footer"><div><strong>{session.user.name}</strong><small>{session.user.role}</small></div><button type="button" title="Sair" aria-label="Sair" data-testid="logout" onClick={()=>void logout()}><LogOut size={17}/></button></div>
     </aside>
     <main className="content">
