@@ -184,9 +184,13 @@ contextBridge.exposeInMainWorld('financeiro', {
   },
   registry: {
     listCustomers: (token, filters) => ipcRenderer.invoke('registry:customers:list', token, filters),
+    listCustomersPage: (token, filters) => ipcRenderer.invoke('registry:customers:page', token, filters),
+    getCustomer: (token,id) => ipcRenderer.invoke('registry:customers:get', token, id),
     saveCustomer: (token, input) => ipcRenderer.invoke('registry:customers:save', token, input),
     setCustomerActive: (token, id, active) => ipcRenderer.invoke('registry:customers:set-active', token, id, active),
     listCreditors: (token, filters) => ipcRenderer.invoke('registry:creditors:list', token, filters),
+    listCreditorsPage: (token, filters) => ipcRenderer.invoke('registry:creditors:page', token, filters),
+    getCreditor: (token,id) => ipcRenderer.invoke('registry:creditors:get', token, id),
     saveCreditor: (token, input) => ipcRenderer.invoke('registry:creditors:save', token, input),
     setCreditorActive: (token, id, active) => ipcRenderer.invoke('registry:creditors:set-active', token, id, active),
     listCategories: (token, filters) => ipcRenderer.invoke('registry:categories:list', token, filters),
