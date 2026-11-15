@@ -65,6 +65,7 @@ function registerIpcHandlers({ ipcMain, app, dialog, database, auth, finance, re
   ipcMain.handle('crm:activities:list',(_e,token,id)=>{auth.require(token,'crm.view');return crm.listActivities(id);});
   ipcMain.handle('crm:activities:add',(_e,token,input)=>{const actor=auth.require(token,'crm.manage');return crm.addActivity(input||{},actor);});
   ipcMain.handle('crm:tasks:list',(_e,token,filters)=>{auth.require(token,'crm.view');return crm.listTasks(filters||{});});
+  ipcMain.handle('crm:tasks:page',(_e,token,filters)=>{auth.require(token,'crm.view');return crm.listTasksPage(filters||{});});
   ipcMain.handle('crm:tasks:save',(_e,token,input)=>{const actor=auth.require(token,'crm.manage');return crm.saveTask(input||{},actor);});
   ipcMain.handle('crm:tasks:done',(_e,token,id,done)=>{const actor=auth.require(token,'crm.manage');return crm.setTaskDone(id,done,actor);});
   ipcMain.handle('crm:quotes:list',(_e,token,id)=>{auth.require(token,'crm.view');return crm.listQuotes(id);});
