@@ -261,9 +261,13 @@ function registerIpcHandlers({ ipcMain, app, dialog, database, auth, finance, re
   ipcMain.handle('lan:pairing-code', (_event, token) => { const actor = auth.require(token, 'system.manage'); return lan.createPairingCode(actor); });
 
   ipcMain.handle('registry:customers:list', (_event, token, filters) => { auth.require(token, 'registry.view'); return registry.listCustomers(filters || {}); });
+  ipcMain.handle('registry:customers:page', (_event, token, filters) => { auth.require(token, 'registry.view'); return registry.listCustomersPage(filters || {}); });
+  ipcMain.handle('registry:customers:get', (_event, token, id) => { auth.require(token, 'registry.view'); return registry.getCustomer(id); });
   ipcMain.handle('registry:customers:save', (_event, token, input) => { const actor = auth.require(token, 'registry.manage'); return registry.saveCustomer(input, actor); });
   ipcMain.handle('registry:customers:set-active', (_event, token, id, active) => { const actor = auth.require(token, 'registry.manage'); return registry.setCustomerActive(id, active, actor); });
   ipcMain.handle('registry:creditors:list', (_event, token, filters) => { auth.require(token, 'registry.view'); return registry.listCreditors(filters || {}); });
+  ipcMain.handle('registry:creditors:page', (_event, token, filters) => { auth.require(token, 'registry.view'); return registry.listCreditorsPage(filters || {}); });
+  ipcMain.handle('registry:creditors:get', (_event, token, id) => { auth.require(token, 'registry.view'); return registry.getCreditor(id); });
   ipcMain.handle('registry:creditors:save', (_event, token, input) => { const actor = auth.require(token, 'registry.manage'); return registry.saveCreditor(input, actor); });
   ipcMain.handle('registry:creditors:set-active', (_event, token, id, active) => { const actor = auth.require(token, 'registry.manage'); return registry.setCreditorActive(id, active, actor); });
   ipcMain.handle('registry:categories:list', (_event, token, filters) => { auth.require(token, 'registry.view'); return registry.listCategories(filters || {}); });
