@@ -65,6 +65,9 @@ try {
   page = await app.firstWindow();
   video = page.video();
   if (!video) throw new Error('Playwright Electron did not enable video recording');
+  page.setDefaultTimeout(12000);
+  await page.bringToFront();
+  console.log('QA_ELECTRON_START ' + page.url());
   page.on('pageerror', error => errors.push(String(error)));
   page.on('console', message => { if (message.type() === 'error') consoleEntries.push(message.text()); });
   page.on('crash', () => errors.push('renderer crashed'));
