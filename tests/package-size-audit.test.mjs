@@ -13,10 +13,11 @@ test('o auditor reconhece entradas e offsets reais do cabecalho ASAR', () => {
       dist: { files: { 'index.js': { size: 3, offset: '0' } } },
       node_modules: { files: { foo: { files: { 'native.node': { size: 5, offset: '3', unpacked: true } } } } },
     } }), 'utf8');
-    const headerBytes = Math.ceil((json.length + 4) / 4) * 4;
+    const headerBytes = Math.ceil((json.length + 8) / 4) * 4;
     const header = Buffer.alloc(headerBytes);
-    header.writeUInt32LE(json.length, 0);
-    json.copy(header, 4);
+    header.writeUInt32LE(headerBytes - 4, 0);
+    header.writeUInt32LE(json.length, 4);
+    json.copy(header, 8);
     const intro = Buffer.alloc(8);
     intro.writeUInt32LE(4, 0);
     intro.writeUInt32LE(headerBytes, 4);
