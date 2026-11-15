@@ -2,6 +2,7 @@
 
 const { randomUUID } = require('node:crypto');
 const { writeAudit } = require('./audit.cjs');
+const {pageSize,encodeCursor,decodeCursor,searchTerm}=require('./pagination.cjs');
 
 function text(value) { const normalized = String(value ?? '').trim(); return normalized || null; }
 function requireName(value) { const name = String(value ?? '').trim(); if (!name) throw new Error('name is required'); return name; }
@@ -26,6 +27,18 @@ function createRegistryService({ db, now = () => new Date().toISOString(), idFac
     if (String(query).trim()) { clauses.push('(LOWER(name) LIKE ? OR LOWER(COALESCE(document,\'\')) LIKE ?)'); const q = `%${String(query).trim().toLowerCase()}%`; params.push(q, q); }
     return db.prepare(`SELECT * FROM ${table}${clauses.length ? ` WHERE ${clauses.join(' AND ')}` : ''} ORDER BY name COLLATE NOCASE,id`).all(...params).map(mapParty);
   }
+function listPartiesPage(table,{includeInactive=false,query='',cursor=null,limit=100}={}){
+ const size=pageSize(limit),q=searchTerm(query),scope=JSON.stringify({resource:table,includeInactive,q});
+ const position=decodeCursor(cursor,scope);
+ const clauses=[],params=[];
+ if(!includeInactive)clauses.push('active=1');
+ if(q){clauses.push("(INSTR(LOWER(name),?)>0 OR INSTR(LOWER(COALESCE(document,'')),?)>0 OR INSTR(LOWER(COALESCE(phone,'')),?)>0 OR INSTR(LOWER(COALESCE(email,'')),?)>0)");params.push(q,q,q,q);}
+ const total=Number(db.prepare('SELECT COUNT(*) n FROM '+table+(clauses.length?' WHERE '+clauses.join(' AND '):'')).get(...params).n);
+ if(position){clauses.push('(name COLLATE NOCASE>? OR (name COLLATE NOCASE=? AND id>?))');params.push(position[0],position[0],position[1]);}
+ const rows=db.prepare('SELECT * FROM '+table+(clauses.length?' WHERE '+clauses.join(' AND '):'')+' ORDER BY name COLLATE NOCASE,id LIMIT ?').all(...params,size+1);
+ const hasMore=rows.length>size,selected=rows.slice(0,size),last=selected.at(-1);
+ return {items:selected.map(mapParty),total,hasMore,nextCursor:hasMore&&last?encodeCursor([last.name,last.id],scope):null};
+}
   function saveParty(table, prefix, entity, input, actor) {
     const name = requireName(input.name);
     const timestamp = nowIso();
@@ -53,9 +66,13 @@ function createRegistryService({ db, now = () => new Date().toISOString(), idFac
 
   return {
     listCustomers(filters) { return listParties('customers', filters); },
+    listCustomersPage(filters) { return listPartiesPage('customers', filters); },
+    getCustomer(id) { return mapParty(db.prepare('SELECT * FROM customers WHERE id=?').get(String(id))); },
     saveCustomer(input, actor) { return saveParty('customers', 'cust', 'customer', input || {}, actor); },
     setCustomerActive(id, active, actor) { return setPartyActive('customers', 'customer', id, active, actor); },
     listCreditors(filters) { return listParties('creditors', filters); },
+    listCreditorsPage(filters) { return listPartiesPage('creditors', filters); },
+    getCreditor(id) { return mapParty(db.prepare('SELECT * FROM creditors WHERE id=?').get(String(id))); },
     saveCreditor(input, actor) { return saveParty('creditors', 'cred', 'creditor', input || {}, actor); },
     setCreditorActive(id, active, actor) { return setPartyActive('creditors', 'creditor', id, active, actor); },
     listCategories({ nature = null, includeInactive = false } = {}) {
