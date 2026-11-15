@@ -10,7 +10,7 @@ test('QA onboarding is isolated to an unpackaged Electron fixture and skips pre-
  assert.match(main,/qaMode = process\.env\.ARTISYS_QA === '1' && !app\.isPackaged/);
  assert.match(main,/onboardingOnly:process\.env\.ARTISYS_QA_ONBOARDING === '1'/);
  assert.match(fixture,/if \(onboardingOnly\) return \{ seeded: false/);
- assert.ok(fixture.indexOf('if (onboardingOnly)') < fixture.indexOf('withTransaction(db'));
+ assert.ok(fixture.indexOf('if (onboardingOnly)') < fixture.indexOf('  withTransaction(db, () => {'));
 });
 
 test('real CRM video captures first-use, Kanban, client and explicitly confirmed receivables',()=>{
