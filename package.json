@@ -83,7 +83,14 @@
       "dist/**/*",
       "electron/**/*",
       "database/**/*",
-      "package.json"
+      "package.json",
+      "!**/node_modules/echarts/**",
+      "!**/node_modules/zrender/**",
+      "!**/node_modules/lucide-react/**",
+      "!**/node_modules/react/**",
+      "!**/node_modules/react-dom/**",
+      "!**/node_modules/scheduler/**",
+      "!**/node_modules/@tesseract.js-data/por/**"
     ],
     "win": {
       "target": [
