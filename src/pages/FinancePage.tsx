@@ -262,8 +262,8 @@ export default function FinancePage({ token, session, intent, browseKind, onBrow
       actions={editable ? <FinanceButton type="button" data-testid="finance-new-entry" onClick={openNewEntry}><Plus size={16}/>Novo lançamento</FinanceButton> : undefined}
     />
 
-    {qaProfile('finance-table', <FinanceEntriesTable visibleEntries={visibleEntries} filteredCount={visibleEntries.length+(hasMore?1:0)}
-      visibleLimit={visibleEntries.length} focusedEntryId={focusedEntryId} editable={editable}
+    {qaProfile('finance-table', <FinanceEntriesTable visibleEntries={visibleEntries} filteredCount={visibleEntries.length}
+      hasMore={hasMore} focusedEntryId={focusedEntryId} editable={editable}
       onPayment={openPayment} onEdit={openEditEntry} onDecision={openDecision}
       onReceiptPdf={receiptPdf} onReceiptPrint={receiptPrint} onOpenPlanning={onOpenPlanning} onMore={showMore}/>)}
 
