@@ -46,3 +46,35 @@ test('o auditor mede arquivos em subpastas sem considerar pastas como arquivos',
     assert.deepEqual(result.map(x => [x.path, x.bytes]), [['resources/canvas.node', 8]]);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('a configuracao exclui somente bibliotecas ja compiladas no renderer e o pacote de staging OCR', () => {
+  const pkg = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+  const blocked = [
+    'echarts', 'zrender', 'lucide-react', 'react', 'react-dom',
+    'scheduler', '@tesseract.js-data/por',
+  ];
+  for (const name of blocked) {
+    assert.ok(pkg.build.files.includes('!**/node_modules/' + name + '/**'),
+      'Dependencia redundante permanece empacotada: ' + name);
+  }
+  for (const name of ['tesseract.js', 'tesseract.js-core', 'pdfjs-dist', 'exceljs', 'docx', 'pdf-lib', '@napi-rs/canvas']) {
+    assert.ok(!pkg.build.files.includes('!**/node_modules/' + name + '/**'),
+      'Biblioteca necessaria ao processo principal excluida: ' + name);
+  }
+  assert.deepEqual(pkg.build.extraResources.find(x => x.to === 'ocr-data')?.filter, ['**/*']);
+});
+
+test('a verificacao de pacote leve preserva bibliotecas do processo principal e o modelo OCR offline', async () => {
+  const { verifyOptimizedPackage } = await import('../scripts/audit-package-size.mjs');
+  const groups = ['node_modules/tesseract.js', 'node_modules/tesseract.js-core',
+    'node_modules/pdfjs-dist', 'node_modules/exceljs', 'node_modules/docx',
+    'node_modules/pdf-lib', 'node_modules/@napi-rs/canvas'];
+  const report = {
+    asar: { groups: groups.map(name => ({ name, bytes: 10 })) },
+    ocrFiles: [{ origin: 'external', path: 'resources/ocr-data/por.traineddata.gz', bytes: 6755162 }],
+    duplicateOCR: [],
+  };
+  assert.doesNotThrow(() => verifyOptimizedPackage(report));
+  assert.throws(() => verifyOptimizedPackage({ ...report, asar: { groups: [...report.asar.groups, { name: 'node_modules/echarts', bytes: 10 }] } }), /Redundancias/);
+  assert.throws(() => verifyOptimizedPackage({ ...report, ocrFiles: [] }), /OCR offline/);
+});
