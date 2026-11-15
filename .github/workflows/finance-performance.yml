@@ -5,6 +5,16 @@ on:
     branches: [main]
     paths:
       - 'scripts/qa-performance.mjs'
+      - 'scripts/qa-render-metrics.mjs'
+      - 'scripts/qa-finance-render-volume.mjs'
+      - 'scripts/ci-capture-final-screens.mjs'
+      - 'src/App.tsx'
+      - 'src/pages/FinancePage.tsx'
+      - 'src/components/**'
+      - 'electron/main.cjs'
+      - 'electron/services/qa-fixture-service.cjs'
+      - 'tests/finance-render-*.test.mjs'
+      - 'package.json'
       - 'electron/services/**'
       - 'tests/canonicity-p0-p3.test.mjs'
       - '.github/workflows/finance-performance.yml'
@@ -52,5 +62,46 @@ jobs:
         with:
           name: artisys-financeiro-performance-${{ github.sha }}
           path: qa-artifacts/performance/*.json
+          if-no-files-found: ignore
+          retention-days: 14
+
+  finance-ui-volume:
+    name: Finance UI | Electron Windows | ${{ matrix.rows }} registros
+    runs-on: windows-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        rows: [100, 1000, 10000]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Bootstrap local open-source modules
+        run: npm run ci:bootstrap
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Build and typecheck
+        run: npm run build
+      - name: Ensure Electron executable
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "node_modules/electron/dist/electron.exe")) {
+            node node_modules/electron/install.js
+          }
+          if (-not (Test-Path "node_modules/electron/dist/electron.exe")) { throw "Electron unavailable" }
+      - name: Profile interaction and rendering using isolated QA data
+        run: npm run qa:perf:ui
+        env:
+          ARTISYS_QA_LEDGER_ROWS: ${{ matrix.rows }}
+      - name: Upload per-interaction QA report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: finance-ui-volume-${{ matrix.rows }}-${{ github.sha }}
+          path: qa-artifacts/render-volume/*.json
           if-no-files-found: ignore
           retention-days: 14
