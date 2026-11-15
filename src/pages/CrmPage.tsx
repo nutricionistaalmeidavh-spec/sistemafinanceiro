@@ -4,17 +4,21 @@ import {brl,toCents,today,can} from '../lib/format';
 import Papa from 'papaparse';
 import CrmIntelligencePanel from './CrmIntelligencePanel';
 
-type Props={token:string;session:FinanceiroSession};
+type Props={token:string;session:FinanceiroSession;onOpenFinance:(entry:FinanceEntry)=>void};
 type Tab='pipeline'|'leads'|'tasks'|'quotes'|'agenda'|'reports'|'goals'|'pipelines';
 const stages:CrmStage[]=['NEW','QUALIFIED','PROPOSAL','WON','LOST'];
 const names:Record<CrmStage,string>={NEW:'Contato',QUALIFIED:'Qualificado',PROPOSAL:'Proposta',WON:'Ganho',LOST:'Perdido'};
+const leadNames:Record<CrmLead['status'],string>={NEW:'Novo',QUALIFIED:'Qualificado',CONVERTED:'Cliente convertido',DISCARDED:'Descartado'};
+const quoteNames:Record<CrmQuoteStatus,string>={DRAFT:'Rascunho',SENT:'Enviada',ACCEPTED:'Aceita',REJECTED:'Recusada'};
+const activityNames:Record<CrmActivity['kind'],string>={CALL:'Ligação',EMAIL:'E-mail',WHATSAPP:'WhatsApp',MEETING:'Reunião',NOTE:'Nota'};
+const financeNames:Record<FinanceEntry['status'],string>={OPEN:'Em aberto',PARTIAL:'Parcial',SETTLED:'Quitado',CANCELLED:'Cancelado'};
 const emptyLead={name:'',document:'',phone:'',email:'',source:'MANUAL',notes:''};
 const firstItem={description:'',quantity:'1',price:''};
 type ItemDraft=typeof firstItem;
 function errorMessage(error:unknown){return error instanceof Error?error.message:String(error);}
 function niceDate(iso:string|null){if(!iso)return 'Sem prazo';const [y,m,d]=iso.slice(0,10).split('-');return [d,m,y].join('/');}
 
-export default function CrmPage({token,session}:Props){
+export default function CrmPage({token,session,onOpenFinance}:Props){
  const api=window.financeiro!;
  const editable=can(session,'crm.manage'),quotesAllowed=can(session,'crm.quotes');
  const convertible=can(session,'crm.convert'),billingAllowed=can(session,'crm.billing.confirm');
@@ -51,6 +55,7 @@ export default function CrmPage({token,session}:Props){
  const [message,setMessage]=useState(''),[error,setError]=useState(''),[busy,setBusy]=useState(false);
  const deal=useMemo(()=>opportunities.find(o=>o.id===selectedId)||null,[opportunities,selectedId]);
  const selectedQuote=quotes.find(q=>q.id===selectedQuoteId)||quotes[0]||null;
+ const selectedQuoteBilled=Boolean(selectedQuote&&billingLinks.some(l=>l.quote_id===selectedQuote.id));
  const activePipeline=pipelines.find(p=>p.id===pipelineFilter)||pipelines.find(p=>p.isDefault)||pipelines[0];
  const activeStages=useMemo(()=>(activePipeline?.stages||[]).filter(s=>s.active).sort((a,b)=>a.position-b.position),[activePipeline]);
 
@@ -76,9 +81,9 @@ export default function CrmPage({token,session}:Props){
   if(!selectedId){setActivities([]);setQuotes([]);setBillingLinks([]);setHistory([]);return;}
   void loadDetail(selectedId).catch(e=>setError(errorMessage(e)));
  },[selectedId,loadDetail]);
- async function run(fn:()=>Promise<unknown>,success:string){
+ async function run(fn:()=>Promise<unknown>,success:string|(()=>string)){
   setBusy(true);setError('');setMessage('');
-  try{await fn();await load();if(selectedId)await loadDetail(selectedId);setMessage(success);}
+  try{await fn();await load();if(selectedId)await loadDetail(selectedId);setMessage(typeof success==='function'?success():success);}
   catch(e){setError(errorMessage(e));}finally{setBusy(false);}
  }
 
@@ -164,14 +169,15 @@ export default function CrmPage({token,session}:Props){
  }
  async function confirmBilling(){
   if(!preview)return;
+  let alreadyConfirmed=false;
   await run(async()=>{
    const result=await api.crm.confirmReceivables(token,{
     quoteId:preview.quoteId,installments:preview.installments.length,firstDueAt:billing.firstDueAt,
     expectedTotalCents:preview.totalCents,categoryId:billing.categoryId||undefined,accountId:billing.accountId||undefined
    });
-   setMessage(result.alreadyConfirmed?'Recebíveis já existiam; nenhuma duplicação.':'Recebíveis criados no Financeiro.');
+   alreadyConfirmed=result.alreadyConfirmed;
    setPreview(null);
-  },'Recebíveis vinculados ao Financeiro.');
+  },()=>alreadyConfirmed?'Recebíveis já existentes; nenhuma parcela foi duplicada.':'Recebíveis criados e vinculados ao Financeiro.');
  }
  function dragStart(e:DragEvent<HTMLElement>,id:string){e.dataTransfer.setData('text/plain',id);e.dataTransfer.effectAllowed='move';}
  async function changeCustomStage(id:string,stage:CrmPipelineStage){
@@ -206,9 +212,9 @@ export default function CrmPage({token,session}:Props){
   </div>
   <div className="page-toolbar crm-toolbar">
    <div className="segmented" role="tablist" aria-label="Áreas do CRM">
-    {([['pipeline','Funil'],['leads','Leads'],['tasks','Tarefas'],['quotes','Propostas'],['agenda','Agenda'],['reports','Indicadores'],['goals','Metas'],['pipelines','Configurar funis']] as const).map(([value,label])=><button key={value} type="button" role="tab" aria-selected={tab===value} className={tab===value?'active':''} onClick={()=>setTab(value)}>{label}</button>)}
+    {([['pipeline','Funil'],['leads','Leads'],['tasks','Tarefas'],['quotes','Propostas'],['agenda','Agenda'],['reports','Indicadores'],['goals','Metas'],['pipelines','Configurar funis']] as const).map(([value,label])=><button key={value} type="button" role="tab" aria-selected={tab===value} className={tab===value?'active':''} onClick={()=>{setTab(value);setQuery('');}}>{label}</button>)}
    </div>
-   <label className="search-control"><Search size={16}/><input aria-label="Buscar oportunidades" value={query} onChange={e=>setQuery(e.target.value)} placeholder="Buscar oportunidades"/></label>
+   {(tab==='pipeline'||tab==='leads')&&<label className="search-control"><Search size={16}/><input aria-label={tab==='pipeline'?'Buscar oportunidades':'Buscar leads'} value={query} onChange={e=>setQuery(e.target.value)} placeholder={tab==='pipeline'?'Buscar oportunidades':'Buscar leads'}/></label>}
   </div>
   {(['agenda','reports','goals','pipelines'] as const).includes(tab as 'agenda'|'reports'|'goals'|'pipelines')&&
    <CrmIntelligencePanel mode={tab as 'agenda'|'reports'|'goals'|'pipelines'} token={token} session={session} opportunities={opportunities} pipelines={pipelines} owners={owners} refresh={load}/>}
@@ -235,7 +241,7 @@ export default function CrmPage({token,session}:Props){
     {editingLeadId&&<button type="button" className="secondary-button" onClick={()=>{setEditingLeadId(null);setLeadForm(emptyLead);}}>Cancelar edição</button>}
    </form>}
    <div className="panel table-panel table-scroll"><table><thead><tr><th>Lead</th><th>Contato</th><th>Origem</th><th>Situação</th><th>Ações</th></tr></thead><tbody>
-    {leads.filter(l=>[l.name,l.email,l.phone].some(x=>String(x||'').toLowerCase().includes(query.toLowerCase()))).map(l=><tr key={l.id}><td><strong>{l.name}</strong><small>{l.document||'Sem documento'}</small></td><td>{l.phone||l.email||'—'}</td><td>{l.source}</td><td>{l.status==='CONVERTED'?'Cliente convertido':l.status}</td><td><div className="crm-lead-actions">
+    {leads.filter(l=>[l.name,l.email,l.phone].some(x=>String(x||'').toLowerCase().includes(query.toLowerCase()))).map(l=><tr key={l.id}><td><strong>{l.name}</strong><small>{l.document||'Sem documento'}</small></td><td>{l.phone||l.email||'—'}</td><td>{l.source}</td><td>{leadNames[l.status]}</td><td><div className="crm-lead-actions">
       {editable&&<button type="button" className="secondary-button small" onClick={()=>{setEditingLeadId(l.id);setLeadForm({name:l.name,document:l.document||'',phone:l.phone||'',email:l.email||'',source:l.source,notes:l.notes||''});}}>Editar</button>}
       {editable&&l.status!=='CONVERTED'&&<select aria-label={'Status de '+l.name} disabled={busy} value={l.status} onChange={e=>void run(()=>api.crm.setLeadStatus(token,l.id,e.target.value as 'NEW'|'QUALIFIED'|'DISCARDED'),'Status do lead atualizado.')}><option value="NEW">Novo</option><option value="QUALIFIED">Qualificado</option><option value="DISCARDED">Descartado</option></select>}
       {convertible&&!l.customerId&&l.status!=='DISCARDED'&&<button type="button" className="secondary-button small" disabled={busy} onClick={()=>void run(()=>api.crm.convertLead(token,l.id,{}),'Lead convertido usando o cadastro canônico.')}>Converter</button>}
@@ -290,20 +296,21 @@ export default function CrmPage({token,session}:Props){
        <textarea required value={note} onChange={e=>setNote(e.target.value)} placeholder="Registre uma interação com o cliente"/>
        <button disabled={busy} className="secondary-button">Registrar interação</button>
       </form>}
-      <div className="crm-timeline">{activities.map(a=><div key={a.id}><strong>{a.kind}</strong><small>{niceDate(a.occurredAt)}</small><p>{a.note}</p></div>)}{!activities.length&&<p className="muted">Sem interações registradas.</p>}</div>
+      <div className="crm-timeline">{activities.map(a=><div key={a.id}><strong>{activityNames[a.kind]}</strong><small>{niceDate(a.occurredAt)}</small><p>{a.note}</p></div>)}{!activities.length&&<p className="muted">Sem interações registradas.</p>}</div>
       {editable&&<form className="crm-task-entry" onSubmit={e=>void addTask(e)}><input required value={taskForm.title} onChange={e=>setTaskForm({...taskForm,title:e.target.value})} placeholder="Próxima tarefa"/><input type="date" value={taskForm.dueAt} onChange={e=>setTaskForm({...taskForm,dueAt:e.target.value})}/><button className="secondary-button" disabled={busy}>Adicionar tarefa</button></form>}
      </div>
     </div>
     <div className="crm-detail-right">
      <div className="crm-section">
       <h3>Propostas</h3>
-      {quotes.length>0&&<label>Versão<select value={selectedQuote?.id||''} onChange={e=>{setSelectedQuoteId(e.target.value);setPreview(null);}}>{quotes.map(q=><option key={q.id} value={q.id}>v{q.version} — {brl(q.totalCents)} ({q.status})</option>)}</select></label>}
+      {quotes.length>0&&<label>Versão<select value={selectedQuote?.id||''} onChange={e=>{setSelectedQuoteId(e.target.value);setPreview(null);}}>{quotes.map(q=><option key={q.id} value={q.id}>v{q.version} — {brl(q.totalCents)} ({quoteNames[q.status]})</option>)}</select></label>}
       {selectedQuote&&<div className="crm-quote-actions">
        <strong>{brl(selectedQuote.totalCents)}</strong>
        <button type="button" className="secondary-button small" disabled={busy} onClick={()=>void run(()=>api.crm.saveQuotePdf(token,selectedQuote.id),'PDF processado; confira a janela de salvamento.')}><FileDown size={16}/> Salvar PDF</button>
-       {quotesAllowed&&<select aria-label="Situação da proposta" disabled={busy} value={selectedQuote.status} onChange={e=>void run(()=>api.crm.setQuoteStatus(token,selectedQuote.id,e.target.value as CrmQuoteStatus),'Status da proposta atualizado.')}>{(['DRAFT','SENT','ACCEPTED','REJECTED'] as const).map(status=><option key={status} value={status}>{status}</option>)}</select>}
+       {quotesAllowed&&<select aria-label="Situação da proposta" disabled={busy||selectedQuoteBilled} value={selectedQuote.status} onChange={e=>void run(()=>api.crm.setQuoteStatus(token,selectedQuote.id,e.target.value as CrmQuoteStatus),'Status da proposta atualizado.')}>{(['DRAFT','SENT','ACCEPTED','REJECTED'] as const).map(status=><option key={status} value={status}>{quoteNames[status]}</option>)}</select>}
       </div>}
-      {quotesAllowed&&<form className="crm-form" onSubmit={e=>void createQuote(e)}>
+      {selectedQuoteBilled&&<p className="muted" role="status">Proposta já vinculada a recebíveis. Valores e condições estão preservados; uma nova versão exige revisão financeira explícita.</p>}
+      {quotesAllowed&&!billingLinks.length&&<form className="crm-form" onSubmit={e=>void createQuote(e)}>
        <strong>Nova versão de proposta</strong>
        {quoteItems.map((item,i)=><div className="crm-item" key={i}>
         <input required placeholder="Produto ou serviço" value={item.description} onChange={e=>setQuoteItems(v=>v.map((x,j)=>j===i?{...x,description:e.target.value}:x))}/>
@@ -318,7 +325,9 @@ export default function CrmPage({token,session}:Props){
      </div>
      {deal.stage==='WON'&&selectedQuote&&<div className="crm-section">
       <h3>Gerar recebível com confirmação</h3>
-      {billingLinks.length>0?<><p className="success-box"><Check size={15}/> {billingLinks.length} parcela(s) já vinculada(s) ao Financeiro.</p>{billingLinks.map(l=><div key={l.id} className="crm-billing-row"><span>Parcela {l.installment_no} · {niceDate(l.due_at)}</span><strong>{brl(l.amount_cents)}</strong></div>)}</>:<>
+      {billingLinks.length>0?<><p className="success-box"><Check size={15}/> {billingLinks.length} parcela(s) vinculada(s) ao Financeiro.</p>
+       {billingLinks.some(l=>!l.entry||l.entry.amountCents!==l.amount_cents||l.entry.dueAt!==l.due_at)&&<p className="error-box" role="alert">Há divergência histórica entre o vínculo CRM e o lançamento financeiro. Verifique os documentos originais antes de corrigir.</p>}
+       {billingLinks.map(l=><div key={l.id} className="crm-billing-row"><span>Parcela {l.installment_no} · {niceDate(l.entry?.dueAt||l.due_at)} <small>({l.entry?financeNames[l.entry.status]:'Não localizada'})</small></span><div className="crm-billing-actions"><strong>{brl(l.entry?.amountCents??l.amount_cents)}</strong>{l.entry&&<button type="button" className="secondary-button small" onClick={()=>onOpenFinance(l.entry!)}>Abrir no Financeiro</button>}</div></div>)}</>:<>
        {!deal.customerId&&<p className="muted">Converta o lead em cliente antes de preparar a cobrança.</p>}
        <div className="crm-billing-inputs">
         <label>Parcelas<select value={billing.installments} onChange={e=>{setBilling({...billing,installments:e.target.value});setPreview(null);}}>{Array.from({length:24},(_,i)=>i+1).map(v=><option key={v} value={v}>{v}x</option>)}</select></label>
