@@ -95,13 +95,13 @@ function listLeadsPage({query='',status='',cursor=null,limit=100}={}){
   const q='%'+String(query).trim().toLowerCase()+'%';
   return db.prepare("SELECT * FROM crm_opportunities WHERE (?='' OR stage=?) AND LOWER(title) LIKE ? ORDER BY updated_at DESC,id DESC").all(stage,stage,q).map(deal);
  }
-function listOpportunitiesPage({query='',stage='',pipelineId='',cursor=null,limit=100}={}){
+function listOpportunitiesPage({query='',stage='',pipelineId='',quoteOnly=false,cursor=null,limit=100}={}){
  const size=pageSize(limit),q=searchTerm(query),s=String(stage||'').trim().toUpperCase(),pipe=String(pipelineId||'').trim();
  if(s&&!STAGES.has(s))throw new Error('Etapa de oportunidade inválida');
- const scope=JSON.stringify({resource:'crm-opportunities',q,s,pipe});
+ const scope=JSON.stringify({resource:'crm-opportunities',q,s,pipe,quoteOnly:quoteOnly===true});
  const position=decodeCursor(cursor,scope);
  const where=[],params=[];
- if(s){where.push('o.stage=?');params.push(s);}
+ if(s){where.push('o.stage=?');params.push(s);}else if(quoteOnly===true){where.push("o.stage IN ('PROPOSAL','WON')");}
  if(pipe){where.push('o.pipeline_id=?');params.push(pipe);}
  if(q){where.push("(INSTR(LOWER(o.title),?)>0 OR INSTR(LOWER(COALESCE(c.name,cl.name,l.name,'')),?)>0)");params.push(q,q);}
  const joins=" FROM crm_opportunities o LEFT JOIN crm_leads l ON l.id=o.lead_id LEFT JOIN customers c ON c.id=o.customer_id LEFT JOIN customers cl ON cl.id=l.customer_id";
