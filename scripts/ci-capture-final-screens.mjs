@@ -221,6 +221,14 @@ try {
     await page.getByLabel('Filtrar status').selectOption('ALL');
     await page.getByText('Aluguel escritório').first().waitFor();
   });
+  await trackFinance('finance-kind-receivable',async()=>{
+    await page.getByRole('button',{name:'Contas a receber'}).click();
+    await page.getByText('Mensalidade Cliente Alpha').first().waitFor();
+  });
+  await trackFinance('finance-kind-payable',async()=>{
+    await page.getByRole('button',{name:'Contas a pagar'}).click();
+    await page.getByText('Aluguel escritório').first().waitFor();
+  });
   await trackFinance('finance-open-drawer',()=>page.getByTestId('finance-new-entry').click());
   const entryForm=page.getByTestId('finance-entry-drawer');
   await trackFinance('finance-form-description',()=>entryForm.getByLabel('Descrição',{exact:true}).fill('Conta E2E de regressão'));
@@ -301,6 +309,16 @@ try {
     fs.writeFileSync(path.join(metricsFolder,'react-interactions.json'),JSON.stringify(detail,null,2));
     if(financeInteractions.some(row=>row.interaction==='finance-cancel' && (row.ipc.listEntries!==1 || row.ipc.summary!==1)))
       throw new Error('finance-cancel should perform exactly one canonical ledger reload');
+    for(const name of ['finance-kind-receivable','finance-kind-payable']){
+      const counter=financeInteractions.find(row=>row.interaction===name)?.ipc||{};
+      if(counter.listAccounts || counter.listCustomers || counter.listCreditors ||
+        counter.listEntries!==1 || counter.summary!==1 || counter.listCategories!==1)
+        throw new Error(name+' must only reload kind-dependent canonical data: '+JSON.stringify(counter));
+    }
+    for(const name of ['finance-form-description','finance-form-amount','finance-payment-amount','finance-edit-description','finance-edit-amount','finance-cancel-reason']){
+      const child=financeInteractions.find(row=>row.interaction===name)?.components?.['finance-table'];
+      if((child?.totalReactMs||0)>0)throw new Error(name+' rendered unchanged ledger rows: '+child.totalReactMs+'ms');
+    }
     console.log('REACT_RENDER_INTERACTIONS_OK '+JSON.stringify({count:financeInteractions.length,cancelIpc:financeInteractions.find(x=>x.interaction==='finance-cancel')?.ipc}));
     console.log('REACT_RENDER_PROFILER_OK '+JSON.stringify(Object.fromEntries(Object.entries(renders).map(([name,v])=>[name,{commits:v.commits,totalMs:v.totalMs,maxMs:v.maxMs}]))));
   }
