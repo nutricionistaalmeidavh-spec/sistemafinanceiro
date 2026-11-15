@@ -1,4 +1,4 @@
-import { Profiler, type ReactNode, useEffect, useState } from 'react';
+import { type ReactNode, useEffect, useState } from 'react';
 import { ArrowLeftRight, BarChart3, BellRing, Database, FileInput, FileText, Folder, LogOut, Menu, ReceiptText, Repeat2, Settings, Users, WalletCards, Briefcase } from 'lucide-react';
 import AuthScreen from './components/AuthScreen';
 import LicenseScreen from './components/LicenseScreen';
@@ -19,26 +19,12 @@ import SystemPage from './pages/SystemPage';
 import UsersPage from './pages/UsersPage';
 import WorkspacePage from './pages/WorkspacePage';
 import { can } from './lib/format';
+import { qaProfile } from './components/QaProfiler';
 
 type Page = 'crm' | 'dashboard' | 'finance' | 'statements' | 'cashflow' | 'dre' | 'planning' | 'recurring' | 'alerts' | 'reports' | 'workspace' | 'registry' | 'users' | 'system';
 
 function Preview() {
   return <main className="app-shell"><section className="hero-card"><div className="brand-mark"><Database size={28}/></div><div><p className="eyebrow">ArtiSys</p><h1>Sistema Financeiro</h1><p className="subtitle">Prévia web local. O aplicativo desktop concentra banco, regras financeiras e segurança.</p></div><span className="status status-ok">Base E01–E24</span></section></main>;
-}
-
-type QaRenderTotals = Record<string,{commits:number;totalMs:number;maxMs:number}>;
-function measureQaRender(id:string, _phase:string, actualDuration:number) {
-  // Development-only diagnostic. Production Electron builds do not mount a Profiler.
-  const host=window as Window & { __ARTISYS_RENDER_STATS?:QaRenderTotals };
-  const metrics=host.__ARTISYS_RENDER_STATS;
-  if(!metrics)return;
-  const previous=metrics[id]||{commits:0,totalMs:0,maxMs:0};
-  metrics[id]={commits:previous.commits+1,totalMs:previous.totalMs+actualDuration,maxMs:Math.max(previous.maxMs,actualDuration)};
-}
-function qaProfile(id:string, component:ReactNode) {
-  return import.meta.env.DEV
-    ? <Profiler id={id} onRender={measureQaRender}>{component}</Profiler>
-    : component;
 }
 
 export default function App() {
