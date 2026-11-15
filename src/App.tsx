@@ -1,5 +1,5 @@
 import { type ReactNode, useEffect, useState } from 'react';
-import { ArrowLeftRight, BarChart3, BellRing, Database, FileInput, FileText, Folder, LogOut, Menu, ReceiptText, Repeat2, Settings, Users, WalletCards, Briefcase } from 'lucide-react';
+import { ArrowLeftRight, BarChart3, BellRing, Database, FileInput, FileText, Folder, LogOut, Menu, ReceiptText, Repeat2, Settings, Users, WalletCards, Briefcase, BookOpen } from 'lucide-react';
 import AuthScreen from './components/AuthScreen';
 import LicenseScreen from './components/LicenseScreen';
 import UpdateNotice from './components/UpdateNotice';
@@ -44,6 +44,8 @@ export default function App() {
   const [focusedFinanceEntry,setFocusedFinanceEntry]=useState<FinanceEntry|null>(null);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [showFirstUse,setShowFirstUse] = useState(false);
+  const [showCrmTour,setShowCrmTour] = useState(false);
+  const [crmTourRun,setCrmTourRun] = useState(0);
   const [firstUseContext,setFirstUseContext] = useState({existingAccountId:'',hasOpening:false});
   const [firstUseError,setFirstUseError] = useState('');
   const [dashboardVersion,setDashboardVersion] = useState(0);
@@ -75,6 +77,12 @@ export default function App() {
     }catch(error){setFirstUseError(error instanceof Error?error.message:String(error));}
   }
   function closeFirstUse(){setShowFirstUse(false);setDashboardVersion(v=>v+1);}
+  function launchCrmTour(){
+    if(!session||!can(session,'crm.view'))return;
+    setShowFirstUse(false);
+    setPage('crm');setMobileNavOpen(false);
+    setShowCrmTour(true);setCrmTourRun(v=>v+1);
+  }
   const showUsers = can(session, 'users.view');
   const showSystem = can(session, 'system.manage');
   async function logout() { await window.financeiro!.auth.logout(token); sessionStorage.removeItem('financeiro-token'); setToken(''); setSession(null); }
@@ -91,19 +99,20 @@ export default function App() {
       <div className="sidebar-brand"><div className="brand-mark mini"><WalletCards size={20}/></div><div><strong>ArtiSys</strong><small>Financeiro</small></div></div>
       <nav aria-label="Navegação principal">
         {group('Visão geral', <>{nav('dashboard','Dashboard',<Database size={18}/>)}{nav('alerts','Alertas',<BellRing size={18}/>)}</>)}
-        {group('Comercial', <>{nav('crm','CRM e Vendas',<Briefcase size={18}/>)}</>)}
+        {can(session,'crm.view')&&group('Comercial', <>{nav('crm','CRM e Vendas',<Briefcase size={18}/>)}</>)}
         {group('Lançamentos', <>{nav('finance','Pagar / Receber',<ReceiptText size={18}/>)}{nav('recurring','Recorrências',<Repeat2 size={18}/>)}</>)}
         {group('Contas e caixa', <>{nav('cashflow','Contas e saldos',<ArrowLeftRight size={18}/>)}{nav('statements','Extratos',<FileInput size={18}/>)}</>)}
         {group('Análises', <>{nav('dre','DRE',<BarChart3 size={18}/>)}{nav('reports','Relatórios',<FileText size={18}/>)}</>)}
         {group('Configuração e avançado', <>{nav('registry','Cadastros',<Users size={18}/>)}{nav('planning','Planejamento',<BarChart3 size={18}/>)}{nav('workspace','Workspace',<Folder size={18}/>)}</>)}
         {(showUsers || showSystem) && group('Administração', <>{showUsers && nav('users','Acessos',<Users size={18}/>)}{showSystem && nav('system','Sistema',<Settings size={18}/>)}</>)}
       </nav>
+      {can(session,'crm.view')&&group('Ajuda', <button type="button" data-testid="nav-crm-tour" onClick={launchCrmTour}><BookOpen size={18}/><span>Tour do CRM</span></button>)}
       <div className="sidebar-footer"><div><strong>{session.user.name}</strong><small>{session.user.role}</small></div><button type="button" title="Sair" aria-label="Sair" data-testid="logout" onClick={()=>void logout()}><LogOut size={17}/></button></div>
     </aside>
     <main className="content">
       {firstUseError&&<div role="alert" className="error-box">Não foi possível abrir o guia: {firstUseError} <button type="button" onClick={()=>void openFirstUse()}>Tentar novamente</button></div>}
-      {page==='crm' && can(session,'crm.view') && <CrmPage token={token} session={session} onOpenFinance={(entry)=>{setFocusedFinanceEntry(entry);setBrowseFinanceKind(entry.kind);setPage('finance');}} onOpenRegistry={()=>setPage('registry')}/>} {page==='dashboard' && qaProfile('dashboard', <DashboardPage key={dashboardVersion} token={token} canManage={can(session,'finance.manage')} onOpenGuide={()=>void openFirstUse()} onViewFinance={(kind)=>{setFinanceIntent(null);setBrowseFinanceKind(kind);setPage('finance');}} onOpenFinance={(kind)=>{setFinanceIntent(kind);setPage('finance');}} onOpenCashflow={()=>setPage('cashflow')}/>)} {page==='alerts' && <AlertsPage token={token} session={session}/>} {page==='cashflow' && <CashflowPage token={token} session={session}/>} {page==='finance' && qaProfile('finance', <FinancePage token={token} session={session} intent={financeIntent} browseKind={browseFinanceKind} onBrowseHandled={()=>setBrowseFinanceKind(null)} onIntentHandled={()=>setFinanceIntent(null)} onOpenPlanning={(entryId)=>{setApprovalEntryIntent(entryId);setPage('planning');}} focusEntry={focusedFinanceEntry}/>)} {page==='statements' && <StatementsPage token={token} session={session} onOpenFinance={()=>setPage('finance')}/>} {page==='dre' && <DrePage token={token}/>} {page==='planning' && qaProfile('planning', <PlanningPage token={token} session={session} focusApprovalEntryId={approvalEntryIntent} onApprovalFocusHandled={()=>setApprovalEntryIntent(null)}/>)} {page==='reports' && <ReportsPage token={token}/>} {page==='recurring' && <RecurringPage token={token} session={session} onOpenEntry={entry=>{setFocusedFinanceEntry(entry);setBrowseFinanceKind(entry.kind);setPage('finance');}}/>} {page==='workspace' && <WorkspacePage token={token} session={session}/>} {page==='registry' && <RegistryPage token={token} session={session}/>} {page==='users' && showUsers && <UsersPage token={token} session={session}/>} {page==='system' && showSystem && <SystemPage token={token}/>} 
+      {page==='crm' && can(session,'crm.view') && <CrmPage token={token} session={session} tourActive={showCrmTour} tourRun={crmTourRun} onStartTour={launchCrmTour} onCloseTour={()=>setShowCrmTour(false)} onOpenFinance={(entry)=>{setFocusedFinanceEntry(entry);setBrowseFinanceKind(entry.kind);setPage('finance');}} onOpenRegistry={()=>setPage('registry')}/>} {page==='dashboard' && qaProfile('dashboard', <DashboardPage key={dashboardVersion} token={token} canManage={can(session,'finance.manage')} onOpenGuide={()=>void openFirstUse()} onViewFinance={(kind)=>{setFinanceIntent(null);setBrowseFinanceKind(kind);setPage('finance');}} onOpenFinance={(kind)=>{setFinanceIntent(kind);setPage('finance');}} onOpenCashflow={()=>setPage('cashflow')}/>)} {page==='alerts' && <AlertsPage token={token} session={session}/>} {page==='cashflow' && <CashflowPage token={token} session={session}/>} {page==='finance' && qaProfile('finance', <FinancePage token={token} session={session} intent={financeIntent} browseKind={browseFinanceKind} onBrowseHandled={()=>setBrowseFinanceKind(null)} onIntentHandled={()=>setFinanceIntent(null)} onOpenPlanning={(entryId)=>{setApprovalEntryIntent(entryId);setPage('planning');}} focusEntry={focusedFinanceEntry}/>)} {page==='statements' && <StatementsPage token={token} session={session} onOpenFinance={()=>setPage('finance')}/>} {page==='dre' && <DrePage token={token}/>} {page==='planning' && qaProfile('planning', <PlanningPage token={token} session={session} focusApprovalEntryId={approvalEntryIntent} onApprovalFocusHandled={()=>setApprovalEntryIntent(null)}/>)} {page==='reports' && <ReportsPage token={token}/>} {page==='recurring' && <RecurringPage token={token} session={session} onOpenEntry={entry=>{setFocusedFinanceEntry(entry);setBrowseFinanceKind(entry.kind);setPage('finance');}}/>} {page==='workspace' && <WorkspacePage token={token} session={session}/>} {page==='registry' && <RegistryPage token={token} session={session}/>} {page==='users' && showUsers && <UsersPage token={token} session={session}/>} {page==='system' && showSystem && <SystemPage token={token}/>} 
     </main>
-    {showFirstUse&&<FirstUseGuide token={token} userId={session.user.id} existingAccountId={firstUseContext.existingAccountId} hasOpening={firstUseContext.hasOpening} onDone={closeFirstUse} onSkip={closeFirstUse}/>}
+    {showFirstUse&&<FirstUseGuide token={token} userId={session.user.id} existingAccountId={firstUseContext.existingAccountId} hasOpening={firstUseContext.hasOpening} canViewCrm={can(session,'crm.view')} onOpenCrmTour={launchCrmTour} onDone={closeFirstUse} onSkip={closeFirstUse}/>}
   </div></>;
 }
