@@ -32,6 +32,8 @@ export default function FinancePage({ token, session, intent, browseKind, onBrow
   const [reason,setReason]=useState('');
   const [showPartyForm,setShowPartyForm]=useState(false);
   const [partyName,setPartyName]=useState('');
+  const [partyLookup,setPartyLookup]=useState('');
+  const deferredPartyLookup=useDeferredValue(partyLookup);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL');
   const [entryDrawerOpen, setEntryDrawerOpen] = useState(false);
@@ -70,10 +72,10 @@ export default function FinancePage({ token, session, intent, browseKind, onBrow
     try {
       qaFinanceIpc('listAccounts');qaFinanceIpc('listCustomers');qaFinanceIpc('listCreditors');
       const [nextAccounts,nextCustomers,nextCreditors]=await Promise.all([
-        api.finance.listAccounts(token),api.registry.listCustomers(token),api.registry.listCreditors(token)
+        api.finance.listAccounts(token),api.registry.listCustomersPage(token,{limit:100}),api.registry.listCreditorsPage(token,{limit:100})
       ]);
       if(request!==catalogRequest.current)return;
-      setAccounts(nextAccounts);setCustomers(nextCustomers);setCreditors(nextCreditors);
+      setAccounts(nextAccounts);setCustomers(nextCustomers.items);setCreditors(nextCreditors.items);
     }catch(err){if(request===catalogRequest.current)setError(err instanceof Error?err.message:String(err));}
   },[api,token]);
 
@@ -90,6 +92,22 @@ export default function FinancePage({ token, session, intent, browseKind, onBrow
   useEffect(()=>{void reloadEntries();},[reloadEntries]);
   useEffect(()=>{void reloadCatalogs();},[reloadCatalogs]);
   useEffect(()=>{void reloadCategories();},[reloadCategories]);
+  useEffect(()=>{
+    if(!entryDrawerOpen)return;
+    let active=true;
+    const loading=kind==='PAYABLE'
+      ?api.registry.listCreditorsPage(token,{query:deferredPartyLookup,limit:100})
+      :api.registry.listCustomersPage(token,{query:deferredPartyLookup,limit:100});
+    void loading.then(page=>{
+      if(!active)return;
+      const preserve=(old:PartyRecord[])=>{
+        const selected=old.find(row=>row.id===form.counterpartyId);
+        return selected&&!page.items.some(row=>row.id===selected.id)?[selected,...page.items]:page.items;
+      };
+      if(kind==='PAYABLE')setCreditors(preserve);else setCustomers(preserve);
+    }).catch(err=>{if(active)setError(err instanceof Error?err.message:String(err));});
+    return()=>{active=false;};
+  },[api,token,kind,deferredPartyLookup,entryDrawerOpen,form.counterpartyId]);
   useEffect(()=>api.finance.onDataChanged(()=>{void reloadEntries();}),[api,reloadEntries]);
   useEffect(() => { if(!editingEntry)setForm((old) => old.categoryId===''&&old.counterpartyId===''?old:({ ...old, categoryId:'', counterpartyId:'' })); }, [kind,editingEntry]);
   useEffect(()=>{if(!browseKind)return;setKind(browseKind);onBrowseHandled?.();},[browseKind,onBrowseHandled]);
@@ -99,7 +117,7 @@ export default function FinancePage({ token, session, intent, browseKind, onBrow
 
   function openNewEntry() {
     setFocusedEntryId(null);
-    setDrawerError('');
+    setDrawerError('');setPartyLookup('');
     setEditingEntry(null);
     setRecurring(false);
     setRecurrenceOptions({intervalMonths:'1',intervalDays:'',endDate:'',maxOccurrences:'',annualAdjustmentPct:'0'});
@@ -107,7 +125,16 @@ export default function FinancePage({ token, session, intent, browseKind, onBrow
     setEntryDrawerOpen(true);
   }
   const openEditEntry=useCallback((entry:FinanceEntry) => {
-    setDrawerError('');
+    setDrawerError('');setPartyLookup('');
+    const partyId=entry.kind==='PAYABLE'?entry.creditorId:entry.customerId;
+    if(partyId){
+      const fetch=entry.kind==='PAYABLE'?api.registry.getCreditor(token,partyId):api.registry.getCustomer(token,partyId);
+      void fetch.then(item=>{
+        if(!item)return;
+        const inject=(old:PartyRecord[])=>old.some(row=>row.id===item.id)?old:[item,...old];
+        if(entry.kind==='PAYABLE')setCreditors(inject);else setCustomers(inject);
+      }).catch(err=>setError(err instanceof Error?err.message:String(err)));
+    }
     setEditingEntry(entry);
     setKind(entry.kind);
     setRecurring(false);
@@ -115,7 +142,7 @@ export default function FinancePage({ token, session, intent, browseKind, onBrow
       dueAt:entry.dueAt,accountId:entry.accountId||'',categoryId:entry.categoryId||'',
       counterpartyId:(entry.kind==='PAYABLE'?entry.creditorId:entry.customerId)||''});
     setEntryDrawerOpen(true);
-  },[]);
+  },[api,token]);
   async function createEntry(event: FormEvent) {
     event.preventDefault();
     if(busy)return;
@@ -152,6 +179,8 @@ export default function FinancePage({ token, session, intent, browseKind, onBrow
       const item=kind==='PAYABLE'?await api.registry.saveCreditor(token,{name:partyName.trim()}):await api.registry.saveCustomer(token,{name:partyName.trim()});
       setForm(old=>({...old,counterpartyId:item.id}));
       await reloadCatalogs();
+      if(kind==='PAYABLE')setCreditors(old=>[item,...old.filter(row=>row.id!==item.id)]);
+      else setCustomers(old=>[item,...old.filter(row=>row.id!==item.id)]);
       setPartyName('');setShowPartyForm(false);
     }catch(err){setDrawerError(err instanceof Error?err.message:String(err));}
     finally{setBusy(false);}
@@ -280,6 +309,7 @@ export default function FinancePage({ token, session, intent, browseKind, onBrow
           <label>Valor<input disabled={editingEntry?.sourceType==='CRM_QUOTE_INSTALLMENT'} value={form.amount} onChange={(e)=>setForm({...form,amount:e.target.value})} placeholder="0,00" required/></label>
           <label>Vencimento<input disabled={editingEntry?.sourceType==='CRM_QUOTE_INSTALLMENT'} type="date" value={form.dueAt} onChange={(e)=>setForm({...form,dueAt:e.target.value})} required/></label>
           <label>Categoria<select value={form.categoryId} onChange={(e)=>setForm({...form,categoryId:e.target.value})}><option value="">Sem categoria</option>{categories.map((x)=><option key={x.id} value={x.id}>{x.name}</option>)}</select></label>
+          <label className="wide">Pesquisar {kind==='PAYABLE'?'credor':'cliente'}<input aria-label="Buscar contraparte" value={partyLookup} onChange={e=>setPartyLookup(e.target.value)} placeholder="Digite nome, contato ou documento"/></label>
           <label>{kind==='PAYABLE'?'Credor':'Cliente'}<select disabled={editingEntry?.sourceType==='CRM_QUOTE_INSTALLMENT'} value={form.counterpartyId} onChange={(e)=>setForm({...form,counterpartyId:e.target.value})}><option value="">Não informado</option>{counterparties.map((x)=><option key={x.id} value={x.id}>{x.name}</option>)}</select>{editingEntry?.sourceType!=='CRM_QUOTE_INSTALLMENT'&&<button type="button" className="secondary-button small" onClick={()=>setShowPartyForm(v=>!v)}>Cadastrar {kind==='PAYABLE'?'credor':'cliente'}</button>}</label>
           {showPartyForm&&<div className="wide inline-fields"><label className="wide">Nome da contraparte<input value={partyName} onChange={e=>setPartyName(e.target.value)}/></label><button type="button" className="secondary-button" disabled={busy||!partyName.trim()} onClick={()=>void createParty({preventDefault:()=>{}} as FormEvent)}>Salvar cadastro</button></div>}
           <label className="wide">Conta<select value={form.accountId} onChange={(e)=>setForm({...form,accountId:e.target.value})}><option value="">Definir na baixa</option>{accounts.map((x)=><option key={x.id} value={x.id}>{x.name}</option>)}</select></label>
