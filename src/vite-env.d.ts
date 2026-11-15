@@ -126,7 +126,7 @@ declare global {
         setLeadStatus(token:string,id:string,status:'NEW'|'QUALIFIED'|'DISCARDED'):Promise<CrmLead>;
         convertLead(token:string,id:string,input?:{customerId?:string}):Promise<PartyRecord>;
         listOpportunities(token:string,filters?:{query?:string;stage?:CrmStage}):Promise<CrmOpportunity[]>;
-        listOpportunitiesPage(token:string,filters?:{query?:string;stage?:CrmStage;pipelineId?:string;cursor?:string|null;limit?:number}):Promise<PageResult<CrmOpportunity>&{stageTotals:Record<string,{count:number;amountCents:number}>}>;
+        listOpportunitiesPage(token:string,filters?:{query?:string;stage?:CrmStage;pipelineId?:string;quoteOnly?:boolean;cursor?:string|null;limit?:number}):Promise<PageResult<CrmOpportunity>&{stageTotals:Record<string,{count:number;amountCents:number}>}>;
         getOpportunity(token:string,id:string):Promise<CrmOpportunity>;
         saveOpportunity(token:string,input:{id?:string;leadId?:string;customerId?:string;title:string;amountCents:number;ownerId?:string;expectedCloseAt?:string;pipelineId?:string}):Promise<CrmOpportunity>;
         moveOpportunity(token:string,id:string,stage:CrmStage,options?:{lossReason?:string}):Promise<CrmOpportunity>;
