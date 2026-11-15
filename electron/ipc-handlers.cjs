@@ -50,12 +50,15 @@ function registerIpcHandlers({ ipcMain, app, dialog, database, auth, finance, re
   ipcMain.handle('crm:p2:csv',(_e,token,filters)=>{auth.require(token,'crm.view');return crmIntelligence.exportSalesCsv(filters||{});});
 
   ipcMain.handle('crm:leads:list',(_e,token,filters)=>{auth.require(token,'crm.view');return crm.listLeads(filters||{});});
+  ipcMain.handle('crm:leads:page',(_e,token,filters)=>{auth.require(token,'crm.view');return crm.listLeadsPage(filters||{});});
   ipcMain.handle('crm:leads:import-preview',(_e,token,rows)=>{auth.require(token,'crm.view');return crm.previewLeadImport(rows);});
   ipcMain.handle('crm:leads:import-commit',(_e,token,rows)=>{const actor=auth.require(token,'crm.manage');return crm.commitLeadImport(rows,actor);});
   ipcMain.handle('crm:leads:save',(_e,token,input)=>{const actor=auth.require(token,'crm.manage');return crm.saveLead(input||{},actor);});
   ipcMain.handle('crm:leads:status',(_e,token,id,status)=>{const actor=auth.require(token,'crm.manage');return crm.setLeadStatus(id,status,actor);});
   ipcMain.handle('crm:leads:convert',(_e,token,id,input)=>{const actor=auth.require(token,'crm.convert');return crm.convertLead(id,input||{},actor);});
   ipcMain.handle('crm:opportunities:list',(_e,token,filters)=>{auth.require(token,'crm.view');return crm.listOpportunities(filters||{});});
+  ipcMain.handle('crm:opportunities:page',(_e,token,filters)=>{auth.require(token,'crm.view');return crm.listOpportunitiesPage(filters||{});});
+  ipcMain.handle('crm:opportunities:get',(_e,token,id)=>{auth.require(token,'crm.view');return crm.getOpportunity(id);});
   ipcMain.handle('crm:opportunities:save',(_e,token,input)=>{const actor=auth.require(token,'crm.manage');return crm.saveOpportunity(input||{},actor);});
   ipcMain.handle('crm:opportunities:move',(_e,token,id,stage,options)=>{const actor=auth.require(token,'crm.manage');return crm.moveOpportunity(id,stage,actor,options||{});});
   ipcMain.handle('crm:stages:history',(_e,token,id)=>{auth.require(token,'crm.view');return crm.listStageHistory(id);});
@@ -76,6 +79,7 @@ function registerIpcHandlers({ ipcMain, app, dialog, database, auth, finance, re
   ipcMain.handle('finance:accounts:list', (_event, token, filters) => { auth.require(token, 'finance.view'); return finance.listAccounts(filters || {}); });
   ipcMain.handle('finance:accounts:create', (event, token, input) => { const actor = auth.require(token, 'finance.manage'); return broadcast(event, finance.createAccount(input, actor)); });
   ipcMain.handle('finance:entries:list', (_event, token, filters) => { auth.require(token, 'finance.view'); return finance.listEntries(filters || {}); });
+  ipcMain.handle('finance:entries:page', (_event, token, filters) => { auth.require(token, 'finance.view'); return finance.listEntriesPage(filters || {}); });
   ipcMain.handle('finance:entries:create', (event, token, input) => { const actor = auth.require(token, 'finance.manage'); return broadcast(event, finance.createEntry(input, actor)); });
   ipcMain.handle('finance:entries:update', (event, token, entryId, input) => { const actor = auth.require(token, 'finance.manage'); return broadcast(event, finance.updateEntry(entryId, input, actor)); });
   ipcMain.handle('finance:entries:settle', (event, token, entryId, input) => { const actor = auth.require(token, 'finance.manage'); return broadcast(event, finance.settleEntry(entryId, input, actor)); });
