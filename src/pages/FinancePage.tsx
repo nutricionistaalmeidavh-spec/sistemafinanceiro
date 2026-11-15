@@ -44,7 +44,9 @@ export default function FinancePage({ token, session, intent, browseKind, onBrow
   const [form, setForm] = useState({ description:'', amount:'', dueAt:today(), accountId:'', categoryId:'', counterpartyId:'' });
   const [accountForm, setAccountForm] = useState({ name:'', type:'BANK' as FinanceAccount['type'] });
   const editable = can(session, 'finance.manage');
-  const [visibleLimit,setVisibleLimit]=useState(100);
+  const [nextCursor,setNextCursor]=useState<string|null>(null);
+  const [hasMore,setHasMore]=useState(false);
+  const [loadingMore,setLoadingMore]=useState(false);
   const deferredSearch=useDeferredValue(search);
   const ledgerRequest=useRef(0);
   const catalogRequest=useRef(0);
@@ -54,13 +56,14 @@ export default function FinancePage({ token, session, intent, browseKind, onBrow
     const request=++ledgerRequest.current;
     try {
       qaFinanceIpc('listEntries');qaFinanceIpc('summary');
-      const [nextEntries,nextSummary]=await Promise.all([
-        api.finance.listEntries(token,{kind}),api.finance.summary(token),
+      const [page,nextSummary]=await Promise.all([
+        api.finance.listEntriesPage(token,{kind,query:deferredSearch,status:statusFilter,focusedEntryId:focusedEntryId||undefined,limit:100}),api.finance.summary(token),
       ]);
       if(request!==ledgerRequest.current)return;
-      setEntries(nextEntries);setSummary(nextSummary);setError('');
+      setEntries(page.items);setNextCursor(page.nextCursor);setHasMore(page.hasMore);setLoadingMore(false);
+      setSummary(nextSummary);setError('');
     }catch(err){if(request===ledgerRequest.current)setError(err instanceof Error?err.message:String(err));}
-  },[api,token,kind]);
+  },[api,token,kind,deferredSearch,statusFilter,focusedEntryId]);
 
   const reloadCatalogs = useCallback(async () => {
     const request=++catalogRequest.current;
@@ -90,7 +93,7 @@ export default function FinancePage({ token, session, intent, browseKind, onBrow
   useEffect(()=>api.finance.onDataChanged(()=>{void reloadEntries();}),[api,reloadEntries]);
   useEffect(() => { if(!editingEntry)setForm((old) => old.categoryId===''&&old.counterpartyId===''?old:({ ...old, categoryId:'', counterpartyId:'' })); }, [kind,editingEntry]);
   useEffect(()=>{if(!browseKind)return;setKind(browseKind);onBrowseHandled?.();},[browseKind,onBrowseHandled]);
-  useEffect(()=>{if(focusEntry){setKind(focusEntry.kind);setSearch('');setStatusFilter('ALL');setFocusedEntryId(focusEntry.id);setVisibleLimit(100);}else setFocusedEntryId(null);},[focusEntry]);
+  useEffect(()=>{if(focusEntry){setKind(focusEntry.kind);setSearch('');setStatusFilter('ALL');setFocusedEntryId(focusEntry.id);}else setFocusedEntryId(null);},[focusEntry]);
   useEffect(()=>{if(!intent)return;setKind(intent);setEditingEntry(null);setRecurring(false);setForm({description:'',amount:'',dueAt:today(),accountId:'',categoryId:'',counterpartyId:''});setEntryDrawerOpen(true);onIntentHandled?.();},[intent,onIntentHandled]);
   const counterparties = kind === 'PAYABLE' ? creditors : customers;
 
@@ -215,24 +218,27 @@ export default function FinancePage({ token, session, intent, browseKind, onBrow
     const settlement = [...entry.settlements].reverse().find((item)=>!item.reversedAt); if (!settlement) return;
     try { await api.reports.printReceipt(token, settlement.id); } catch (err) { setError(err instanceof Error ? err.message : String(err)); }
   },[api,token]);
-  const showMore=useCallback(()=>setVisibleLimit(n=>n+100),[]);
+  const showMore=useCallback(async()=>{
+    if(!hasMore||!nextCursor||loadingMore)return;
+    const request=ledgerRequest.current;
+    setLoadingMore(true);
+    try{
+      qaFinanceIpc('listEntries');
+      const page=await api.finance.listEntriesPage(token,{kind,query:deferredSearch,status:statusFilter,focusedEntryId:focusedEntryId||undefined,limit:100,cursor:nextCursor});
+      if(request!==ledgerRequest.current)return;
+      setEntries(previous=>{
+        const ids=new Set(previous.map(row=>row.id));
+        return [...previous,...page.items.filter(row=>!ids.has(row.id))];
+      });
+      setNextCursor(page.nextCursor);setHasMore(page.hasMore);
+    }catch(err){if(request===ledgerRequest.current)setError(err instanceof Error?err.message:String(err));}
+    finally{setLoadingMore(false);}
+  },[api,token,kind,deferredSearch,statusFilter,focusedEntryId,nextCursor,hasMore,loadingMore]);
 
-  const creditorsById=useMemo(()=>new Map(creditors.map(row=>[row.id,row])),[creditors]);
-  const customersById=useMemo(()=>new Map(customers.map(row=>[row.id,row])),[customers]);
-  const categoriesById=useMemo(()=>new Map(categories.map(row=>[row.id,row])),[categories]);
-  const filteredEntries = useMemo(() => {
-    const term = deferredSearch.trim().toLocaleLowerCase('pt-BR');
-    return entries.filter((entry) => {
-      if(focusedEntryId&&entry.id!==focusedEntryId)return false;
-      const counterparty = entry.kind === 'PAYABLE' ? creditorsById.get(entry.creditorId||'') : customersById.get(entry.customerId||'');
-      const category = categoriesById.get(entry.categoryId||'');
-      const matchesTerm = !term || [entry.description, counterparty?.name, category?.name, entry.dueAt].some((value)=>String(value||'').toLocaleLowerCase('pt-BR').includes(term));
-      const matchesStatus = statusFilter === 'ALL' || (statusFilter === 'OVERDUE' ? entry.isOverdue : entry.status === statusFilter);
-      return matchesTerm && matchesStatus;
-    });
-  }, [entries, focusedEntryId, deferredSearch, statusFilter, creditorsById, customersById, categoriesById]);
-  const visibleEntries=useMemo(()=>filteredEntries.slice(0,visibleLimit),[filteredEntries,visibleLimit]);
-  const openTotal = useMemo(() => filteredEntries.filter((x) => x.status !== 'CANCELLED').reduce((sum, x) => sum + x.openCents, 0), [filteredEntries]);
+  // Search and status are resolved against the complete canonical SQLite dataset.
+  // The client receives one bounded page; no full-table fetch or client-side slicing.
+  const visibleEntries=entries;
+  const openTotal=useMemo(()=>entries.filter(row=>row.status!=='CANCELLED').reduce((sum,row)=>sum+row.openCents,0),[entries]);
 
   return <section className="page-stack" data-testid="page-finance">
     <div className="page-header"><div><p className="eyebrow">Financeiro</p><h2>Contas a pagar e receber</h2><p className="muted">Acompanhe vencimentos, baixas e histórico sem poluir a área de trabalho.</p></div></div>
@@ -240,7 +246,7 @@ export default function FinancePage({ token, session, intent, browseKind, onBrow
       <div className="metric-card"><span>A receber em aberto</span><strong>{brl(summary.receivableOpenCents)}</strong></div>
       <div className="metric-card"><span>A pagar em aberto</span><strong>{brl(summary.payableOpenCents)}</strong></div>
       <div className="metric-card"><span>Vencidos</span><strong>{brl(summary.overduePayableCents + summary.overdueReceivableCents)}</strong></div>
-      <div className="metric-card"><span>Filtro atual</span><strong>{brl(openTotal)}</strong></div>
+      <div className="metric-card"><span>Saldo dos carregados</span><strong>{brl(openTotal)}</strong></div>
     </div>
     {error && <div className="error-box" role="alert">{error}</div>}
     {notice&&<div className="success-box" role="status">{notice}</div>}
@@ -252,12 +258,12 @@ export default function FinancePage({ token, session, intent, browseKind, onBrow
     </div>}
     <div className="segmented"><button type="button" className={kind==='PAYABLE'?'active':''} onClick={() => {setFocusedEntryId(null);setKind('PAYABLE');}}>Contas a pagar</button><button type="button" className={kind==='RECEIVABLE'?'active':''} onClick={() => {setFocusedEntryId(null);setKind('RECEIVABLE');}}>Contas a receber</button></div>
     <FinanceToolbar
-      filters={<><label className="finance-search-control"><Search size={16}/><input data-testid="finance-search" aria-label="Buscar lançamentos" value={search} onChange={(e)=>{setFocusedEntryId(null);setSearch(e.target.value);setVisibleLimit(100);}} placeholder="Buscar descrição, pessoa ou categoria"/></label><label className="filter-control"><span>Status</span><select aria-label="Filtrar status" value={statusFilter} onChange={(e)=>{setFocusedEntryId(null);setStatusFilter(e.target.value as StatusFilter);setVisibleLimit(100);}}><option value="ALL">Todos os status</option><option value="OPEN">Em aberto</option><option value="PARTIAL">Parcial</option><option value="SETTLED">Quitado</option><option value="OVERDUE">Vencido</option><option value="CANCELLED">Cancelado</option></select></label></>}
+      filters={<><label className="finance-search-control"><Search size={16}/><input data-testid="finance-search" aria-label="Buscar lançamentos" value={search} onChange={(e)=>{setFocusedEntryId(null);setSearch(e.target.value);}} placeholder="Buscar descrição, pessoa ou categoria"/></label><label className="filter-control"><span>Status</span><select aria-label="Filtrar status" value={statusFilter} onChange={(e)=>{setFocusedEntryId(null);setStatusFilter(e.target.value as StatusFilter);}}><option value="ALL">Todos os status</option><option value="OPEN">Em aberto</option><option value="PARTIAL">Parcial</option><option value="SETTLED">Quitado</option><option value="OVERDUE">Vencido</option><option value="CANCELLED">Cancelado</option></select></label></>}
       actions={editable ? <FinanceButton type="button" data-testid="finance-new-entry" onClick={openNewEntry}><Plus size={16}/>Novo lançamento</FinanceButton> : undefined}
     />
 
-    {qaProfile('finance-table', <FinanceEntriesTable visibleEntries={visibleEntries} filteredCount={filteredEntries.length}
-      visibleLimit={visibleLimit} focusedEntryId={focusedEntryId} editable={editable}
+    {qaProfile('finance-table', <FinanceEntriesTable visibleEntries={visibleEntries} filteredCount={visibleEntries.length+(hasMore?1:0)}
+      visibleLimit={visibleEntries.length} focusedEntryId={focusedEntryId} editable={editable}
       onPayment={openPayment} onEdit={openEditEntry} onDecision={openDecision}
       onReceiptPdf={receiptPdf} onReceiptPrint={receiptPrint} onOpenPlanning={onOpenPlanning} onMore={showMore}/>)}
 
