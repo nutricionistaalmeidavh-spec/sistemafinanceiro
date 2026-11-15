@@ -38,9 +38,11 @@ const vite = spawn(process.execPath, [viteCli, '--host', '127.0.0.1'], {
   cwd:root, env:viteEnv, stdio:'ignore', shell:false
 });
 let app;
+let page;
 let video;
 let fail;
 const errors = [];
+const consoleEntries = [];
 try {
   if (!fs.existsSync(electronExe)) throw new Error('Electron executable unavailable: ' + electronExe);
   await ready('http://127.0.0.1:5173');
@@ -60,10 +62,13 @@ try {
     timeout:60000,
     recordVideo:{dir:target,size:{width:1440,height:900},fps:25}
   });
-  const page = await app.firstWindow();
+  page = await app.firstWindow();
   video = page.video();
   if (!video) throw new Error('Playwright Electron did not enable video recording');
   page.on('pageerror', error => errors.push(String(error)));
+  page.on('console', message => { if (message.type() === 'error') consoleEntries.push(message.text()); });
+  page.on('crash', () => errors.push('renderer crashed'));
+  page.on('requestfailed', req => consoleEntries.push('requestfailed: ' + req.url() + ' ' + (req.failure()?.errorText||'')));
   await page.setViewportSize({width:1440,height:900});
   const pause = (ms=500) => page.waitForTimeout(ms);
   const shot = async (name) => {
@@ -73,10 +78,22 @@ try {
   };
 
   // The administrator exists; money, customers and opportunities do not.
-  await page.getByLabel('Usuário',{exact:true}).waitFor({state:'visible',timeout:25000});
-  await page.getByLabel('Usuário',{exact:true}).fill('admin');
-  await page.getByLabel('Senha',{exact:true}).fill(qaPassword);
-  await page.getByRole('button',{name:'Entrar',exact:true}).click();
+  await page.waitForLoadState('domcontentloaded',{timeout:20000}).catch(()=>{});
+  const username = page.getByLabel('Usuário',{exact:true});
+  const bootstrap = page.getByRole('button',{name:'Criar administrador'});
+  await Promise.race([
+    username.waitFor({state:'visible',timeout:20000}),
+    bootstrap.waitFor({state:'visible',timeout:20000})
+  ]).catch(()=>{});
+  if (await bootstrap.isVisible().catch(()=>false)) {
+    await page.getByLabel('Senha',{exact:true}).fill(qaPassword);
+    await bootstrap.click();
+  } else {
+    await username.waitFor({state:'visible',timeout:3000});
+    await username.fill('admin');
+    await page.getByLabel('Senha',{exact:true}).fill(qaPassword);
+    await page.getByRole('button',{name:'Entrar',exact:true}).click();
+  }
   await page.getByTestId('app-shell').waitFor({state:'visible',timeout:25000});
   await page.getByTestId('first-use-guide').waitFor({state:'visible',timeout:25000});
   await shot('01-dashboard-primeiro-acesso');
@@ -179,9 +196,16 @@ try {
   console.log('QA_ONBOARDING_CRM_VIDEO_PASSED');
 } catch(error) {
   fail = error;
-  fs.writeFileSync(path.join(target,'qa-result.json'),JSON.stringify({
-    status:'failed',synthetic:true,error:String(error),pageErrors:errors
-  },null,2));
+  const diagnostic = { status:'failed',synthetic:true,error:String(error),pageErrors:errors,consoleEntries };
+  if (page && !page.isClosed()) {
+    diagnostic.url = page.url();
+    diagnostic.title = await page.title().catch(()=>null);
+    diagnostic.body = await page.locator('body').innerText({timeout:1500}).catch(()=>null);
+    diagnostic.html = (await page.content().catch(()=>'' )).slice(0,6000);
+    await page.screenshot({path:path.join(target,'failure-initial-screen.png'),timeout:5000}).catch(e=>console.error('Screenshot diagnostic failed:',e));
+  }
+  fs.writeFileSync(path.join(target,'qa-result.json'),JSON.stringify(diagnostic,null,2));
+  console.error('QA_DIAGNOSTIC ' + JSON.stringify(diagnostic).slice(0,9000));
   console.error('QA_ONBOARDING_CRM_VIDEO_FAILED',error);
 } finally {
   if (app) await app.close().catch(e => console.error('Electron shutdown:',e));
