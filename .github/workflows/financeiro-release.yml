@@ -55,6 +55,8 @@ jobs:
         run: npm run ci:qa-final
       - name: Gerar instalador unico e manifesto do updater
         run: npm run dist:package
+      - name: Medir tamanho real do pacote, ASAR e modulos nativos
+        run: node scripts/audit-package-size.mjs
       - name: Validar instalador, latest.yml e SHA-256
         shell: pwsh
         run: |
@@ -79,6 +81,7 @@ jobs:
             qa-artifacts/final/screenshots/*.png
             qa-artifacts/crm/screenshots/*.png
             qa-artifacts/final/metrics/*.json
+            qa-artifacts/size-audit/*.json
           if-no-files-found: error
           retention-days: 90
       - name: Publicar release explicitamente autorizada na main
