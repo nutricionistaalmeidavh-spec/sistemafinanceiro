@@ -1,6 +1,7 @@
 'use strict';
 const {randomUUID}=require('node:crypto');
 const {writeAudit}=require('./audit.cjs');
+const {pageSize,encodeCursor,decodeCursor,searchTerm}=require('./pagination.cjs');
 
 const STAGES=new Set(['NEW','QUALIFIED','PROPOSAL','WON','LOST']);
 const ACTIVITY_TYPES=new Set(['CALL','EMAIL','WHATSAPP','MEETING','NOTE']);
@@ -26,14 +27,16 @@ function createCrmService({db,finance,registry,now=()=>new Date().toISOString(),
   if(!row)return null;
   // Once converted, customer identity lives in the customer registry. The lead
   // preserves its original record for history, but must not shadow later edits.
-  const canonical=row.customer_id?db.prepare('SELECT name,document,phone,email FROM customers WHERE id=?').get(row.customer_id):null;
+   const canonical=Object.hasOwn(row,'__canonical_customer_id')
+    ? (row.__canonical_customer_id?{name:row.__canonical_name,document:row.__canonical_document,phone:row.__canonical_phone,email:row.__canonical_email}:null)
+    : (row.customer_id?db.prepare('SELECT name,document,phone,email FROM customers WHERE id=?').get(row.customer_id):null);
   return {id:row.id,name:canonical?canonical.name:row.name,
    document:canonical?canonical.document:row.document,phone:canonical?canonical.phone:row.phone,
    email:canonical?canonical.email:row.email,source:row.source,status:row.status,
    customerId:row.customer_id,notes:row.notes,ownerId:row.owner_id,
    createdAt:row.created_at,updatedAt:row.updated_at};
  };
- const deal=row=>row?{id:row.id,leadId:row.lead_id,customerId:row.customer_id,title:row.title,amountCents:row.amount_cents,stage:row.stage,ownerId:row.owner_id,lossReason:row.loss_reason,closedAt:row.closed_at,pipelineId:row.pipeline_id||null,stageId:row.stage_id||null,expectedCloseAt:row.expected_close_at||null,createdAt:row.created_at,updatedAt:row.updated_at}:null;
+ const deal=row=>row?{id:row.id,leadId:row.lead_id,customerId:row.customer_id,title:row.title,amountCents:row.amount_cents,stage:row.stage,ownerId:row.owner_id,lossReason:row.loss_reason,closedAt:row.closed_at,pipelineId:row.pipeline_id||null,stageId:row.stage_id||null,expectedCloseAt:row.expected_close_at||null,partyName:row.party_name||null,createdAt:row.created_at,updatedAt:row.updated_at}:null;
  const task=row=>row?{id:row.id,opportunityId:row.opportunity_id,title:row.title,dueAt:row.due_at,doneAt:row.done_at,done:!!row.done_at,createdAt:row.created_at,updatedAt:row.updated_at}:null;
  const activity=row=>row?{id:row.id,opportunityId:row.opportunity_id,kind:row.kind,note:row.note,occurredAt:row.occurred_at,createdAt:row.created_at}:null;
  const getLead=id=>person(lookup('crm_leads',id,'Lead'));
@@ -41,6 +44,25 @@ function createCrmService({db,finance,registry,now=()=>new Date().toISOString(),
   const q='%'+String(query).trim().toLowerCase()+'%';
   return db.prepare("SELECT l.* FROM crm_leads l LEFT JOIN customers c ON c.id=l.customer_id WHERE (LOWER(CASE WHEN c.id IS NOT NULL THEN c.name ELSE l.name END) LIKE ? OR LOWER(COALESCE(CASE WHEN c.id IS NOT NULL THEN c.email ELSE l.email END,'')) LIKE ? OR LOWER(COALESCE(CASE WHEN c.id IS NOT NULL THEN c.phone ELSE l.phone END,'')) LIKE ?) AND (?='' OR l.status=?) ORDER BY l.updated_at DESC,l.id DESC").all(q,q,q,status,status).map(person);
  }
+function listLeadsPage({query='',status='',cursor=null,limit=100}={}){
+ const size=pageSize(limit),q=searchTerm(query),state=String(status||'').trim().toUpperCase();
+ if(state&&!['NEW','QUALIFIED','CONVERTED','DISCARDED'].includes(state))throw new Error('Status de lead inválido');
+ const scope=JSON.stringify({resource:'crm-leads',q,state});
+ const position=decodeCursor(cursor,scope);
+ const where=[],params=[];
+ if(state){where.push('l.status=?');params.push(state);}
+ if(q){where.push("(INSTR(LOWER(COALESCE(c.name,l.name)),?)>0 OR INSTR(LOWER(COALESCE(c.email,l.email,'')),?)>0 OR INSTR(LOWER(COALESCE(c.phone,l.phone,'')),?)>0 OR INSTR(LOWER(COALESCE(l.document,'')),?)>0)");params.push(q,q,q,q);}
+ const base=where.length?' WHERE '+where.join(' AND '):'';
+ const total=Number(db.prepare('SELECT COUNT(*) n FROM crm_leads l LEFT JOIN customers c ON c.id=l.customer_id'+base).get(...params).n);
+ if(position){where.push('(l.updated_at<? OR (l.updated_at=? AND l.id<?))');params.push(position[0],position[0],position[1]);}
+ const rows=db.prepare(`SELECT l.*,c.id AS __canonical_customer_id,c.name AS __canonical_name,
+   c.document AS __canonical_document,c.phone AS __canonical_phone,c.email AS __canonical_email
+   FROM crm_leads l LEFT JOIN customers c ON c.id=l.customer_id
+   ${where.length?'WHERE '+where.join(' AND '):''}
+   ORDER BY l.updated_at DESC,l.id DESC LIMIT ?`).all(...params,size+1);
+ const hasMore=rows.length>size,selected=rows.slice(0,size),last=selected.at(-1);
+ return {items:selected.map(person),total,hasMore,nextCursor:hasMore&&last?encodeCursor([last.updated_at,last.id],scope):null};
+}
  function saveLead(input={},actor=null){
   const name=required(input.name,'Nome');const rawDocument=optional(input.document,40);const document=rawDocument?rawDocument.replace(/\D/g,''):null;
   if(rawDocument&&!document)throw new Error('Documento deve conter dígitos');
@@ -73,6 +95,27 @@ function createCrmService({db,finance,registry,now=()=>new Date().toISOString(),
   const q='%'+String(query).trim().toLowerCase()+'%';
   return db.prepare("SELECT * FROM crm_opportunities WHERE (?='' OR stage=?) AND LOWER(title) LIKE ? ORDER BY updated_at DESC,id DESC").all(stage,stage,q).map(deal);
  }
+function listOpportunitiesPage({query='',stage='',pipelineId='',cursor=null,limit=100}={}){
+ const size=pageSize(limit),q=searchTerm(query),s=String(stage||'').trim().toUpperCase(),pipe=String(pipelineId||'').trim();
+ if(s&&!STAGES.has(s))throw new Error('Etapa de oportunidade inválida');
+ const scope=JSON.stringify({resource:'crm-opportunities',q,s,pipe});
+ const position=decodeCursor(cursor,scope);
+ const where=[],params=[];
+ if(s){where.push('o.stage=?');params.push(s);}
+ if(pipe){where.push('o.pipeline_id=?');params.push(pipe);}
+ if(q){where.push("(INSTR(LOWER(o.title),?)>0 OR INSTR(LOWER(COALESCE(c.name,cl.name,l.name,'')),?)>0)");params.push(q,q);}
+ const joins=" FROM crm_opportunities o LEFT JOIN crm_leads l ON l.id=o.lead_id LEFT JOIN customers c ON c.id=o.customer_id LEFT JOIN customers cl ON cl.id=l.customer_id";
+ const base=where.length?' WHERE '+where.join(' AND '):'';
+ const total=Number(db.prepare('SELECT COUNT(*) n'+joins+base).get(...params).n);
+ const stageRows=db.prepare('SELECT o.stage_id,COUNT(*) n,COALESCE(SUM(o.amount_cents),0) cents '+joins+base+' GROUP BY o.stage_id').all(...params);
+ const stageTotals=Object.fromEntries(stageRows.map(r=>[r.stage_id||'legacy',{count:Number(r.n),amountCents:Number(r.cents)}]));
+ if(position){where.push('(o.updated_at<? OR (o.updated_at=? AND o.id<?))');params.push(position[0],position[0],position[1]);}
+ const rows=db.prepare(`SELECT o.*,COALESCE(c.name,cl.name,l.name) AS party_name ${joins}
+   ${where.length?'WHERE '+where.join(' AND '):''}
+   ORDER BY o.updated_at DESC,o.id DESC LIMIT ?`).all(...params,size+1);
+ const hasMore=rows.length>size,selected=rows.slice(0,size),last=selected.at(-1);
+ return {items:selected.map(deal),total,stageTotals,hasMore,nextCursor:hasMore&&last?encodeCursor([last.updated_at,last.id],scope):null};
+}
  function saveOpportunity(input={},actor=null){
   const title=required(input.title,'Título');
   const amountCents=cents(input.amountCents??0,true);
@@ -280,7 +323,7 @@ function createCrmService({db,finance,registry,now=()=>new Date().toISOString(),
  }
 
  function previewLeadImport(rows){
-  if(!Array.isArray(rows)||rows.length>5000)throw new Error('CSV limitado a 5.000 linhas por operação');
+  if(!Array.isArray(rows))throw new Error('Linhas CSV inválidas');
   const seen=new Set();
   const output=rows.map((original,index)=>{
    const raw=original&&typeof original==='object'?original:{};
@@ -330,7 +373,7 @@ function createCrmService({db,finance,registry,now=()=>new Date().toISOString(),
   const trs=q.items.map(i=>'<tr><td>'+escape(i.description)+'</td><td>'+i.quantity+'</td><td>'+money(i.unitPriceCents)+'</td><td>'+money(i.totalCents)+'</td></tr>').join('');
   return '<!doctype html><html lang="pt-BR"><meta charset="utf-8"><style>body{font-family:Arial,sans-serif;padding:36px;color:#222}h1{color:#4f46e5}table{width:100%;border-collapse:collapse;margin-top:28px}td,th{border-bottom:1px solid #ddd;padding:12px;text-align:left}.total{text-align:right;font-size:22px;font-weight:bold;margin-top:24px}small{color:#777}</style><h1>Proposta comercial</h1><p>ArtiSys Financeiro — Proposta v'+q.version+'</p><p><b>Cliente:</b> '+escape(customer?.name||lead?.name||'Não identificado')+'</p><p><b>Negócio:</b> '+escape(opp.title)+'</p><table><thead><tr><th>Descrição</th><th>Qtd.</th><th>Unitário</th><th>Total</th></tr></thead><tbody>'+trs+'</tbody></table><p class="total">'+money(q.totalCents)+'</p><p>'+escape(q.notes||'')+'</p><small>Documento comercial. Não representa pagamento ou recibo.</small></html>';
  }
- return {listLeads,saveLead,setLeadStatus,previewLeadImport,commitLeadImport,getLead,listOpportunities,getOpportunity,saveOpportunity,moveOpportunity,
+ return {listLeads,listLeadsPage,saveLead,setLeadStatus,previewLeadImport,commitLeadImport,getLead,listOpportunities,listOpportunitiesPage,getOpportunity,saveOpportunity,moveOpportunity,
   listStageHistory,addActivity,listActivities,saveTask,setTaskDone,listTasks,convertLead,createQuote,getQuote,listQuotes,
   setQuoteStatus,previewReceivables,confirmReceivables,listBillingLinks,getMetrics,quoteHtml};
 }
