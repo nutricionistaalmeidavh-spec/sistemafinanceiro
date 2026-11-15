@@ -35,3 +35,22 @@ export function compareRenderBaseline(current, baseline) {
     totalReactMsDelta:round(Number(current.totalReactMs||0)-Number(baseline.totalReactMs||0))
   };
 }
+
+
+// Percentiles of complete interactions require repeated samples of the SAME action.
+// Commit-duration percentiles in individual steps are reported separately.
+export function summarizeInteractionLatency(measures) {
+  const grouped=new Map();
+  for(const item of measures) {
+    const samples=grouped.get(item.interaction)||[];
+    samples.push(item);
+    grouped.set(item.interaction,samples);
+  }
+  return Object.fromEntries([...grouped].map(([name,items])=>[name,{
+    samples:items.length,
+    p50InteractionMs:percentile(items.map(x=>x.elapsedMs),50),
+    p95InteractionMs:percentile(items.map(x=>x.elapsedMs),95),
+    p50ReactMs:percentile(items.map(x=>x.totalReactMs),50),
+    p95ReactMs:percentile(items.map(x=>x.totalReactMs),95)
+  }]));
+}
