@@ -11,6 +11,16 @@
       "iv": "ZgwvVxUtPxq0al9n",
       "tag": "Qj7UU7oiO85O5CIXGJvM6w",
       "ciphertext": "4nZtooSV838t8i-guSAQxufv7TE7SmWmNwWvUj8e7tG2j6uzbqNzBemnggBS4-7yO-wrWNiNNARajEBkdJqAXMfBxFJLCQslfD4T76tDCgo_PHUuWplAll-LnH2u14DLT-FS8sKDqJgscaxDv2CjtYyfTq_M5V_7_NuldCnXa4YqNjvkRAShL5Y5xc5kFrg60OmqrZVb8V_WKhHN2UqPVq7iUCZbb2Cq8ogQfbpQHoGJ_wsuyVS1_Z9_r2G6nYGGCMFInqlm5vIzSnoXHi5PKrH8G_6H9zHrd61kekdDUDVkExlesVCgrkb9i3tzsba-AXuG2FDwOwCRx3zUqUPEPgk2B9_CWAQXWvNaATxLkTMv8jXgePkBF2-fXmiphUmC0W2KQ74Lp7ieLv51ME7cmMhZ94p3SdowTgHpitupa4CIaTQ7uSsbb9a65GwRqPLLg83TVuvXLBsUntHVJwWdqYyncRqosRw5mD3NeoI81rC4BwSf9GXDl_OZPpk_5OnSlRyThgD28m4"
+    },
+    "3830b58ef4a30dd030974bd976be4081f5af889102c5d1e4c6db1ec5c6976cc7": {
+      "version": 1,
+      "kdf": "scrypt",
+      "cipher": "aes-256-gcm",
+      "product": "artisys-financeiro",
+      "salt": "2F2R-v2GGN1VUY4D3OvkkGpxyOoeV8NR",
+      "iv": "EDNTMtKYTEJrltVw",
+      "tag": "GIaJLrDV29DjVjCZzXGKeA",
+      "ciphertext": "3M_AM0s04b5MKS-O3Scehdl1CeRBMm90OqAtrQPJgONvcEISq2XLhWygfhv7su3pNsmtOnttCO6tRKojsQ0Sr0WqozEMUIqnVRasc8riYnxZNeGlnAdiK2gSg2dEbMr8yz8WFoCE3ylIdnc-qw8muwd8yntwKXF7FWZPABL7K6UKSiFEyGmboAtlfP4vWySLqL4R96EXbyTEi3Y_UYviKi5b12fY2_dfcV0MrETAzOtmfTsiZkJAhtf5KOE-o2_OFChxMfEvuiPrSQLh_ZwA3BYQu2vcUwiG6cz3GT1kN3i2MdrQhCJpE1xLb-F-xoLYupgxAxomyUJWSaETrQQOAi87YRkcLoPwai67TkvGgUQKcrot_H7Ia4-aLvvej840tYRnaGzy_xbDmGNS8xQ2z10osnAMILw_AyoG_JEdEbuOZ9ye-4uP6uPHmGyfPufLUZ-VhngUG4Sar6nJdFkl1wev5X9_Tw68uFKH4N2MZP43yEniTG_8a0tAnq1k7eTJPNLZ-IBINuaExs_rPZI1e-rvlgMriWDNcJVG1tnSfZGKzHnQUMOOSK44mn92t7yasFQ4OQqgA8F_WhZhCjKQ"
     }
   }
 }
