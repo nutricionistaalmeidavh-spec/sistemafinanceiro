@@ -1,1 +1,13 @@
 .planning-tabs{display:flex;gap:8px;flex-wrap:wrap}.planning-tabs button{border:1px solid var(--border,#d8dee8);background:var(--surface,#fff);border-radius:10px;padding:9px 12px;cursor:pointer}.planning-tabs button.active{font-weight:700;box-shadow:inset 0 0 0 1px currentColor}.allocation-list,.compact-list,.bulk-entry-list{display:grid;gap:8px}.inline-fields,.inline-actions,.chip-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.inline-fields>select{min-width:220px}.inline-fields>input{max-width:120px}.check-grid{display:flex;gap:10px;flex-wrap:wrap;margin:12px 0}.check-row{display:flex;gap:8px;align-items:center}.bulk-entry-list{max-height:260px;overflow:auto;margin:12px 0}.bulk-entry-list .check-row{display:grid;grid-template-columns:auto 1fr auto;padding:8px 4px;border-bottom:1px solid var(--border,#e6eaf0)}.compact-list>div{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:10px 0;border-bottom:1px solid var(--border,#e6eaf0)}.compact-list>div:last-child{border-bottom:0}.compact-list small{color:var(--muted,#667085)}.nested-form{margin-top:18px;padding-top:16px;border-top:1px solid var(--border,#e6eaf0)}.nested-form textarea{min-height:90px;resize:vertical}.dashboard-grid.two{grid-template-columns:repeat(2,minmax(0,1fr))}@media(max-width:900px){.dashboard-grid.two{grid-template-columns:1fr}.inline-fields>*{width:100%;max-width:none!important}.compact-list>div{align-items:flex-start;flex-direction:column}}
+
+/* Mesmo formulário canônico no Financeiro, com rateio acessível em telas pequenas. */
+.cost-center-panel{display:grid;gap:12px;padding:14px;border:1px solid var(--border,#d8dee8);border-radius:12px;background:var(--surface,#fbfcff)}
+.cost-center-panel .panel-title small{display:block;margin-top:4px;color:var(--muted,#667085)}
+.cost-center-panel>label:not(.check-row){display:grid;gap:6px;font-size:13px;font-weight:700}
+.cost-center-panel .check-row{display:flex;gap:8px;align-items:center;font-size:13px}
+.cost-center-panel .check-row input{width:auto;flex:0 0 auto}
+.cost-center-panel .allocation-list{padding:12px;border-radius:10px;border:1px solid var(--border,#d8dee8);background:#fff}
+.cost-center-panel .inline-fields>select{min-width:0;flex:1 1 160px}
+.cost-center-panel .inline-fields>input{max-width:112px;flex:0 0 112px}
+.cost-center-panel .inline-actions{justify-content:space-between}
+@media(max-width:650px){.cost-center-panel{padding:12px}.cost-center-panel .inline-fields{display:grid;grid-template-columns:minmax(0,1fr) 94px auto}.cost-center-panel .inline-fields>select,.cost-center-panel .inline-fields>input{width:100%;max-width:none!important;min-width:0}.cost-center-panel .inline-fields>button{grid-column:1/-1;width:100%}}
