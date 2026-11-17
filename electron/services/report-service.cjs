@@ -111,9 +111,26 @@ function createReportService({ db, finance, analytics = null, now = () => new Da
     const effectiveAsOf=financeFilters.asOf||((financeFilters.to&&String(financeFilters.to)<nowDate)?String(financeFilters.to):nowDate);
     const entries = finance.listEntries({...financeFilters,asOf:effectiveAsOf});
     const rows = [];
+    const groupMap=new Map();
+    const addGroup=(centerId,code,name,entry,amountCents,settledCents)=>{
+      if(amountCents<=0)return;
+      const group=groupMap.get(centerId)||{centerId,code,name,revenueCents:0,expenseCents:0,settledCents:0,openCents:0,entries:0};
+      if(entry.kind==='RECEIVABLE')group.revenueCents+=amountCents;
+      else group.expenseCents+=amountCents;
+      group.settledCents+=settledCents;group.openCents+=Math.max(0,amountCents-settledCents);
+      group.entries+=1;groupMap.set(centerId,group);
+    };
     for (const entry of entries) {
       const metadata = planningMetadata(entry.id);
       if (tagId && !metadata.tags.some((tag) => tag.id === String(tagId))) continue;
+      if(entry.status!=='CANCELLED'){
+        const amounts=scopedSplitCents(entry.amountCents,entry.amountCents,metadata.allocations);
+        const settled=scopedSplitCents(entry.settledCents,entry.amountCents,metadata.allocations);
+        for(const center of metadata.allocations)addGroup(center.costCenterId,center.code,center.name,entry,amounts.get(center.costCenterId)||0,settled.get(center.costCenterId)||0);
+        const assigned=[...amounts.values()].reduce((a,b)=>a+b,0);
+        const assignedSettled=[...settled.values()].reduce((a,b)=>a+b,0);
+        addGroup('__unallocated__','—','Sem centro de custo',entry,entry.amountCents-assigned,entry.settledCents-assignedSettled);
+      }
       let amountCents = Number(entry.amountCents);
       let settledCents = Number(entry.settledCents);
       let openCents = Number(entry.openCents);
@@ -135,7 +152,7 @@ function createReportService({ db, finance, analytics = null, now = () => new Da
     }
     // Cancelled entries remain visible for audit but never contribute active totals.
     const totals = rows.filter(row=>row.status!=='CANCELLED').reduce((acc, row) => ({ amountCents: acc.amountCents + row.amountCents, settledCents: acc.settledCents + row.settledCents, openCents: acc.openCents + row.openCents }), { amountCents: 0, settledCents: 0, openCents: 0 });
-    const report = { kind: 'FINANCIAL_REPORT', generatedAt: nowIso(), filters: { ...filters, asOf:effectiveAsOf }, rows, totals };
+    const report = { kind: 'FINANCIAL_REPORT', generatedAt: nowIso(), filters: { ...filters, asOf:effectiveAsOf }, rows, totals, costCenterTotals:[...groupMap.values()].sort((a,b)=>a.name.localeCompare(b.name,'pt-BR')) };
     if (analytics && filters.from && filters.to && !costCenterId && !tagId) report.indicators = analytics.getIndicators({ from: filters.from, to: filters.to, asOf: filters.to });
     return report;
   }

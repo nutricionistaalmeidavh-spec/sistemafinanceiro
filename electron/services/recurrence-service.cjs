@@ -1,6 +1,7 @@
 'use strict';
 
 const { randomUUID } = require('node:crypto');
+const {normalizeAllocations}=require('./allocation-service.cjs');
 const { writeAudit } = require('./audit.cjs');
 const { assertDateOnly, localDay } = require('./date-utils.cjs');
 const schedule=require('./recurrence-schedule.cjs');
@@ -20,7 +21,7 @@ function createRecurrenceService({ db, finance, now = () => new Date().toISOStri
       || (row.end_date != null && row.next_due_at > row.end_date);
     return ended ? 'COMPLETED' : row.active ? 'ACTIVE' : 'PAUSED';
   }
-  function mapRule(row) { return row && { id: row.id, kind: row.kind, description: row.description, categoryId: row.category_id, accountId: row.account_id, customerId: row.customer_id, creditorId: row.creditor_id, amountCents: Number(row.amount_cents), startDate: row.start_date, endDate: row.end_date, dueDay: row.due_day, intervalMonths: row.interval_months, intervalDays: row.interval_days ?? null, annualAdjustmentBps: Number(row.annual_adjustment_bps || 0), maxOccurrences: row.max_occurrences, generatedCount: row.generated_count, nextDueAt: row.next_due_at, notes: row.notes, active: Boolean(row.active), lifecycleStatus:lifecycleStatus(row), createdAt: row.created_at, updatedAt: row.updated_at }; }
+  function mapRule(row) { return row && { id: row.id, kind: row.kind, description: row.description, categoryId: row.category_id, accountId: row.account_id, customerId: row.customer_id, creditorId: row.creditor_id, amountCents: Number(row.amount_cents), startDate: row.start_date, endDate: row.end_date, dueDay: row.due_day, intervalMonths: row.interval_months, intervalDays: row.interval_days ?? null, annualAdjustmentBps: Number(row.annual_adjustment_bps || 0), maxOccurrences: row.max_occurrences, generatedCount: row.generated_count, nextDueAt: row.next_due_at, notes: row.notes, allocations:row.cost_center_allocations_json?JSON.parse(row.cost_center_allocations_json):[], active: Boolean(row.active), lifecycleStatus:lifecycleStatus(row), createdAt: row.created_at, updatedAt: row.updated_at }; }
   function requireRelation(table, id, label) { if (!id) return; const row = db.prepare(`SELECT id,active FROM ${table} WHERE id=?`).get(String(id)); if (!row || !Boolean(row.active)) throw new Error(`${label} not found or inactive`); }
   function validateCategory(kind, id) { if (!id) return; const row = db.prepare('SELECT * FROM financial_categories WHERE id=? AND active=1').get(String(id)); if (!row) throw new Error('category not found or inactive'); const expected = kind === 'PAYABLE' ? 'EXPENSE' : 'REVENUE'; if (row.nature !== expected) throw new Error(`category nature must be ${expected}`); }
   function createRule(input = {}, actor = null) {
@@ -39,8 +40,11 @@ function createRecurrenceService({ db, finance, now = () => new Date().toISOStri
     if (kind === 'PAYABLE' && input.customerId) throw new Error('payable recurrence cannot reference customer'); if (kind === 'RECEIVABLE' && input.creditorId) throw new Error('receivable recurrence cannot reference creditor');
     requireRelation('financial_accounts', input.accountId, 'financial account'); requireRelation('customers', input.customerId, 'customer'); requireRelation('creditors', input.creditorId, 'creditor'); validateCategory(kind, input.categoryId);
     const id = String(input.id || idFactory()); const timestamp = nowIso(); const nextDueAt = schedule.firstDue({startDate,dueDay,intervalMonths,intervalDays});
+    const allocations=input.allocations===undefined?null:input.allocations.length?JSON.stringify(normalizeAllocations(amountCents,input.allocations).map(({costCenterId,percentageBasisPoints})=>({costCenterId,percentageBasisPoints}))):null;
+    if(allocations)for(const item of JSON.parse(allocations)){if(!db.prepare('SELECT 1 FROM cost_centers WHERE id=? AND active=1').get(item.costCenterId))throw new Error('cost center not found or inactive');}
     db.prepare(`INSERT INTO recurring_rules(id,kind,description,category_id,account_id,customer_id,creditor_id,amount_cents,start_date,end_date,due_day,interval_months,interval_days,annual_adjustment_bps,max_occurrences,generated_count,next_due_at,notes,active,created_at,updated_at)
       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,?,?,1,?,?)`).run(id, kind, description, input.categoryId || null, input.accountId || null, input.customerId || null, input.creditorId || null, amountCents, startDate, endDate, dueDay, intervalMonths, intervalDays, annualAdjustmentBps, maxOccurrences, nextDueAt, input.notes || null, timestamp, timestamp);
+    if(allocations)db.prepare('UPDATE recurring_rules SET cost_center_allocations_json=? WHERE id=?').run(allocations,id);
     writeAudit(db, { action: 'recurrence.create', entity: 'recurring-rule', entityId: id, actor, context: { kind, amountCents, dueDay, intervalMonths, maxOccurrences } }, nowIso);
     return mapRule(db.prepare('SELECT * FROM recurring_rules WHERE id=?').get(id));
   }
@@ -86,6 +90,11 @@ function createRecurrenceService({ db, finance, now = () => new Date().toISOStri
         interval_days=?,annual_adjustment_bps=?,max_occurrences=?,account_id=?,category_id=?,customer_id=?,creditor_id=?,notes=?,next_due_at=?,active=?,updated_at=? WHERE id=?`)
         .run(description,amountCents,startDate,endDate,dueDay,intervalMonths,intervalDays,annualAdjustmentBps,maxOccurrences,accountId,categoryId,customerId,
           creditorId,input.notes===undefined?old.notes:input.notes||null,nextDueAt,active?1:0,nowIso(),String(id));
+      if(input.allocations!==undefined){
+        const nextAllocations=input.allocations.length?JSON.stringify(normalizeAllocations(amountCents,input.allocations).map(({costCenterId,percentageBasisPoints})=>({costCenterId,percentageBasisPoints}))):null;
+        if(nextAllocations)for(const item of JSON.parse(nextAllocations)){if(!db.prepare('SELECT 1 FROM cost_centers WHERE id=? AND active=1').get(item.costCenterId))throw new Error('cost center not found or inactive');}
+        db.prepare('UPDATE recurring_rules SET cost_center_allocations_json=? WHERE id=?').run(nextAllocations,String(id));
+      }
       writeAudit(db,{action:'recurrence.update',entity:'recurring-rule',entityId:String(id),actor,
         context:{before:{amountCents:old.amountCents,dueDay:old.dueDay,nextDueAt:old.nextDueAt},
           after:{amountCents,dueDay,nextDueAt}}},nowIso);
@@ -116,7 +125,7 @@ function createRecurrenceService({ db, finance, now = () => new Date().toISOStri
           const key = `${rule.id}:${rule.next_due_at}`;
           const existing = db.prepare('SELECT id FROM financial_entries WHERE recurrence_key=?').get(key);
           if (!existing) {
-            generated.push(finance.createEntry({ kind: rule.kind, description: rule.description, categoryId: rule.category_id, accountId: rule.account_id, customerId: rule.customer_id, creditorId: rule.creditor_id, amountCents: schedule.amountAtDue({startDate:rule.start_date,dueDay:rule.due_day,intervalMonths:rule.interval_months,intervalDays:rule.interval_days,amountCents:Number(rule.amount_cents),annualAdjustmentBps:Number(rule.annual_adjustment_bps||0)}, rule.next_due_at), issueAt: rule.next_due_at, dueAt: rule.next_due_at, notes: rule.notes, sourceType: 'recurring_rule', sourceId: rule.id, recurrenceRuleId: rule.id, recurrenceKey: key }, actor));
+            generated.push(finance.createEntry({ kind: rule.kind, description: rule.description, categoryId: rule.category_id, accountId: rule.account_id, customerId: rule.customer_id, creditorId: rule.creditor_id, amountCents: schedule.amountAtDue({startDate:rule.start_date,dueDay:rule.due_day,intervalMonths:rule.interval_months,intervalDays:rule.interval_days,amountCents:Number(rule.amount_cents),annualAdjustmentBps:Number(rule.annual_adjustment_bps||0)}, rule.next_due_at), issueAt: rule.next_due_at, dueAt: rule.next_due_at, notes: rule.notes, sourceType: 'recurring_rule', sourceId: rule.id, recurrenceRuleId: rule.id, recurrenceKey: key, ...(rule.cost_center_allocations_json?{allocations:JSON.parse(rule.cost_center_allocations_json)}:{}) }, actor, {withinTransaction:true}));
           }
           const count = Number(rule.generated_count) + 1;
           const next = schedule.nextDue({startDate:rule.start_date,dueDay:rule.due_day,intervalMonths:rule.interval_months,intervalDays:rule.interval_days},rule.next_due_at);

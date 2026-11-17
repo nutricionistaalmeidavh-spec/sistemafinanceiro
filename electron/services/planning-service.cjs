@@ -4,7 +4,7 @@ const { randomUUID } = require('node:crypto');
 const { writeAudit } = require('./audit.cjs');
 const { localDay } = require('./date-utils.cjs');
 const { addMonthsClamped } = require('./recurrence-schedule.cjs');
-const {scopedSplitCents}=require('./allocation-service.cjs');
+const {scopedSplitCents,normalizeAllocations}=require('./allocation-service.cjs');
 const { createFinanceService } = require('./finance-service.cjs');
 const { createRecurrenceService } = require('./recurrence-service.cjs');
 
@@ -28,43 +28,6 @@ function withTransaction(db, fn) {
   db.exec('BEGIN IMMEDIATE');
   try { const result = fn(); db.exec('COMMIT'); return result; }
   catch (error) { try { db.exec('ROLLBACK'); } catch {} throw error; }
-}
-function normalizeAllocations(totalCents, allocations = []) {
-  const total = integer(totalCents, 'totalCents', { min: 1 });
-  if (!Array.isArray(allocations) || allocations.length === 0) throw new TypeError('at least one allocation is required');
-  const ids = new Set();
-  for (const row of allocations) {
-    const id = required(row?.costCenterId, 'costCenterId');
-    if (ids.has(id)) throw new Error('duplicate cost center allocation');
-    ids.add(id);
-  }
-  const explicit = allocations.every((row) => row.amountCents != null);
-  const percent = allocations.every((row) => row.percentage != null || row.percentageBasisPoints != null);
-  if (!explicit && !percent) throw new TypeError('allocations must use either amountCents or percentage');
-  if (explicit) {
-    const amounts = allocations.map((row) => integer(row.amountCents, 'amountCents', { min: 1 }));
-    if (amounts.reduce((sum, value) => sum + value, 0) !== total) throw new Error('allocation values must equal entry amount');
-    let bpUsed = 0;
-    return allocations.map((row, index) => {
-      const amountCents = amounts[index];
-      const percentageBasisPoints = index === allocations.length - 1 ? 10000 - bpUsed : Math.round((amountCents / total) * 10000);
-      bpUsed += percentageBasisPoints;
-      return Object.freeze({ costCenterId: required(row.costCenterId, 'costCenterId'), amountCents, percentageBasisPoints });
-    });
-  }
-  const basis = allocations.map((row) => row.percentageBasisPoints != null
-    ? integer(row.percentageBasisPoints, 'percentageBasisPoints', { min: 1, max: 10000 })
-    : Math.round(Number(row.percentage) * 100));
-  if (basis.some((value) => !Number.isSafeInteger(value) || value <= 0) || basis.reduce((sum, value) => sum + value, 0) !== 10000) {
-    throw new Error('allocation percentages must equal 100%');
-  }
-  const raw = basis.map((bp) => (total * bp) / 10000);
-  const amounts = raw.map(Math.floor);
-  let remaining = total - amounts.reduce((sum, value) => sum + value, 0);
-  const order = raw.map((value, index) => ({ index, remainder: value - Math.floor(value) }))
-    .sort((a, b) => b.remainder - a.remainder || a.index - b.index);
-  for (let i = 0; i < remaining; i += 1) amounts[order[i % order.length].index] += 1;
-  return allocations.map((row, index) => Object.freeze({ costCenterId: required(row.costCenterId, 'costCenterId'), amountCents: amounts[index], percentageBasisPoints: basis[index] }));
 }
 function projectSeries({ openingBalanceCents = 0, monthly = [], adjustments = [] } = {}) {
   let balance = integer(openingBalanceCents, 'openingBalanceCents');

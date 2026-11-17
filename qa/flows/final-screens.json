@@ -25,7 +25,7 @@
     { "action": "waitFor", "text": "Aluguel mensal", "name": "recurring-data-ready" },
     { "action": "screenshot", "name": "05-recorrencias-final" },
     { "action": "click", "testId": "nav-registry", "name": "open-registry" },
-    { "action": "waitFor", "text": "Clientes, credores e categorias", "name": "registry-ready" },
+    { "action": "waitFor", "testId": "page-registry", "name": "registry-ready" },
     { "action": "waitFor", "text": "Construtora Alpha", "name": "registry-data-ready" },
     { "action": "screenshot", "name": "06-cadastros-final" },
     { "action": "click", "testId": "nav-alerts", "name": "open-alerts" },
