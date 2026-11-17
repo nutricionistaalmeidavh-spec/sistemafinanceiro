@@ -11,6 +11,7 @@ const { DatabaseService }=require('../electron/services/database.cjs');
 const { createFinanceService }=require('../electron/services/finance-service.cjs');
 const { createPlanningService }=require('../electron/services/planning-service.cjs');
 const { createRecurrenceService }=require('../electron/services/recurrence-service.cjs');
+const { createReportService }=require('../electron/services/report-service.cjs');
 
 function fixture(run) {
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'finance-cost-centers-'));
@@ -22,9 +23,10 @@ function fixture(run) {
     const finance=createFinanceService({db,now});
     const recurrence=createRecurrenceService({db,finance,now});
     const planning=createPlanningService({db,finance,recurrence,now});
+    const reports=createReportService({db,finance,now});
     const alpha=planning.saveCostCenter({code:'OBRA',name:'Obra A'});
     const admin=planning.saveCostCenter({code:'ADM',name:'Administrativo'});
-    return run({db,finance,recurrence,planning,alpha,admin});
+    return run({db,finance,recurrence,planning,reports,alpha,admin});
   } finally {database.close();fs.rmSync(root,{recursive:true,force:true});}
 }
 const entry={kind:'PAYABLE',description:'Materiais',amountCents:10001,dueAt:'2026-11-17'};
@@ -64,4 +66,16 @@ test('recorrência replica percentual para cada parcela com valores ajustados',(
     assert.equal(rows.length,2);
     assert.equal(rows.reduce((sum,x)=>sum+x.amountCents,0),finance.getEntry(item.id).amountCents);
   }
+}));
+
+test('relatório consolida rateios, receitas, despesas e saldo não atribuído em centavos',()=>fixture(({finance,reports,alpha,admin})=>{
+  finance.createEntry({...entry,amountCents:10001,allocations:[{costCenterId:alpha.id,percentage:60},{costCenterId:admin.id,percentage:40}]});
+  finance.createEntry({kind:'RECEIVABLE',description:'Serviços',amountCents:20000,dueAt:'2026-11-17',allocations:[{costCenterId:alpha.id,percentage:100}]});
+  finance.createEntry({kind:'PAYABLE',description:'Sem centro',amountCents:500,dueAt:'2026-11-17'});
+  const report=reports.financialReport({from:'2026-11-01',to:'2026-11-30'});
+  const byId=new Map(report.costCenterTotals.map(row=>[row.centerId,row]));
+  assert.equal(byId.get(alpha.id).revenueCents,20000);
+  assert.equal(byId.get(alpha.id).expenseCents+byId.get(admin.id).expenseCents,10001);
+  assert.equal(byId.get('__unallocated__').expenseCents,500);
+  assert.equal(report.costCenterTotals.reduce((sum,row)=>sum+row.revenueCents+row.expenseCents,0),30501);
 }));
