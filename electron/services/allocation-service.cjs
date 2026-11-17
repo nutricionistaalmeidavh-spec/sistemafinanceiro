@@ -39,6 +39,16 @@ function scopedSplitCents(totalCents,entryTotalCents,allocations=[]) {
   shares.delete(fallbackId);
   return shares;
 }
+function integer(value, label, { min = Number.MIN_SAFE_INTEGER, max = Number.MAX_SAFE_INTEGER } = {}) {
+  const number = Number(value);
+  if (!Number.isSafeInteger(number) || number < min || number > max) throw new TypeError(`${label} must be an integer`);
+  return number;
+}
+function required(value, label) {
+  const text = String(value ?? '').trim();
+  if (!text) throw new TypeError(`${label} is required`);
+  return text;
+}
 function normalizeAllocations(totalCents, allocations = []) {
   const total = integer(totalCents, 'totalCents', { min: 1 });
   if (!Array.isArray(allocations) || allocations.length === 0) throw new TypeError('at least one allocation is required');
