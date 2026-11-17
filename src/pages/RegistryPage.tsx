@@ -3,17 +3,20 @@ import { Search } from 'lucide-react';
 import { can } from '../lib/format';
 
 type Props = { token: string; session: FinanceiroSession };
-type Tab = 'customers' | 'creditors' | 'categories';
+type Tab = 'customers' | 'creditors' | 'categories' | 'centers';
 const emptyParty = { name:'', document:'', phone:'', email:'', notes:'' };
 
 export default function RegistryPage({ token, session }: Props) {
   const api = window.financeiro!;
+  const planning=window.financeiroPlanning!;
   const [tab, setTab] = useState<Tab>('customers');
   const [rows, setRows] = useState<PartyRecord[]>([]);
   const [cursor,setCursor]=useState<string|null>(null);
   const [total,setTotal]=useState(0);
   const request=useRef(0);
   const [categories, setCategories] = useState<FinancialCategory[]>([]);
+  const [centers,setCenters]=useState<PlanningCostCenter[]>([]);
+  const [centerForm,setCenterForm]=useState({id:'',code:'',name:'',parentId:'',active:true});
   const [search, setSearch] = useState('');
   const deferredSearch=useDeferredValue(search);
   const [party, setParty] = useState(emptyParty);
@@ -21,10 +24,16 @@ export default function RegistryPage({ token, session }: Props) {
   const [error, setError] = useState('');
   const [notice,setNotice]=useState('');
   const editable = can(session, 'registry.manage');
+  const editableCenters=can(session,'finance.manage');
 
   const reload=useCallback(async()=>{
     const number=++request.current;
     try{
+      if(tab==='centers'){
+        const items=await planning.listCostCenters(token,{includeInactive:true});
+        if(number===request.current){setCenters(items);setError('');}
+        return;
+      }
       if(tab==='categories'){
         const cats=await api.registry.listCategories(token);
         if(number===request.current){setCategories(cats);setError('');}
@@ -36,12 +45,12 @@ export default function RegistryPage({ token, session }: Props) {
       if(number!==request.current)return;
       setRows(page.items);setCursor(page.nextCursor);setTotal(page.total||0);setError('');
     }catch(err){if(number===request.current)setError(err instanceof Error?err.message:String(err));}
-  },[api,token,tab,deferredSearch]);
+  },[api,planning,token,tab,deferredSearch]);
   useEffect(()=>{void reload();},[reload]);
   useEffect(()=>{setSearch('');setNotice('');},[tab]);
 
   async function loadMore(){
-    if(!cursor||tab==='categories')return;
+    if(!cursor||tab==='categories'||tab==='centers')return;
     const number=request.current;
     try{
       const page=tab==='customers'
@@ -62,15 +71,35 @@ export default function RegistryPage({ token, session }: Props) {
     try { await api.registry.saveCategory(token, category); setCategory({ name:'', nature:'EXPENSE', dreGroup:'OPERATING' }); await reload(); }
     catch (err) { setError(err instanceof Error ? err.message : String(err)); }
   }
+  async function saveCenter(event:FormEvent){
+    event.preventDefault();
+    try{
+      await planning.saveCostCenter(token,{id:centerForm.id||undefined,code:centerForm.code.trim(),name:centerForm.name.trim(),parentId:centerForm.parentId||null,active:centerForm.active});
+      setCenterForm({id:'',code:'',name:'',parentId:'',active:true});await reload();setNotice('Centro de custo salvo no cadastro financeiro.');
+    }catch(err){setError(err instanceof Error?err.message:String(err));}
+  }
+  async function toggleCenter(row:PlanningCostCenter){
+    try{await planning.saveCostCenter(token,{id:row.id,code:row.code,name:row.name,parentId:row.parent_id||null,active:!Boolean(row.active)});await reload();setNotice(Boolean(row.active)?'Centro desativado, com histórico preservado.':'Centro reativado.');}
+    catch(err){setError(err instanceof Error?err.message:String(err));}
+  }
   const filteredRows=rows;
   const term = search.trim().toLocaleLowerCase('pt-BR');
   const filteredCategories = useMemo(() => categories.filter((row)=>!term || [row.name,row.nature,row.dreGroup].some((value)=>String(value||'').toLocaleLowerCase('pt-BR').includes(term))), [categories, term]);
+  const filteredCenters=useMemo(()=>centers.filter(row=>!term||[row.code,row.name].some(value=>value.toLocaleLowerCase('pt-BR').includes(term))),[centers,term]);
 
-  return <section className="page-stack" data-testid="page-registry"><div className="page-header"><div><p className="eyebrow">Cadastros</p><h2>Clientes, credores e categorias</h2><p className="muted">Base compartilhada pelos lançamentos financeiros.</p></div></div>{error && <div className="error-box">{error}</div>}{notice&&<div role="status" className="success-box">{notice}</div>}
-    <div className="page-toolbar"><div className="segmented"><button type="button" className={tab==='customers'?'active':''} onClick={()=>setTab('customers')}>Clientes</button><button type="button" className={tab==='creditors'?'active':''} onClick={()=>setTab('creditors')}>Credores</button><button type="button" className={tab==='categories'?'active':''} onClick={()=>setTab('categories')}>Categorias</button></div><label className="search-control"><Search size={16}/><input data-testid="registry-search" aria-label="Buscar cadastros" value={search} onChange={(e)=>setSearch(e.target.value)} placeholder={tab==='categories'?'Buscar categoria ou grupo DRE':'Buscar nome, documento ou contato'}/></label></div>
-    {editable && tab !== 'categories' && <form className="panel inline-form" onSubmit={saveParty}><label>Nome<input value={party.name} onChange={(e)=>setParty({...party,name:e.target.value})} required/></label><label>CPF/CNPJ<input value={party.document} onChange={(e)=>setParty({...party,document:e.target.value})}/></label><label>Telefone<input value={party.phone} onChange={(e)=>setParty({...party,phone:e.target.value})}/></label><label>E-mail<input type="email" value={party.email} onChange={(e)=>setParty({...party,email:e.target.value})}/></label><button className="primary-button">Adicionar</button></form>}
+  return <section className="page-stack" data-testid="page-registry"><div className="page-header"><div><p className="eyebrow">Cadastros</p><h2>Cadastros financeiros</h2><p className="muted">Base compartilhada pelos lançamentos financeiros.</p></div></div>{error && <div className="error-box">{error}</div>}{notice&&<div role="status" className="success-box">{notice}</div>}
+    <div className="page-toolbar"><div className="segmented"><button type="button" className={tab==='customers'?'active':''} onClick={()=>setTab('customers')}>Clientes</button><button type="button" className={tab==='creditors'?'active':''} onClick={()=>setTab('creditors')}>Credores</button><button type="button" className={tab==='categories'?'active':''} onClick={()=>setTab('categories')}>Categorias</button><button type="button" className={tab==='centers'?'active':''} onClick={()=>setTab('centers')}>Centros de custo</button></div><label className="search-control"><Search size={16}/><input data-testid="registry-search" aria-label="Buscar cadastros" value={search} onChange={(e)=>setSearch(e.target.value)} placeholder={tab==='centers'?'Buscar código ou centro':tab==='categories'?'Buscar categoria ou grupo DRE':'Buscar nome, documento ou contato'}/></label></div>
+    {editable && (tab==='customers'||tab==='creditors') && <form className="panel inline-form" onSubmit={saveParty}><label>Nome<input value={party.name} onChange={(e)=>setParty({...party,name:e.target.value})} required/></label><label>CPF/CNPJ<input value={party.document} onChange={(e)=>setParty({...party,document:e.target.value})}/></label><label>Telefone<input value={party.phone} onChange={(e)=>setParty({...party,phone:e.target.value})}/></label><label>E-mail<input type="email" value={party.email} onChange={(e)=>setParty({...party,email:e.target.value})}/></label><button className="primary-button">Adicionar</button></form>}
     {editable && tab === 'categories' && <form className="panel inline-form" onSubmit={saveCategory}><label>Nome<input value={category.name} onChange={(e)=>setCategory({...category,name:e.target.value})} required/></label><label>Natureza<select value={category.nature} onChange={(e)=>setCategory({...category,nature:e.target.value as CategoryNature})}><option value="EXPENSE">Despesa</option><option value="REVENUE">Receita</option></select></label><label>Grupo DRE<input value={category.dreGroup} onChange={(e)=>setCategory({...category,dreGroup:e.target.value})}/></label><button className="primary-button">Adicionar</button></form>}
-    <div className="panel table-panel table-scroll">{tab === 'categories' ? <><table><thead><tr><th>Categoria</th><th>Natureza</th><th>Grupo DRE</th><th>Status</th></tr></thead><tbody>{filteredCategories.map((row)=><tr key={row.id}><td>{row.name}</td><td>{row.nature==='EXPENSE'?'Despesa':'Receita'}</td><td>{row.dreGroup}</td><td>{row.active?'Ativa':'Inativa'}</td></tr>)}</tbody></table>{filteredCategories.length===0&&<div className="empty-state">Nenhuma categoria encontrada.</div>}</> : <><table><thead><tr><th>Nome</th><th>Documento</th><th>Telefone</th><th>E-mail</th><th>Status</th></tr></thead><tbody>{filteredRows.map((row)=><tr key={row.id}><td>{row.name}</td><td>{row.document||'—'}</td><td>{row.phone||'—'}</td><td>{row.email||'—'}</td><td>{row.active?'Ativo':'Inativo'}</td></tr>)}</tbody></table>{filteredRows.length===0&&<div className="empty-state">Nenhum cadastro encontrado.</div>}
+    {tab==='centers'&&editableCenters&&<form className="panel form-grid" data-testid="registry-cost-center-form" onSubmit={saveCenter}>
+      <h3 className="wide">{centerForm.id?'Editar centro de custo':'Novo centro de custo'}</h3>
+      <label>Código<input required value={centerForm.code} onChange={event=>setCenterForm(old=>({...old,code:event.target.value}))} placeholder="Ex.: OBRA-01"/></label>
+      <label>Nome<input required value={centerForm.name} onChange={event=>setCenterForm(old=>({...old,name:event.target.value}))} placeholder="Ex.: Obra A"/></label>
+      <label>Centro pai<select value={centerForm.parentId} onChange={event=>setCenterForm(old=>({...old,parentId:event.target.value}))}><option value="">Centro raiz</option>{centers.filter(center=>Boolean(center.active)&&center.id!==centerForm.id).map(center=><option key={center.id} value={center.id}>{center.code} · {center.name}</option>)}</select></label>
+      <label>Status<select value={centerForm.active?'active':'inactive'} onChange={event=>setCenterForm(old=>({...old,active:event.target.value==='active'}))}><option value="active">Ativo</option><option value="inactive">Inativo</option></select></label>
+      <div className="inline-actions wide"><button type="submit" className="primary-button">{centerForm.id?'Salvar alterações':'Cadastrar centro'}</button>{centerForm.id&&<button type="button" className="secondary-button" onClick={()=>setCenterForm({id:'',code:'',name:'',parentId:'',active:true})}>Cancelar edição</button>}</div>
+    </form>}
+    <div className="panel table-panel table-scroll">{tab==='centers'?<><table data-testid="registry-cost-centers"><thead><tr><th>Código</th><th>Centro de custo</th><th>Centro pai</th><th>Status</th><th>Ações</th></tr></thead><tbody>{filteredCenters.map(row=><tr key={row.id}><td>{row.code}</td><td><strong>{row.name}</strong></td><td>{centers.find(parent=>parent.id===row.parent_id)?.name||'—'}</td><td>{row.active?'Ativo':'Inativo'}</td><td>{editableCenters&&<div className="inline-actions"><button type="button" className="secondary-button small" onClick={()=>setCenterForm({id:row.id,code:row.code,name:row.name,parentId:row.parent_id||'',active:Boolean(row.active)})}>Editar</button><button type="button" className="secondary-button small" onClick={()=>void toggleCenter(row)}>{row.active?'Desativar':'Reativar'}</button></div>}</td></tr>)}</tbody></table>{filteredCenters.length===0&&<div className="empty-state">Nenhum centro de custo encontrado.</div>}</>:tab === 'categories' ? <><table><thead><tr><th>Categoria</th><th>Natureza</th><th>Grupo DRE</th><th>Status</th></tr></thead><tbody>{filteredCategories.map((row)=><tr key={row.id}><td>{row.name}</td><td>{row.nature==='EXPENSE'?'Despesa':'Receita'}</td><td>{row.dreGroup}</td><td>{row.active?'Ativa':'Inativa'}</td></tr>)}</tbody></table>{filteredCategories.length===0&&<div className="empty-state">Nenhuma categoria encontrada.</div>}</> : <><table><thead><tr><th>Nome</th><th>Documento</th><th>Telefone</th><th>E-mail</th><th>Status</th></tr></thead><tbody>{filteredRows.map((row)=><tr key={row.id}><td>{row.name}</td><td>{row.document||'—'}</td><td>{row.phone||'—'}</td><td>{row.email||'—'}</td><td>{row.active?'Ativo':'Inativo'}</td></tr>)}</tbody></table>{filteredRows.length===0&&<div className="empty-state">Nenhum cadastro encontrado.</div>}
       <div className="table-more" aria-live="polite">Exibindo {rows.length} de {total} cadastros. {cursor&&<button type="button" className="secondary-button" onClick={()=>void loadMore()}>Carregar mais</button>}</div></>}</div>
   </section>;
 }
