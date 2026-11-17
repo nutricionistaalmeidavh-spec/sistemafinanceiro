@@ -66,7 +66,7 @@ export default function ReportsPage({token}:Props){
   return <section className="page-stack"><div className="page-header"><div><p className="eyebrow">Relatórios</p><h2>Financeiro e exportações</h2><p className="muted">Filtre por período, centro de custo e tags; imprima ou exporte localmente em CSV, XLSX, Word, JSON, ZIP e PDF.</p></div></div>
     {error&&<div className="error-box">{error}</div>}
     {notice&&<div className="status status-ok" role="status">{notice}</div>}
-    <div className="segmented" data-testid="reports-view-switch"><button type="button" className={viewMode==='entries'?'active':''} onClick={()=>setViewMode('entries')}>Lançamentos</button><button type="button" className={viewMode==='centers'?'active':''} onClick={()=>setViewMode('centers')}>Centros de custo</button></div>
+    <div className="segmented" data-testid="reports-view-switch"><button type="button" className={viewMode==='entries'?'active':''} onClick={()=>setViewMode('entries')}>Lançamentos</button><button type="button" className={viewMode==='centers'?'active':''} onClick={()=>{setFilters(old=>({...old,costCenterId:''}));setViewMode('centers');}}>Centros de custo</button></div>
     <div className="panel" style={{padding:16}}>
       <div className="panel-title"><div><strong>Ferramentas de documentos</strong><small>Formulários PDF e pacotes ZIP locais; importação de ZIP é um arquivo de referência auditável e não restaura lançamentos automaticamente.</small></div></div>
       <div className="inline-actions">
