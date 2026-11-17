@@ -4,7 +4,7 @@ const { randomUUID } = require('node:crypto');
 const { writeAudit } = require('./audit.cjs');
 const {pageSize,encodeCursor,decodeCursor,searchTerm}=require('./pagination.cjs');
 const { assertDateOnly, localDay } = require('./date-utils.cjs');
-const {scopedSplitCents}=require('./allocation-service.cjs');
+const {scopedSplitCents,normalizeAllocations}=require('./allocation-service.cjs');
 
 function assertCents(value, name) {
   if (!Number.isSafeInteger(value) || value < 0) throw new Error(`${name} must be a non-negative integer in cents`);
@@ -93,7 +93,22 @@ function createFinanceService({ db, now = () => new Date().toISOString(), idFact
     const expected = kind === 'PAYABLE' ? 'EXPENSE' : 'REVENUE';
     if (row.nature !== expected) throw new Error(`category nature must be ${expected}`);
   }
-  function createEntry(input = {}, actor = null) {
+  function replaceEntryAllocations(entryId, totalCents, allocations, actor=null) {
+    if (!Array.isArray(allocations)) throw new TypeError('allocations must be an array');
+    const normalized=allocations.length?normalizeAllocations(totalCents,allocations):[];
+    for (const row of normalized) {
+      const center=db.prepare('SELECT id FROM cost_centers WHERE id=? AND active=1').get(row.costCenterId);
+      if (!center) throw new Error('cost center not found or inactive');
+      if (row.amountCents<=0) throw new Error('amount too small to allocate across selected centers');
+    }
+    db.prepare('DELETE FROM entry_allocations WHERE entry_id=?').run(entryId);
+    const insert=db.prepare('INSERT INTO entry_allocations(entry_id,cost_center_id,amount_cents,percentage_basis_points,created_at,updated_at) VALUES (?,?,?,?,?,?)');
+    const timestamp=nowIso();
+    for (const row of normalized) insert.run(entryId,row.costCenterId,row.amountCents,row.percentageBasisPoints,timestamp,timestamp);
+    writeAudit(db,{action:'planning.allocations.set',entity:'financial-entry',entityId:entryId,actor,context:{allocations:normalized}},nowIso);
+  }
+
+  function createEntry(input = {}, actor = null, { withinTransaction = false } = {}) {
     const kind = String(input.kind || '').toUpperCase();
     if (!['PAYABLE', 'RECEIVABLE'].includes(kind)) throw new Error('invalid financial entry kind');
     const description = String(input.description || '').trim();
@@ -110,6 +125,7 @@ function createFinanceService({ db, now = () => new Date().toISOString(), idFact
     const id = String(input.id || idFactory('fin'));
     const timestamp = nowIso();
     const issueAt = assertDateOnly(input.issueAt || localDay(timestamp), 'issue date');
+    const execute=()=>{
     db.prepare(`INSERT INTO financial_entries
       (id,kind,description,category_id,account_id,customer_id,creditor_id,amount_cents,issue_at,due_at,status,source_type,source_id,notes,recurrence_rule_id,recurrence_key,created_at,updated_at)
       VALUES (?,?,?,?,?,?,?,?,?,?,'OPEN',?,?,?,?,?,?,?)`).run(
@@ -117,8 +133,11 @@ function createFinanceService({ db, now = () => new Date().toISOString(), idFact
         amountCents, issueAt, dueAt, input.sourceType || null, input.sourceId || null, input.notes || null,
         input.recurrenceRuleId || null, input.recurrenceKey || null, timestamp, timestamp,
       );
+    if (input.allocations !== undefined) replaceEntryAllocations(id,amountCents,input.allocations,actor);
     writeAudit(db, { action: 'finance.entry.create', entity: 'financial-entry', entityId: id, actor, context: { kind, amountCents, dueAt, recurrenceRuleId: input.recurrenceRuleId || null } }, nowIso);
     return getEntry(id);
+    };
+    return input.allocations !== undefined && !withinTransaction ? withTransaction(db,execute) : execute();
   }
   function updateEntry(entryId, input = {}, actor = null) {
     return withTransaction(db, () => {
@@ -165,7 +184,7 @@ function createFinanceService({ db, now = () => new Date().toISOString(), idFact
       }
       db.prepare(`UPDATE financial_entries SET description=?,amount_cents=?,due_at=?,account_id=?,category_id=?,customer_id=?,creditor_id=?,notes=?,updated_at=? WHERE id=?`)
         .run(description,amountCents,dueAt,accountId,categoryId,customerId,creditorId,notes,nowIso(),String(entryId));
-      if(amountCents!==Number(row.amount_cents)){
+      if(amountCents!==Number(row.amount_cents) && input.allocations === undefined){
         const original=db.prepare(`SELECT cost_center_id,amount_cents,percentage_basis_points FROM entry_allocations WHERE entry_id=? ORDER BY cost_center_id`).all(String(entryId));
         if(original.length){
           const usePercentages=original.every(part=>Number(part.percentage_basis_points)>0);
@@ -180,6 +199,7 @@ function createFinanceService({ db, now = () => new Date().toISOString(), idFact
             context:{beforeCents:Number(row.amount_cents),afterCents:amountCents,centers:updated.size}},nowIso);
         }
       }
+      if(input.allocations !== undefined) replaceEntryAllocations(String(entryId),amountCents,input.allocations,actor);
       recalculateStatus(entryId);
       writeAudit(db,{action:'finance.entry.update',entity:'financial-entry',entityId:String(entryId),actor,
         context:{before:{description:row.description,amountCents:row.amount_cents,dueAt:row.due_at},
