@@ -17,8 +17,8 @@ test('DatabaseService creates the local database, applies migrations and reports
   try {
     const opened = service.open();
     assert.equal(fs.existsSync(opened.path), true);
-    assert.equal(service.connection().prepare('PRAGMA user_version').get().user_version, 13);
-    assert.deepEqual(service.health(), { ok: true, storage: 'sqlite', userVersion: 13, path: opened.path });
+    assert.equal(service.connection().prepare('PRAGMA user_version').get().user_version, 14);
+    assert.deepEqual(service.health(), { ok: true, storage: 'sqlite', userVersion: 14, path: opened.path });
   } finally {
     service.close();
     fs.rmSync(root, { recursive: true, force: true });
@@ -33,7 +33,7 @@ test('DatabaseService default runtime factory uses built-in node:sqlite', () => 
   try {
     const opened = service.open();
     assert.equal(fs.existsSync(opened.path), true);
-    assert.equal(service.connection().prepare('PRAGMA user_version').get().user_version, 13);
+    assert.equal(service.connection().prepare('PRAGMA user_version').get().user_version, 14);
   } finally {
     service.close();
     fs.rmSync(root, { recursive: true, force: true });
