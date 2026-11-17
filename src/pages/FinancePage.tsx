@@ -7,6 +7,8 @@ import { brl, can, toCents, today } from '../lib/format';
 
 type Props = { token: string; session: FinanceiroSession; intent?:FinanceiroKind|null; browseKind?:FinanceiroKind|null; onBrowseHandled?:()=>void; onIntentHandled?:()=>void; onOpenPlanning?:(entryId:string)=>void; focusEntry?:FinanceEntry|null };
 type StatusFilter = 'ALL' | FinanceEntry['status'] | 'OVERDUE';
+type CenterSplit={costCenterId:string;percentage:string};
+const emptyCenterSplit=():CenterSplit[]=>[{costCenterId:'',percentage:'100'}];
 function qaFinanceIpc(name:string){
   if(!import.meta.env.DEV)return;
   const host=window as Window & { __ARTISYS_FINANCE_IPC_STATS?:Record<string,number> };
@@ -17,6 +19,7 @@ const emptySummary: FinancialSummary = { payableTotalCents:0,payableSettledCents
 
 export default function FinancePage({ token, session, intent, browseKind, onBrowseHandled, onIntentHandled, onOpenPlanning, focusEntry }: Props) {
   const api = window.financeiro!;
+  const planning = window.financeiroPlanning!;
   const [kind, setKind] = useState<FinanceiroKind>('PAYABLE');
   const [entries, setEntries] = useState<FinanceEntry[]>([]);
   const [summary, setSummary] = useState<FinancialSummary>(emptySummary);
@@ -24,6 +27,12 @@ export default function FinancePage({ token, session, intent, browseKind, onBrow
   const [categories, setCategories] = useState<FinancialCategory[]>([]);
   const [customers, setCustomers] = useState<PartyRecord[]>([]);
   const [creditors, setCreditors] = useState<PartyRecord[]>([]);
+  const [centers,setCenters]=useState<PlanningCostCenter[]>([]);
+  const [centerSplits,setCenterSplits]=useState<CenterSplit[]>(emptyCenterSplit);
+  const [splitCenters,setSplitCenters]=useState(false);
+  const [allocationsDirty,setAllocationsDirty]=useState(false);
+  const [allocationsLoading,setAllocationsLoading]=useState(false);
+  const allocationRequest=useRef(0);
   const [error, setError] = useState('');
   const [notice,setNotice]=useState('');
   const [drawerError,setDrawerError]=useState('');
@@ -95,6 +104,14 @@ export default function FinancePage({ token, session, intent, browseKind, onBrow
   useEffect(()=>{
     if(!entryDrawerOpen)return;
     let active=true;
+    planning.listCostCenters(token,{includeInactive:true})
+      .then(rows=>{if(active)setCenters(rows);})
+      .catch(err=>{if(active)setDrawerError(err instanceof Error?err.message:String(err));});
+    return()=>{active=false;};
+  },[entryDrawerOpen,planning,token]);
+  useEffect(()=>{
+    if(!entryDrawerOpen)return;
+    let active=true;
     const loading=kind==='PAYABLE'
       ?api.registry.listCreditorsPage(token,{query:deferredPartyLookup,limit:100})
       :api.registry.listCustomersPage(token,{query:deferredPartyLookup,limit:100});
@@ -112,14 +129,17 @@ export default function FinancePage({ token, session, intent, browseKind, onBrow
   useEffect(() => { if(!editingEntry)setForm((old) => old.categoryId===''&&old.counterpartyId===''?old:({ ...old, categoryId:'', counterpartyId:'' })); }, [kind,editingEntry]);
   useEffect(()=>{if(!browseKind)return;setKind(browseKind);onBrowseHandled?.();},[browseKind,onBrowseHandled]);
   useEffect(()=>{if(focusEntry){setKind(focusEntry.kind);setSearch('');setStatusFilter('ALL');setFocusedEntryId(focusEntry.id);}else setFocusedEntryId(null);},[focusEntry]);
-  useEffect(()=>{if(!intent)return;setKind(intent);setEditingEntry(null);setRecurring(false);setForm({description:'',amount:'',dueAt:today(),accountId:'',categoryId:'',counterpartyId:''});setEntryDrawerOpen(true);onIntentHandled?.();},[intent,onIntentHandled]);
+  useEffect(()=>{if(!intent)return;setKind(intent);setEditingEntry(null);setRecurring(false);setCenterSplits(emptyCenterSplit());setSplitCenters(false);setAllocationsDirty(false);setAllocationsLoading(false);allocationRequest.current++;setForm({description:'',amount:'',dueAt:today(),accountId:'',categoryId:'',counterpartyId:''});setEntryDrawerOpen(true);onIntentHandled?.();},[intent,onIntentHandled]);
   const counterparties = kind === 'PAYABLE' ? creditors : customers;
+  const allocationPercent=centerSplits.filter(row=>row.costCenterId).reduce((sum,row)=>sum+(Number(row.percentage)||0),0);
+  const allocationPreview=Number.isFinite(Number(form.amount.replace(/\\./g,'').replace(',','.')))?Number(form.amount.replace(/\\./g,'').replace(',','.')):0;
 
   function openNewEntry() {
     setFocusedEntryId(null);
     setDrawerError('');setPartyLookup('');
     setEditingEntry(null);
     setRecurring(false);
+    allocationRequest.current++;setCenterSplits(emptyCenterSplit());setSplitCenters(false);setAllocationsDirty(false);setAllocationsLoading(false);
     setRecurrenceOptions({intervalMonths:'1',intervalDays:'',endDate:'',maxOccurrences:'',annualAdjustmentPct:'0'});
     setForm({description:'',amount:'',dueAt:today(),accountId:'',categoryId:'',counterpartyId:''});
     setEntryDrawerOpen(true);
@@ -136,21 +156,38 @@ export default function FinancePage({ token, session, intent, browseKind, onBrow
       }).catch(err=>setError(err instanceof Error?err.message:String(err)));
     }
     setEditingEntry(entry);
+    setCenterSplits(emptyCenterSplit());setSplitCenters(false);setAllocationsDirty(false);setAllocationsLoading(true);
+    const request=++allocationRequest.current;
+    void planning.getAllocations(token,entry.id).then(rows=>{
+      if(request!==allocationRequest.current)return;
+      setCenterSplits(rows.length?rows.map(row=>({costCenterId:row.costCenterId,percentage:String(row.percentageBasisPoints/100)})):emptyCenterSplit());
+      setSplitCenters(rows.length>1);
+    }).catch(err=>{if(request===allocationRequest.current)setDrawerError(err instanceof Error?err.message:String(err));})
+      .finally(()=>{if(request===allocationRequest.current)setAllocationsLoading(false);});
     setKind(entry.kind);
     setRecurring(false);
     setForm({description:entry.description,amount:(entry.amountCents/100).toFixed(2).replace('.',','),
       dueAt:entry.dueAt,accountId:entry.accountId||'',categoryId:entry.categoryId||'',
       counterpartyId:(entry.kind==='PAYABLE'?entry.creditorId:entry.customerId)||''});
     setEntryDrawerOpen(true);
-  },[api,token]);
+  },[api,planning,token]);
   async function createEntry(event: FormEvent) {
     event.preventDefault();
     if(busy)return;
     setBusy(true);setDrawerError('');
     try {
+      const chosen=centerSplits.filter(row=>row.costCenterId);
+      if(splitCenters && chosen.length!==centerSplits.length)throw new Error('Selecione um centro de custo para cada parcela do rateio.');
+      if(splitCenters && chosen.length<2)throw new Error('Informe pelo menos dois centros para ratear.');
+      if(chosen.length!==new Set(chosen.map(row=>row.costCenterId)).size)throw new Error('Não é possível repetir um centro de custo no rateio.');
+      const allocations=chosen.map(row=>({costCenterId:row.costCenterId,percentage:Number(row.percentage)}));
+      if(allocations.length&&(allocations.some(row=>!Number.isFinite(row.percentage)||row.percentage<=0)||Math.round(allocations.reduce((sum,row)=>sum+row.percentage,0)*100)!==10000))
+        throw new Error('Os percentuais do rateio devem somar 100%.');
+      const allocationPayload=allocationsDirty||(!editingEntry&&allocations.length)?{allocations}:{};
       const input = {
         kind, description: form.description, amountCents: toCents(form.amount), dueAt: form.dueAt,
         accountId: form.accountId || null, categoryId: form.categoryId || null,
+        ...allocationPayload,
         ...(kind === 'PAYABLE' ? { creditorId: form.counterpartyId || null } : { customerId: form.counterpartyId || null }),
       };
       if (editingEntry) await api.finance.updateEntry(token, editingEntry.id, input);
@@ -162,6 +199,7 @@ export default function FinancePage({ token, session, intent, browseKind, onBrow
         await api.recurrence.generate(token,today());
       } else await api.finance.createEntry(token,input);
       setForm({ description:'', amount:'', dueAt:today(), accountId:'', categoryId:'', counterpartyId:'' });
+      allocationRequest.current++;setCenterSplits(emptyCenterSplit());setSplitCenters(false);setAllocationsDirty(false);
       setEntryDrawerOpen(false);
       setEditingEntry(null);
       setRecurring(false);
@@ -301,7 +339,7 @@ export default function FinancePage({ token, session, intent, browseKind, onBrow
       <form className="inline-account-form" onSubmit={createAccount}><label>Nome<input value={accountForm.name} onChange={(e)=>setAccountForm({...accountForm,name:e.target.value})} required/></label><label>Tipo<select value={accountForm.type} onChange={(e)=>setAccountForm({...accountForm,type:e.target.value as FinanceAccount['type']})}><option value="BANK">Banco</option><option value="CASH">Caixa</option><option value="CARD">Cartão</option><option value="OTHER">Outro</option></select></label><FinanceButton variant="secondary">Adicionar conta</FinanceButton></form>
     </section>}
 
-    <FinanceDrawer open={entryDrawerOpen} title={editingEntry?'Editar lançamento':kind==='PAYABLE'?'Nova conta a pagar':'Nova conta a receber'} description="Preencha os dados financeiros. Todas as alterações ficam auditadas." onClose={()=>{setEntryDrawerOpen(false);setEditingEntry(null);}}>
+    <FinanceDrawer open={entryDrawerOpen} title={editingEntry?'Editar lançamento':kind==='PAYABLE'?'Nova conta a pagar':'Nova conta a receber'} description="Preencha os dados financeiros. Todas as alterações ficam auditadas." onClose={()=>{allocationRequest.current++;setEntryDrawerOpen(false);setEditingEntry(null);}}>
       <div data-testid="finance-entry-drawer">
 {qaProfile('finance-entry-form', <form className="form-grid drawer-form" onSubmit={createEntry}>
           {editingEntry?.sourceType==='CRM_QUOTE_INSTALLMENT'&&<p className="wide muted" role="status">Recebível vinculado a proposta CRM. Valor, vencimento e cliente são preservados. Para mudar condições comerciais, faça uma revisão financeira explícita; descrição, categoria e conta continuam editáveis.</p>}
@@ -313,6 +351,31 @@ export default function FinancePage({ token, session, intent, browseKind, onBrow
           <label>{kind==='PAYABLE'?'Credor':'Cliente'}<select disabled={editingEntry?.sourceType==='CRM_QUOTE_INSTALLMENT'} value={form.counterpartyId} onChange={(e)=>setForm({...form,counterpartyId:e.target.value})}><option value="">Não informado</option>{counterparties.map((x)=><option key={x.id} value={x.id}>{x.name}</option>)}</select>{editingEntry?.sourceType!=='CRM_QUOTE_INSTALLMENT'&&<button type="button" className="secondary-button small" onClick={()=>setShowPartyForm(v=>!v)}>Cadastrar {kind==='PAYABLE'?'credor':'cliente'}</button>}</label>
           {showPartyForm&&<div className="wide inline-fields"><label className="wide">Nome da contraparte<input value={partyName} onChange={e=>setPartyName(e.target.value)}/></label><button type="button" className="secondary-button" disabled={busy||!partyName.trim()} onClick={()=>void createParty({preventDefault:()=>{}} as FormEvent)}>Salvar cadastro</button></div>}
           <label className="wide">Conta<select value={form.accountId} onChange={(e)=>setForm({...form,accountId:e.target.value})}><option value="">Definir na baixa</option>{accounts.map((x)=><option key={x.id} value={x.id}>{x.name}</option>)}</select></label>
+          <div className="wide cost-center-panel" data-testid="finance-cost-center-section">
+            <div className="panel-title"><div><strong>Centro de custo</strong><small>Opcional. Vincule uma obra, departamento ou projeto sem sair deste lançamento.</small></div></div>
+            {allocationsLoading?<p className="muted">Carregando rateio atual…</p>:<>
+              <label>Centro de custo
+                <select data-testid="finance-center-select" value={centerSplits[0]?.costCenterId||''} onChange={event=>{setCenterSplits([{costCenterId:event.target.value,percentage:'100'}]);setSplitCenters(false);setAllocationsDirty(true);}}>
+                  <option value="">Não atribuir</option>
+                  {centers.filter(center=>Boolean(center.active)||center.id===centerSplits[0]?.costCenterId).map(center=><option key={center.id} value={center.id}>{center.code} · {center.name}{!center.active?' (inativo)':''}</option>)}
+                </select>
+              </label>
+              <label className="check-row"><input data-testid="finance-center-rateio" type="checkbox" checked={splitCenters} onChange={event=>{setSplitCenters(event.target.checked);setCenterSplits(event.target.checked?(centerSplits[0]?.costCenterId?[centerSplits[0]]:emptyCenterSplit()):[{costCenterId:centerSplits[0]?.costCenterId||'',percentage:'100'}]);setAllocationsDirty(true);}}/> Distribuir entre vários centros (rateio)</label>
+              {splitCenters&&<div className="allocation-list" data-testid="finance-center-splits">
+                {centerSplits.map((row,index)=><div className="inline-fields" key={index}>
+                  <select aria-label={`Centro de custo ${index+1}`} value={row.costCenterId} onChange={event=>{setCenterSplits(old=>old.map((item,i)=>i===index?{...item,costCenterId:event.target.value}:item));setAllocationsDirty(true);}}>
+                    <option value="">Selecione o centro</option>
+                    {centers.filter(center=>Boolean(center.active)||center.id===row.costCenterId).map(center=><option key={center.id} value={center.id}>{center.code} · {center.name}{!center.active?' (inativo)':''}</option>)}
+                  </select>
+                  <input aria-label={`Percentual do centro ${index+1}`} type="number" min="0.01" max="100" step="0.01" value={row.percentage} onChange={event=>{setCenterSplits(old=>old.map((item,i)=>i===index?{...item,percentage:event.target.value}:item));setAllocationsDirty(true);}}/>
+                  <span>%</span>
+                  {centerSplits.length>1&&<button type="button" className="secondary-button small" onClick={()=>{setCenterSplits(old=>old.filter((_,i)=>i!==index));setAllocationsDirty(true);}}>Remover</button>}
+                </div>)}
+                <div className="inline-actions"><button type="button" className="secondary-button small" onClick={()=>{setCenterSplits(old=>[...old,{costCenterId:'',percentage:'0'}]);setAllocationsDirty(true);}}>Adicionar divisão</button><span className={Math.round(allocationPercent*100)===10000?'muted':'danger-text'}>Total: {allocationPercent.toLocaleString('pt-BR',{maximumFractionDigits:2})}% · {brl(Math.round(allocationPreview*100))} a distribuir</span></div>
+              </div>}
+              {!splitCenters&&centerSplits[0]?.costCenterId&&<p className="muted">100% do lançamento será atribuído ao centro escolhido.</p>}
+            </>}
+          </div>
           {!editingEntry && <label className="wide"><input type="checkbox" checked={recurring} onChange={(e)=>setRecurring(e.target.checked)}/> Repetir automaticamente a partir do vencimento</label>}
           {!editingEntry&&recurring&&<>
             <label>Frequência<select value={recurrenceOptions.intervalDays?'D'+recurrenceOptions.intervalDays:'M'+recurrenceOptions.intervalMonths}
