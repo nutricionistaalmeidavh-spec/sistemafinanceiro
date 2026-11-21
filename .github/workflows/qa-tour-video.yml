@@ -1,0 +1,62 @@
+name: QA | Video do primeiro acesso e CRM (Playwright Electron)
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/qa-tour-video.mjs'
+      - 'electron/main.cjs'
+      - 'electron/services/qa-fixture-service.cjs'
+      - 'tests/qa-tour-video.test.mjs'
+      - '.github/workflows/qa-tour-video.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qa-tour-crm-video-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  record-tour:
+    name: Gravar onboarding, cliente, Kanban e CRM real
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      ELECTRON_DISABLE_SECURITY_WARNINGS: 'true'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+      - name: Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Preparar dependências open source
+        run: npm run ci:bootstrap
+      - name: Instalar
+        run: npm install --no-audit --no-fund
+      - name: Testes unitários e contratos de QA
+        run: npm test
+      - name: Validar TypeScript e Vite
+        run: npm run build
+      - name: Confirmar Electron instalado
+        shell: pwsh
+        run: |
+          if (-not (Test-Path node_modules/electron/dist/electron.exe)) { node node_modules/electron/install.js }
+          if (-not (Test-Path node_modules/electron/dist/electron.exe)) { throw 'Electron indisponivel' }
+      - name: Preparar FFmpeg open source para gerar MP4
+        run: npm install --no-save --no-audit --no-fund ffmpeg-static
+      - name: Playwright - gravar video no Electron real
+        run: node scripts/qa-tour-video.mjs
+      - name: Preservar video, capturas e relatorio (inclusive falhas)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: artisys-financeiro-qa-tour-crm-${{ github.run_id }}
+          path: |
+            qa-artifacts/crm/video/**/*
+          if-no-files-found: warn
+          retention-days: 30
