@@ -88,7 +88,7 @@ try {
     env: appEnv,
     timeout: 60000,
   });
-  const page = await app.firstWindow();
+  let page = await app.firstWindow();
   await page.setViewportSize({ width: 1440, height: 900 }).catch(() => {});
 
   for (const step of flow.steps) {
@@ -123,6 +123,28 @@ try {
     }
   }
 
+
+  // Reproduction: restart the actual Electron process without wiping the QA profile.
+  await app.close();
+  app = null;
+  app = await electron.launch({
+    executablePath,
+    args: [path.resolve('electron/main.cjs')],
+    cwd: root,
+    env: {...appEnv, ARTISYS_QA_RESET:'0'},
+    timeout:60000,
+  });
+  page = await app.firstWindow();
+  await page.getByLabel('Usuário',{exact:true}).waitFor({state:'visible',timeout:20000});
+  await page.screenshot({path:path.join(output,'00-repro-login-after-restart.png')});
+  console.log('AUTH_REPRO: login screen returned after process restart without resetting profile');
+  await page.getByLabel('Usuário',{exact:true}).fill('admin');
+  await page.getByLabel('Senha',{exact:true}).fill(qaPassword);
+  await page.getByRole('button',{name:'Entrar',exact:true}).click();
+  await page.getByTestId('app-shell').waitFor({state:'visible',timeout:20000});
+  await page.getByText('Banco Principal').first().waitFor({timeout:15000});
+  await page.screenshot({path:path.join(output,'00-repro-login-restored.png')});
+  console.log('AUTH_REPRO: existing password accepted and finance data visible after restart');
 
   // CRM comercial end-to-end em fixture isolada; a venda ganha não deve gerar dinheiro.
   await page.getByTestId('nav-crm').click();
